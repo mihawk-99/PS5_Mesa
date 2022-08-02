@@ -1168,6 +1168,8 @@ void ac_fill_feature_info(struct radeon_info *info, const struct drm_amdgpu_info
    /* AMDGPU 3.59+ clears VRAM on allocations by default. */
    info->has_default_zerovram_support = info->drm_minor >= 59;
 
+   info->has_explicit_sync_vm_ops = info->drm_minor >= 65;
+
    info->has_image_opcodes = debug_get_bool_option("AMD_IMAGE_OPCODES",
                                                    info->has_graphics || info->family < CHIP_GFX940);
 
@@ -2096,6 +2098,7 @@ void ac_print_gpu_info(FILE *f, const struct radeon_info *info, int fd)
    fprintf(f, "    has_vm_always_valid = %u\n", info->has_vm_always_valid);
    fprintf(f, "    has_eqaa_surface_allocator = %u\n", info->has_eqaa_surface_allocator);
    fprintf(f, "    has_sparse = %u\n", info->has_sparse);
+   fprintf(f, "    has_explicit_sync_vm_ops = %u\n", info->has_explicit_sync_vm_ops);
    fprintf(f, "    has_gpuvm_fault_query = %u\n", info->has_gpuvm_fault_query);
    fprintf(f, "    has_kernelq_reg_shadowing = %u\n", info->has_kernelq_reg_shadowing);
    fprintf(f, "    has_default_zerovram_support = %u\n", info->has_default_zerovram_support);
