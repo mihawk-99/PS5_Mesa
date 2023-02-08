@@ -818,6 +818,10 @@ void genX(CmdResetQueryPool)(
          emit_query_mi_availability(&b, anv_query_address(pool, firstQuery + i), false);
       break;
    }
+   case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
+      for (uint32_t i = 0; i < queryCount; i++)
+         emit_query_mi_flush_availability(cmd_buffer, anv_query_address(pool, firstQuery + i), false);
+      break;
 
    default:
       UNREACHABLE("Unsupported query type");
