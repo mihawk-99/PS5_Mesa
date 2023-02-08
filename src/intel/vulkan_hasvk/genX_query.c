@@ -737,11 +737,6 @@ emit_zero_queries(struct anv_cmd_buffer *cmd_buffer,
       }
       break;
 
-   case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
-      for (uint32_t i = 0; i < num_queries; i++)
-         emit_query_mi_flush_availability(cmd_buffer, anv_query_address(pool, first_index + i), false);
-      break;
-
    default:
       UNREACHABLE("Unsupported query type");
    }
