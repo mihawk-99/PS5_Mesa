@@ -59,6 +59,18 @@ anv_query_address(struct anv_query_pool *pool, uint32_t query)
    };
 }
 
+static void
+emit_query_mi_flush_availability(struct anv_cmd_buffer *cmd_buffer,
+                                 struct anv_address addr,
+                                 bool available)
+{
+   anv_batch_emit(&cmd_buffer->batch, GENX(MI_FLUSH_DW), flush) {
+      flush.PostSyncOperation = WriteImmediateData;
+      flush.Address = addr;
+      flush.ImmediateData = available;
+   }
+}
+
 VkResult genX(CreateQueryPool)(
     VkDevice                                    _device,
     const VkQueryPoolCreateInfo*                pCreateInfo,
@@ -162,6 +174,9 @@ VkResult genX(CreateQueryPool)(
    case VK_QUERY_TYPE_PRIMITIVES_GENERATED_EXT:
       /* Query has two values: begin and end. */
       uint64s_per_slot = 1 + 2;
+      break;
+   case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
+      uint64s_per_slot = 1;
       break;
    default:
       UNREACHABLE("Invalid query type");
@@ -453,7 +468,8 @@ VkResult genX(GetQueryPoolResults)(
           pool->type == VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT ||
           pool->type == VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR ||
           pool->type == VK_QUERY_TYPE_PERFORMANCE_QUERY_INTEL ||
-          pool->type == VK_QUERY_TYPE_PRIMITIVES_GENERATED_EXT);
+          pool->type == VK_QUERY_TYPE_PRIMITIVES_GENERATED_EXT ||
+          pool->type == VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR);
 
    if (vk_device_is_lost(&device->vk))
       return VK_ERROR_DEVICE_LOST;
@@ -591,6 +607,14 @@ VkResult genX(GetQueryPoolResults)(
          break;
       }
 
+      case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
+         if (!write_results)
+            break;
+         const uint32_t *query_data = query_slot(pool, firstQuery + i);
+         uint32_t result = available ? *query_data : 0;
+         cpu_write_query_result(pData, flags, idx, result);
+         break;
+
       default:
          UNREACHABLE("invalid pool type");
       }
@@ -711,6 +735,11 @@ emit_zero_queries(struct anv_cmd_buffer *cmd_buffer,
          mi_memset(b, anv_address_add(slot_addr, 8), 0, pool->stride - 8);
          emit_query_mi_availability(b, slot_addr, true);
       }
+      break;
+
+   case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
+      for (uint32_t i = 0; i < num_queries; i++)
+         emit_query_mi_flush_availability(cmd_buffer, anv_query_address(pool, first_index + i), false);
       break;
 
    default:
@@ -1088,7 +1117,9 @@ void genX(CmdBeginQueryIndexedEXT)(
       emit_perf_intel_query(cmd_buffer, pool, &b, query_addr, false);
       break;
    }
-
+   case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
+      emit_query_mi_flush_availability(cmd_buffer, query_addr, false);
+      break;
    default:
       UNREACHABLE("");
    }
@@ -1256,6 +1287,9 @@ void genX(CmdEndQueryIndexedEXT)(
       emit_query_mi_availability(&b, query_addr, true);
       break;
    }
+   case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
+      emit_query_mi_flush_availability(cmd_buffer, query_addr, true);
+      break;
 
    default:
       UNREACHABLE("");
