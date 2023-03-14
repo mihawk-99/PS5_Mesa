@@ -156,7 +156,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 
    anv_batch_emit(&cmd_buffer->batch, GENX(MFX_IND_OBJ_BASE_ADDR_STATE), index_obj) {
       index_obj.MFXIndirectBitstreamObjectAddress = anv_address_add(src_buffer->address,
-                                                                    frame_info->srcBufferOffset);
+                                                                    frame_info->srcBufferOffset & ~4095);
 #if GFX_VERx10 == 75
       index_obj.MFXIndirectBitstreamObjectMOCS = anv_mocs(cmd_buffer->device, src_buffer->address.bo,
                                                           0);
@@ -342,14 +342,26 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 
    anv_batch_emit(&cmd_buffer->batch, GENX(MFX_AVC_DIRECTMODE_STATE), avc_directmode) {
       /* bind reference frame DMV */
+      struct anv_bo *dmv_bo = NULL;
       for (unsigned i = 0; i < frame_info->referenceSlotCount; i++) {
          int idx = frame_info->pReferenceSlots[i].slotIndex;
          const struct VkVideoDecodeH264DpbSlotInfoKHR *dpb_slot =
             vk_find_struct_const(frame_info->pReferenceSlots[i].pNext, VIDEO_DECODE_H264_DPB_SLOT_INFO_KHR);
          const struct anv_image_view *ref_iv = anv_image_view_from_handle(frame_info->pReferenceSlots[i].pPictureResource->imageViewBinding);
          const StdVideoDecodeH264ReferenceInfo *ref_info = dpb_slot->pStdReferenceInfo;
-         avc_directmode.DirectMVBufferAddress[idx] = anv_image_address(ref_iv->image,
-                                                                     &ref_iv->image->vid_dmv_top_surface);
+         if (i == 0) {
+            dmv_bo = anv_image_address(ref_iv->image,
+                                       &ref_iv->image->vid_dmv_top_surface).bo;
+         }
+
+#if GFX_VERx10 == 75
+         if (idx == 0)
+            avc_directmode.DirectMVBuffer0Address = anv_image_address(ref_iv->image,
+                                                                          &ref_iv->image->vid_dmv_top_surface);
+         else
+            avc_directmode.DirectMVBufferAddress1[idx - 1] = anv_image_address(ref_iv->image,
+                                                                          &ref_iv->image->vid_dmv_top_surface);
+#endif
          avc_directmode.POCList[2 * idx] = ref_info->PicOrderCnt[0];
          avc_directmode.POCList[2 * idx + 1] = ref_info->PicOrderCnt[1];
       }
@@ -359,6 +371,10 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 #else
       avc_directmode.DirectMVBufferWriteAddress = anv_image_address(img,
                                                                     &img->vid_dmv_top_surface);
+#if GFX_VERx10 == 75
+      avc_directmode.DirectMVBufferMOCS = anv_mocs(cmd_buffer->device, dmv_bo, 0);
+      avc_directmode.DirectMVBufferWriteMOCS = anv_mocs(cmd_buffer->device, avc_directmode.DirectMVBufferWriteAddress.bo, 0);
+#endif
 #endif
       avc_directmode.POCList[32] = h264_pic_info->pStdPictureInfo->PicOrderCnt[0];
       avc_directmode.POCList[33] = h264_pic_info->pStdPictureInfo->PicOrderCnt[1];
