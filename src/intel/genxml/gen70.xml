@@ -1793,7 +1793,7 @@
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />
     <field name="Pipeline" dword="0" bits="28:27" type="uint" default="2" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
-    <group count="32" dword="33" size="32">
+    <group count="32" dword="1" size="32">
       <field name="Direct MV Buffer - Address" dword="0" bits="31:6" type="address" />
       <field name="Direct MV Buffer - Arbitration Priority Control" dword="0" bits="5:4" type="uint">
         <value name="Highest priority" value="0" />

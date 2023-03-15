@@ -353,6 +353,12 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
             dmv_bo = anv_image_address(ref_iv->image,
                                        &ref_iv->image->vid_dmv_top_surface).bo;
          }
+#if GFX_VERx10 == 70
+         avc_directmode.DirectMVBufferAddress[idx * 2] = anv_image_address(ref_iv->image,
+                                                                           &ref_iv->image->vid_dmv_top_surface);
+         avc_directmode.DirectMVBufferAddress[idx * 2 + 1] = anv_image_address(ref_iv->image,
+                                                                           &ref_iv->image->vid_dmv_top_surface);
+#endif
 
 #if GFX_VERx10 == 75
          if (idx == 0)
@@ -367,6 +373,8 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       }
 #if GFX_VERx10 == 70
       avc_directmode.DirectMVBufferWriteAddress[0] = anv_image_address(img,
+                                                                       &img->vid_dmv_top_surface);
+      avc_directmode.DirectMVBufferWriteAddress[1] = anv_image_address(img,
                                                                        &img->vid_dmv_top_surface);
 #else
       avc_directmode.DirectMVBufferWriteAddress = anv_image_address(img,
