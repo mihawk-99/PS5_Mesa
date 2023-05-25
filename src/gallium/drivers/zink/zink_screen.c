@@ -2865,8 +2865,7 @@ init_driver_workarounds(struct zink_screen *screen)
       screen->driver_workarounds.no_linestipple = true;
    }
 
-   if (zink_driverid(screen) ==
-       VK_DRIVER_ID_IMAGINATION_PROPRIETARY &&
+   if (!screen->info.line_rast_feats.smoothLines &&
        screen->info.feats.features.geometryShader)
       screen->driver_workarounds.no_linesmooth = true;
 
