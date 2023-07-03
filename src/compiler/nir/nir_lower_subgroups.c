@@ -1376,6 +1376,50 @@ lower_subgroups_instr(nir_builder *b, nir_instr *instr, void *_options)
       }
       break;
 
+   case nir_intrinsic_load_local_invocation_id:
+      if (options->lower_cs_local_id_yz_to_subgroup_id &&
+          options->subgroup_size &&
+          !b->shader->info.workgroup_size_variable &&
+          !(mesa_shader_stage_is_compute(b->shader->info.stage) &&
+            b->shader->info.derivative_group == DERIVATIVE_GROUP_QUADS) &&
+          b->shader->info.workgroup_size[0] % options->subgroup_size == 0 &&
+          util_is_power_of_two_nonzero(options->subgroup_size) &&
+          util_is_power_of_two_nonzero(b->shader->info.workgroup_size[0]) &&
+          util_is_power_of_two_nonzero(b->shader->info.workgroup_size[1])) {
+         /* Replace Y and Z components of local invocation ID
+          * by a formula based on the subgroup ID.
+          * This is beneficial for the following reasons:
+          * 1. Allows the use of scalar registers on HW that has them
+          * 2. No need to initialize vector registers for Y and Z components
+          */
+         nir_def *id_x = nir_channel(b, &intrin->def, 0);
+         nir_def *id_y, *id_z;
+
+         if (b->shader->info.workgroup_size[2] == 1 &&
+             b->shader->info.workgroup_size[1] == 1) {
+            id_y = id_z = nir_imm_int(b, 0);
+         } else {
+            nir_def *subgroup_id = nir_load_subgroup_id(b);
+            nir_def *s =
+               nir_udiv_imm(b, subgroup_id,
+                            b->shader->info.workgroup_size[0] / options->subgroup_size);
+
+            if (b->shader->info.workgroup_size[2] == 1) {
+               id_y = s;
+               id_z = nir_imm_int(b, 0);
+            } else if (b->shader->info.workgroup_size[1] == 1) {
+               id_y = nir_imm_int(b, 0);
+               id_z = s;
+            } else {
+               id_y = nir_umod_imm(b, s, b->shader->info.workgroup_size[1]);
+               id_z = nir_udiv_imm(b, s, b->shader->info.workgroup_size[1]);
+            }
+         }
+
+         return nir_vec3(b, id_x, id_y, id_z);
+      }
+      break;
+
    default:
       break;
    }

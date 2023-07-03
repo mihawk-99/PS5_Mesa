@@ -5745,6 +5745,7 @@ typedef struct nir_lower_subgroups_options {
    bool lower_reduce : 1;
    bool lower_boolean_reduce : 1;
    bool lower_boolean_shuffle : 1;
+   bool lower_cs_local_id_yz_to_subgroup_id : 1;
 } nir_lower_subgroups_options;
 
 bool nir_lower_subgroups(nir_shader *shader,
