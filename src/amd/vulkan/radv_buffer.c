@@ -314,7 +314,7 @@ radv_bo_virtual_bind(struct radv_device *device, struct vk_object_base *object, 
    struct radeon_winsys *ws = device->ws;
    VkResult result;
 
-   result = ws->buffer_virtual_bind(ws, parent, offset, size, bo, bo_offset);
+   result = ws->buffer_virtual_bind(ws, parent, offset, size, bo, bo_offset, wait_count, waits);
    if (result != VK_SUCCESS)
       return result;
 

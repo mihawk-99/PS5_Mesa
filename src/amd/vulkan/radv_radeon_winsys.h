@@ -258,7 +258,8 @@ struct radeon_winsys {
    void (*buffer_get_metadata)(struct radeon_winsys *ws, struct radeon_winsys_bo *bo, struct radeon_bo_metadata *md);
 
    VkResult (*buffer_virtual_bind)(struct radeon_winsys *ws, struct radeon_winsys_bo *parent, uint64_t offset,
-                                   uint64_t size, struct radeon_winsys_bo *bo, uint64_t bo_offset);
+                                   uint64_t size, struct radeon_winsys_bo *bo, uint64_t bo_offset, uint32_t wait_count,
+                                   const struct vk_sync_wait *waits);
 
    VkResult (*buffer_make_resident)(struct radeon_winsys *ws, struct radeon_winsys_bo *bo, bool resident);
 
