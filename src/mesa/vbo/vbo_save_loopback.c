@@ -147,7 +147,7 @@ append_attr(GLuint *nr, struct loopback_attr la[], int i, int shift,
 void
 _vbo_loopback_vertex_list(struct gl_context *ctx,
                           const struct vbo_save_vertex_list* node,
-                          fi_type *buffer)
+                          union fi *buffer)
 {
    struct loopback_attr la[VBO_ATTRIB_MAX];
    GLuint nr = 0;
