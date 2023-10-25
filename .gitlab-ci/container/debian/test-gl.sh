@@ -46,6 +46,7 @@ EPHEMERAL=(
     libxkbcommon-dev
     libxrandr-dev
     libxrender-dev
+    libxtensor-dev
     "llvm-${LLVM_VERSION}-dev"
     "lld-${LLVM_VERSION}"
     make
@@ -62,6 +63,7 @@ DEPS=(
     libfontconfig1
     libglu1-mesa
     libvulkan-dev
+    libflatbuffers2
 )
 
 apt-get update
@@ -73,6 +75,12 @@ apt-get install -y --no-remove "${DEPS[@]}" "${EPHEMERAL[@]}" \
 . .gitlab-ci/container/container_pre_build.sh
 
 section_end debian_setup
+
+############### Install TensorFlow Lite
+
+if [ "$DEBIAN_ARCH" != "armhf" ]; then
+  . .gitlab-ci/container/build-tflite.sh
+fi
 
 ############### Build ANGLE
 

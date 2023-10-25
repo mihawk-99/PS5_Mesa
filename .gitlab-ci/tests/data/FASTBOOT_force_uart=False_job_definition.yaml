@@ -6,6 +6,7 @@ visibility:
 priority: 75
 context:
   extra_nfsroot_args: ' init=/init rootwait usbcore.quirks=0bda:8153:k'
+  extra_kernel_args: 'etnaviv.hw_job_limit=1 etnaviv.job_hang_limit=0'
 timeouts:
   job:
     minutes: 10

@@ -185,3 +185,20 @@ gc7000-imx8mp-gles2:
   variables:
     DEQP_SUITE: etnaviv-gc7000
   timeout: 30m
+
+vipnano-teflon:
+  extends:
+    - .etnaviv-rules
+    - .lava-arm64-test-gl
+  stage: etnaviv
+  variables:
+    DEVICE_TYPE: meson-g12b-a311d-khadas-vim3
+    DTB: $DEVICE_TYPE
+    RUNNER_TAG: mesa-ci-x86-64-lava-meson-g12b-a311d-khadas-vim3
+    FARM: collabora
+    GPU_VERSION: "etnaviv-vipnano"
+    HWCI_TEST_SCRIPT: "/install/gtest-runner.sh"
+    GTEST: "/install/test_teflon"
+    TEFLON_TEST_DELEGATE: "/install/lib/libteflon.so"
+    TEFLON_TEST_DATA: "/install/teflon-data"
+    HWCI_KERNEL_MODULES: etnaviv

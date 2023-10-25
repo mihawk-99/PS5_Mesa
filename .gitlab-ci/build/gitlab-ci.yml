@@ -545,6 +545,7 @@ debian-arm64:
       -D imagination-srv=true
       -D freedreno-kmds=msm,virtio
       -D teflon=true
+      -D build-tests=true
     GALLIUM_ST:
       -D gallium-rusticl=true
     RUN_MESON_TESTS: "false" # run by debian-arm64-build-testing

@@ -47,6 +47,13 @@ cp -Rp .gitlab-ci/*-runner.sh install/
 cp -Rp .gitlab-ci/bin/structured_logger.py install/
 cp -Rp .gitlab-ci/bin/custom_logger.py install/
 
+if [ -f "_build/src/gallium/targets/teflon/test_teflon" ]; then
+    mkdir -p install/teflon-data/
+    cp -Rp _build/src/gallium/targets/teflon/test_teflon install/
+    cp -Rp src/gallium/targets/teflon/tests/models install/teflon-data/.
+    find install/teflon-data/
+fi
+
 mapfile -t duplicate_files < <(
   find src/ -path '*/ci/*' \
     \( \
