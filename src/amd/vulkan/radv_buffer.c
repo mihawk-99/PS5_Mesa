@@ -306,7 +306,8 @@ radv_bo_destroy(struct radv_device *device, struct vk_object_base *object, struc
 
 VkResult
 radv_bo_virtual_bind(struct radv_device *device, struct vk_object_base *object, struct radeon_winsys_bo *parent,
-                     uint64_t offset, uint64_t size, struct radeon_winsys_bo *bo, uint64_t bo_offset)
+                     uint64_t offset, uint64_t size, struct radeon_winsys_bo *bo, uint64_t bo_offset, uint32_t wait_count,
+                     const struct vk_sync_wait *waits)
 {
    struct radv_physical_device *pdev = radv_device_physical(device);
    struct radv_instance *instance = radv_physical_device_instance(pdev);
