@@ -42,7 +42,7 @@ lower_load_store(nir_builder *b,
 
    nir_def *offset =
       nir_iadd_imm(b, nir_build_deref_offset(b, deref, size_align),
-                   var->data.location);
+                   var->data.driver_location);
 
    unsigned align, UNUSED size;
    size_align(deref->type, &size, &align);
@@ -223,6 +223,8 @@ nir_lower_vars_to_scratch_global(nir_shader *shader,
       progress |= nir_progress(impl_progress, impl, nir_metadata_control_flow);
    }
 
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+
    util_dynarray_foreach(&vars, nir_variable *, var_ptr) {
       nir_variable *var = *var_ptr;
 
@@ -232,13 +234,12 @@ nir_lower_vars_to_scratch_global(nir_shader *shader,
       /* Remove it from its list */
       exec_node_remove(&var->node);
 
-      /* Assign scratch location. */
       unsigned var_size, var_align;
       scratch_layout_size_align(var->type, &var_size, &var_align);
-
-      var->data.location = ALIGN_POT(shader->scratch_size, var_align);
-      shader->scratch_size = var->data.location + var_size;
+      nir_var_alloc_add(&alloc, var, var_size, var_align);
    }
+
+   shader->scratch_size = nir_var_alloc_finish(&alloc, shader, shader->scratch_size);
 
    nir_foreach_function_impl(impl, shader) {
       nir_builder build = nir_builder_create(impl);
