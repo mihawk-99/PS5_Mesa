@@ -347,6 +347,7 @@ else
   'nir_unlower_io_to_vars.c',
   'nir_use_dominance.c',
   'nir_validate.c',
+  'nir_var_alloc.c',
   'nir_vla.h',
   'nir_worklist.c',
   'nir_worklist.h',

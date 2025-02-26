@@ -928,6 +928,9 @@ typedef struct nir_variable {
     * my GLSL shader-db.
     */
    char _name_storage[16];
+
+   /* A temporary for passes to use for storing flags. */
+   uint32_t pass_flags;
 } nir_variable;
 
 static inline bool
@@ -5612,6 +5615,17 @@ void nir_sort_variables_by_location(nir_shader *shader, nir_variable_mode mode);
 void nir_assign_io_var_locations(nir_shader *shader, nir_variable_mode mode);
 
 bool nir_opt_clip_cull_const(nir_shader *shader);
+
+struct nir_var_alloc_state {
+   struct hash_table *vars;
+   struct util_dynarray var_list;
+   nir_variable_mode modes;
+};
+
+struct nir_var_alloc_state nir_var_alloc_setup(void);
+void nir_var_alloc_add(struct nir_var_alloc_state *state, nir_variable *var, uint32_t size,
+                       uint32_t align);
+uint32_t nir_var_alloc_finish(struct nir_var_alloc_state *state, nir_shader *shader, uint32_t start);
 
 typedef enum {
    /* If set, this causes all 64-bit IO loads and stores to be lowered to 32
