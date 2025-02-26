@@ -1968,6 +1968,11 @@ lower_vars_to_explicit(nir_shader *shader,
    default:
       UNREACHABLE("Unsupported mode");
    }
+
+   struct nir_var_alloc_state alloc;
+   if (mode == nir_var_mem_shared)
+      alloc = nir_var_alloc_setup();
+
    nir_foreach_variable_in_list(var, vars) {
       if (var->data.mode != mode)
          continue;
@@ -1989,10 +1994,17 @@ lower_vars_to_explicit(nir_shader *shader,
       assert(util_is_power_of_two_or_zero(var->data.alignment));
       alignment = MAX2(alignment, var->data.alignment);
 
-      var->data.driver_location = ALIGN_POT(offset, alignment);
-      offset = var->data.driver_location + size;
+      if (mode == nir_var_mem_shared) {
+         nir_var_alloc_add(&alloc, var, size, alignment);
+      } else {
+         var->data.driver_location = ALIGN_POT(offset, alignment);
+         offset = var->data.driver_location + size;
+      }
       progress = true;
    }
+
+   if (mode == nir_var_mem_shared)
+      offset = nir_var_alloc_finish(&alloc, shader, offset);
 
    switch (mode) {
    case nir_var_uniform:
@@ -2069,6 +2081,8 @@ nir_assign_shared_var_locations(nir_shader *shader, glsl_type_size_align_func ty
       offset = aliased_location + aliased_size;
    }
 
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+
    /* Allocate Blocks either at the Aliased region or after it. */
    nir_foreach_variable_with_modes(var, shader, nir_var_mem_shared) {
       if (var->data.aliased_shared_memory) {
@@ -2080,12 +2094,11 @@ nir_assign_shared_var_locations(nir_shader *shader, glsl_type_size_align_func ty
          const unsigned alignment =
             MAX2(nir_calculate_alignment_from_explicit_layout(var->type, type_info),
                  var->data.alignment);
-         var->data.driver_location = align(offset, alignment);
-         offset = var->data.driver_location + size;
+         nir_var_alloc_add(&alloc, var, size, alignment);
       }
    }
 
-   shader->info.shared_size = offset;
+   shader->info.shared_size = nir_var_alloc_finish(&alloc, shader, offset);
 }
 
 /* If nir_lower_vars_to_explicit_types is called on any shader that contains
