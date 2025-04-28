@@ -209,14 +209,14 @@ cmd_dispatch(struct panvk_cmd_buffer *cmdbuf, struct panvk_dispatch_info *info)
       return;
 
    result = panvk_per_arch(cmd_prepare_push_uniforms)(
-      cmdbuf, cmdbuf->state.compute.shader);
+      cmdbuf, cmdbuf->state.compute.shader, 1);
    if (result != VK_SUCCESS)
       return;
 
    if (compute_state_dirty(cmdbuf, CS) ||
        compute_state_dirty(cmdbuf, DESC_STATE)) {
       result = panvk_per_arch(cmd_prepare_shader_res_table)(
-         cmdbuf, desc_state, shader, cs_desc_state);
+         cmdbuf, desc_state, shader, cs_desc_state, 1);
       if (result != VK_SUCCESS)
          return;
    }
