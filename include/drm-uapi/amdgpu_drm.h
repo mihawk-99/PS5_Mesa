@@ -576,6 +576,27 @@ struct drm_amdgpu_userq_wait {
 	__u64	out_fences;
 };
 
+struct drm_amdgpu_userq_mqd_vcn {
+	/**
+	* @agdb_handle: the handle of aggregate doorbell GEM object
+	* associated to this userqueue client.
+	*/
+	__u32 agdb_handle;
+	/**
+	* @agdb_offset: 32-bit offset of the doorbell in the doorbell bo.
+	* Kernel will generate absolute doorbell offset using agdb_handle
+	* and agdb_offset in the doorbell bo.
+	*/
+	__u32 agdb_offset;
+	/**
+	 * @affinity: set specific VCN instance to use.
+	 * 0 : default, scheduler to manage.
+	 * 1 : VCN0 instance
+	 * 2 : VCN1 instance
+	 */
+	__u32 affinity;
+};
+
 /* vm ioctl */
 #define AMDGPU_VM_OP_RESERVE_VMID	1
 #define AMDGPU_VM_OP_UNRESERVE_VMID	2
