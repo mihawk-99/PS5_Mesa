@@ -1032,7 +1032,10 @@ int ac_drm_create_userqueue(ac_drm_device *dev, uint32_t ip_type, uint32_t doorb
    case AMDGPU_HW_IP_COMPUTE:
       mqd_size = sizeof(struct drm_amdgpu_userq_mqd_compute_gfx11);
       break;
-      default:
+   case AMDGPU_HW_IP_VCN_ENC:
+      mqd_size = sizeof(struct drm_amdgpu_userq_mqd_vcn);
+      break;
+   default:
       return -EINVAL;
    }
 
