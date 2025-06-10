@@ -8,6 +8,8 @@
 #include "nv_push.h"
 #include "util/cache_ops.h"
 #include "util/u_math.h"
+#include "vk_physical_device.h"
+#include "vk_debug_utils.h"
 
 #include <inttypes.h>
 #include <unistd.h>
@@ -101,8 +103,23 @@ nvkmd_dev_alloc_mem(struct nvkmd_dev *dev,
 {
    VkResult result = dev->ops->alloc_mem(dev, log_obj, size_B, align_B,
                                          flags, mem_out);
-   if (result == VK_SUCCESS)
+   if (result == VK_SUCCESS) {
       nvkmd_dev_add_mem(dev, *mem_out);
+
+      /* Report internal memory bindings if a Virtual Address was assigned.
+       * The ext explicitly tracks VA bindings, not just physical backing */
+      if ((*mem_out)->va && log_obj) {
+         (*mem_out)->vk_obj = log_obj ? log_obj : NULL;
+
+         struct vk_instance *instance = log_obj->instance;
+
+         /* Prefer actual allocated size over requested */
+         vk_address_binding_report(instance, log_obj,
+                                   (*mem_out)->va->addr,
+                                   (*mem_out)->size_B,
+                                   VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
+      }
+   }
 
    return result;
 }
@@ -118,8 +135,21 @@ nvkmd_dev_alloc_tiled_mem(struct nvkmd_dev *dev,
    VkResult result = dev->ops->alloc_tiled_mem(dev, log_obj, size_B, align_B,
                                                pte_kind, tile_mode,
                                                flags, mem_out);
-   if (result == VK_SUCCESS)
+   if (result == VK_SUCCESS) {
       nvkmd_dev_add_mem(dev, *mem_out);
+
+      /* Report internal memory bindings if a Virtual Address was assigned */
+      if ((*mem_out)->va && log_obj) {
+         (*mem_out)->vk_obj = log_obj ? log_obj : NULL;
+
+         struct vk_instance *instance = log_obj->instance;
+
+         vk_address_binding_report(instance, log_obj,
+                                   (*mem_out)->va->addr,
+                                   (*mem_out)->size_B,
+                                   VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
+      }
+   }
 
    return result;
 }
@@ -370,6 +400,14 @@ nvkmd_mem_unref(struct nvkmd_mem *mem)
    assert(p_atomic_read(&mem->refcnt) > 0);
    if (!p_atomic_dec_zero(&mem->refcnt))
       return;
+
+   if (mem->va && mem->vk_obj) {
+      struct vk_instance *instance = mem->vk_obj->instance;
+
+      vk_address_binding_report(instance, mem->vk_obj,
+                                mem->va->addr, mem->size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT);
+   }
 
    if (mem->client_map != NULL)
       mem->ops->unmap(mem, NVKMD_MEM_MAP_CLIENT, mem->client_map);

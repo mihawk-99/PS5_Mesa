@@ -8,6 +8,7 @@
 #include "nvk_device_memory.h"
 #include "nvk_entrypoints.h"
 #include "nvk_format.h"
+#include "nvk_instance.h"
 #include "nvk_physical_device.h"
 #include "nvkmd/nvkmd.h"
 
@@ -17,6 +18,7 @@
 #include "vk_format.h"
 #include "nil.h"
 #include "vk_enum_defines.h"
+#include "vk_debug_utils.h"
 
 #include "clb097.h"
 #include "clb197.h"
@@ -1165,6 +1167,8 @@ nvk_image_plane_alloc_va(struct nvk_device *dev,
                          const struct nvk_image *image,
                          struct nvk_image_plane *plane)
 {
+   struct nvk_physical_device *pdev = nvk_device_physical(dev);
+   struct nvk_instance *instance = nvk_physical_device_instance(pdev);
    VkResult result;
 
    const bool sparse_bound =
@@ -1185,6 +1189,9 @@ nvk_image_plane_alloc_va(struct nvk_device *dev,
                                   va_flags, plane->nil.pte_kind,
                                   va_size_B, va_align_B,
                                   0 /* fixed_addr */, &plane->va);
+      vk_address_binding_report(&instance->vk, &image->vk.base,
+                                plane->va->addr, va_size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
       if (result != VK_SUCCESS)
          return result;
 
@@ -1197,11 +1204,23 @@ nvk_image_plane_alloc_va(struct nvk_device *dev,
 static void
 nvk_image_plane_finish(struct nvk_device *dev,
                        struct nvk_image_plane *plane,
+                       struct vk_object_base *base,
                        VkImageCreateFlags create_flags,
                        const VkAllocationCallbacks *pAllocator)
 {
-   if (plane->va != NULL)
+   struct nvk_physical_device *pdev = nvk_device_physical(dev);
+   struct nvk_instance *instance = nvk_physical_device_instance(pdev);
+
+   if (plane->va != NULL) {
+      vk_address_binding_report(&instance->vk, base,
+                                plane->va->addr, plane->va->size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT);
       nvkmd_va_free(plane->va);
+   } else if (plane->addr != 0) {
+      vk_address_binding_report(&instance->vk, base,
+                                plane->addr, plane->nil.size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT);
+   }
 }
 
 static void
@@ -1209,12 +1228,12 @@ nvk_image_finish(struct nvk_device *dev, struct nvk_image *image,
                  const VkAllocationCallbacks *pAllocator)
 {
    for (uint8_t plane = 0; plane < image->plane_count; plane++) {
-      nvk_image_plane_finish(dev, &image->planes[plane],
+      nvk_image_plane_finish(dev, &image->planes[plane], &image->vk.base,
                              image->vk.create_flags, pAllocator);
    }
 
    if (image->stencil_copy_temp.nil.size_B > 0) {
-      nvk_image_plane_finish(dev, &image->stencil_copy_temp,
+      nvk_image_plane_finish(dev, &image->stencil_copy_temp, &image->vk.base,
                              image->vk.create_flags, pAllocator);
    }
 
@@ -1597,6 +1616,9 @@ nvk_image_plane_bind(struct nvk_device *dev,
                      struct nvk_device_memory *mem,
                      uint64_t offset_B)
 {
+   struct nvk_physical_device *pdev = nvk_device_physical(dev);
+   struct nvk_instance *instance = nvk_physical_device_instance(pdev);
+
    offset_B += plane->plane_offset_B;
    assert(offset_B % plane->plane_align_B == 0);
 
@@ -1618,6 +1640,10 @@ nvk_image_plane_bind(struct nvk_device *dev,
       }
    } else {
       plane->addr = mem->mem->va->addr + offset_B;
+      vk_address_binding_report(&instance->vk, &image->vk.base,
+                                plane->addr, plane->nil.size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
+
    }
 
    if (image->vk.usage & VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT) {

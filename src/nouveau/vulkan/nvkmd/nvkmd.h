@@ -259,6 +259,9 @@ struct nvkmd_mem {
    void *map;
 
    void *client_map;
+
+   /* Cached for VK_EXT_device_address_binding_report during unref */
+   struct vk_object_base *vk_obj;
 };
 
 void nvkmd_mem_init(struct nvkmd_dev *dev,

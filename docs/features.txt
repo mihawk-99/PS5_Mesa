@@ -628,7 +628,7 @@ Khronos extensions that are not part of any Vulkan version:
   VK_EXT_depth_range_unrestricted                       DONE (anv/gen20+, nvk, radv, lvp, vn)
   VK_EXT_descriptor_buffer                              DONE (anv, lvp, nvk, radv, tu)
   VK_EXT_descriptor_heap                                DONE (vn)
-  VK_EXT_device_address_binding_report                  DONE (anv, radv, tu)
+  VK_EXT_device_address_binding_report                  DONE (anv, nvk, radv, tu)
   VK_EXT_device_fault                                   DONE (radv)
   VK_EXT_device_generated_commands                      DONE (anv, lvp, nvk/Turing+, radv/gfx8+)
   VK_EXT_device_memory_report                           DONE (anv, panvk, radv, tu, vn)

@@ -27,3 +27,4 @@ VK_GOOGLE_display_timing for KHR_display on anv, panvk, pvr, radv, tu, v3dv
 VK_KHR_shader_abort on RADV
 VK_KHR_shader_fma on panvk
 VK_NV_shader_atomic_float16_vector on NVK
+VK_EXT_device_address_binding_report on NVK

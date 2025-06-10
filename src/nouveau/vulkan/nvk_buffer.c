@@ -7,9 +7,11 @@
 #include "nvk_entrypoints.h"
 #include "nvk_device.h"
 #include "nvk_device_memory.h"
+#include "nvk_instance.h"
 #include "nvk_physical_device.h"
 #include "nvk_queue.h"
 #include "nvkmd/nvkmd.h"
+#include "vk_debug_utils.h"
 
 #define NVK_BUFFER_CREATE_CAPTURE_REPLAY_BITS \
    (VK_BUFFER_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT | \
@@ -105,6 +107,8 @@ nvk_CreateBuffer(VkDevice device,
                  VkBuffer *pBuffer)
 {
    VK_FROM_HANDLE(nvk_device, dev, device);
+   struct nvk_physical_device *pdev = nvk_device_physical(dev);
+   struct nvk_instance *instance = nvk_physical_device_instance(pdev);
    struct nvk_buffer *buffer;
    VkResult result;
 
@@ -148,6 +152,9 @@ nvk_CreateBuffer(VkDevice device,
          return result;
       }
 
+      vk_address_binding_report(&instance->vk, &buffer->vk.base,
+                                buffer->va->addr, buffer->va->size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
       buffer->vk.device_address = buffer->va->addr;
    }
 
@@ -163,12 +170,24 @@ nvk_DestroyBuffer(VkDevice device,
 {
    VK_FROM_HANDLE(nvk_device, dev, device);
    VK_FROM_HANDLE(nvk_buffer, buffer, _buffer);
+   struct nvk_physical_device *pdev = nvk_device_physical(dev);
+   struct nvk_instance *instance = nvk_physical_device_instance(pdev);
 
    if (!buffer)
       return;
 
-   if (buffer->va != NULL)
+   if (buffer->va != NULL) {
+      vk_address_binding_report(&instance->vk, &buffer->vk.base,
+                                buffer->vk.device_address, buffer->va->size_B,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT);
       nvkmd_va_free(buffer->va);
+   } else if (buffer->vk.device_address != 0) {
+      /* Catch the regular buffers (va == NULL) that were bound to memory
+       * and ensure they get their matched UNBIND report using the same size. */
+      vk_address_binding_report(&instance->vk, &buffer->vk.base,
+                                buffer->vk.device_address, buffer->vk.size,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT);
+   }
 
    vk_buffer_destroy(&dev->vk, pAllocator, &buffer->vk);
 }
@@ -257,8 +276,11 @@ static VkResult
 nvk_bind_buffer_memory(struct nvk_device *dev,
                        const VkBindBufferMemoryInfo *info)
 {
+   struct nvk_physical_device *pdev = nvk_device_physical(dev);
+   struct nvk_instance *instance = nvk_physical_device_instance(pdev);
    VK_FROM_HANDLE(nvk_device_memory, mem, info->memory);
    VK_FROM_HANDLE(nvk_buffer, buffer, info->buffer);
+
    VkResult result = VK_SUCCESS;
 
    if (buffer->va != NULL) {
@@ -266,9 +288,14 @@ nvk_bind_buffer_memory(struct nvk_device *dev,
                                  0 /* va_offset */,
                                  mem->mem, info->memoryOffset,
                                  buffer->va->size_B);
+      /* no device addres binding report here since it's already reported by 
+       * nvk_CreateBuffer */
    } else {
       assert(buffer->vk.device_address == 0);
       buffer->vk.device_address = mem->mem->va->addr + info->memoryOffset;
+      vk_address_binding_report(&instance->vk, &buffer->vk.base,
+                                buffer->vk.device_address, buffer->vk.size,
+                                VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
    }
 
    return result;
