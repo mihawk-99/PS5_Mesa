@@ -219,6 +219,7 @@ struct gl_extensions
    GLboolean EXT_timer_query;
    GLboolean EXT_vertex_array_bgra;
    GLboolean EXT_window_rectangles;
+   GLboolean EXT_YUV_target;
    GLboolean OES_copy_image;
    GLboolean OES_primitive_bounding_box;
    GLboolean OES_sample_variables;
