@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include "amd/common/sid.h"
+#include "ac_vcn.h"
 
 /* Some BSDs don't define ENODATA (and ENODATA is replaced with different error
  * codes in the kernel).
@@ -950,8 +951,9 @@ amdgpu_cs_create(struct radeon_cmdbuf *rcs,
    assert(ctx->aws->info.ip[ip_type].num_queues);
 
    if (ip_uses_alt_fence(ip_type)) {
-      acs->queue_index = AMDGPU_QUEUE_USES_ALT_FENCE;
+      acs->queue_index = AMDGPU_QUEUE_VCN;
       acs->uses_alt_fence = true;
+      simple_mtx_init(&acs->aws->queues[acs->queue_index].userq.lock, mtx_plain);
    } else {
       switch (ip_type) {
       case AMD_IP_GFX:
@@ -1403,6 +1405,7 @@ static void amdgpu_cs_add_userq_packets(struct amdgpu_userq *userq,
    amdgpu_pkt_begin();
 
    if (userq->ip_type == AMD_IP_GFX || userq->ip_type == AMD_IP_COMPUTE) {
+      userq->db_index = AMDGPU_USERQ_DOORBELL_INDEX;
       if (num_fences) {
          unsigned max_num_fences_fwm;
          unsigned num_fences_in_iter;
@@ -1459,6 +1462,38 @@ static void amdgpu_cs_add_userq_packets(struct amdgpu_userq *userq,
        */
       amdgpu_pkt_add_dw(PKT3(PKT3_PROTECTED_FENCE_SIGNAL, 0, 0));
       amdgpu_pkt_add_dw(0);
+   } else if (userq->ip_type == AMD_IP_VCN_UNIFIED) {
+     userq->db_index = AMDGPU_USERQ_VCN_DB_INDEX + AMDGPU_USERQ_VCN_DB_RANGE;
+     if (num_fences) {
+        for (unsigned i = 0; i < num_fences; i++) {
+           amdgpu_pkt_add_dw(VCN_PRTED_FENCE_WAIT_CMD);
+           amdgpu_pkt_add_dw(0);
+           amdgpu_pkt_add_dw(fence_info[i].va);
+           amdgpu_pkt_add_dw(fence_info[i].va >> 32);
+           amdgpu_pkt_add_dw(fence_info[i].value);
+           amdgpu_pkt_add_dw(fence_info[i].value >> 32);
+        }
+      }
+
+      amdgpu_pkt_add_dw(VCN_HDP_FLUSH_CMD);
+      amdgpu_pkt_add_dw(VCN_ENC_CMD_IB);
+      amdgpu_pkt_add_dw(0);
+      amdgpu_pkt_add_dw(csc->chunk_ib[IB_MAIN].va_start);
+      amdgpu_pkt_add_dw(csc->chunk_ib[IB_MAIN].va_start >> 32);
+      amdgpu_pkt_add_dw(csc->chunk_ib[IB_MAIN].ib_bytes / 4);
+
+      userq->user_fence_seq_num =  __next_wptr + 8;
+      uint64_t aligned_val = ALIGN(userq->user_fence_seq_num, 16);
+      amdgpu_pkt_add_dw(VCN_PRTED_FENCE_SIG_CMD);
+      amdgpu_pkt_add_dw(0);
+      amdgpu_pkt_add_dw(0);
+      amdgpu_pkt_add_dw(0);
+      amdgpu_pkt_add_dw(aligned_val);
+      amdgpu_pkt_add_dw(aligned_val >> 32);
+      amdgpu_pkt_add_dw(0);
+      amdgpu_pkt_add_dw(0);
+      amdgpu_pkt_add_dw(VCN_ENC_CMD_END);
+      amdgpu_pkt_dw_align(16);
    } else {
       mesa_loge("amdgpu: unsupported userq ip submission = %d\n", userq->ip_type);
    }
@@ -1478,6 +1513,8 @@ static int amdgpu_cs_submit_ib_userq(struct amdgpu_userq *userq,
    int r = 0;
    struct amdgpu_winsys *aws = acs->aws;
    struct amdgpu_cs_context *csc = amdgpu_csc_get_submitted(acs);
+   uint32_t *doorbell_vcn_bo_map;
+   int i;
 
    /* Syncobj dependencies. */
    unsigned num_syncobj_dependencies = csc->syncobj_dependencies.num;
@@ -1578,7 +1615,19 @@ static int amdgpu_cs_submit_ib_userq(struct amdgpu_userq *userq,
 #if DETECT_CC_GCC && (DETECT_ARCH_X86 || DETECT_ARCH_X86_64)
    asm volatile ("mfence" : : : "memory");
 #endif
-   userq->doorbell_bo_map[AMDGPU_USERQ_DOORBELL_INDEX] = userq->next_wptr;
+   if (userq->ip_type == AMD_IP_VCN_UNIFIED) {
+      doorbell_vcn_bo_map = (uint32_t*)userq->doorbell_bo_map;
+      for ( i = 0 ; i < AGDB_MAX; i++) {
+          userq->agdb_bo_map[userq->db_index  + i] = userq->next_wptr;
+          if (i < aws->info.ip[AMD_IP_VCN_ENC].num_instances &&
+             (userq->create_vcn_context != true))
+             doorbell_vcn_bo_map[userq->db_index + i] = userq->next_wptr;
+      }
+      userq->create_vcn_context = false;
+   } else {
+      userq->doorbell_bo_map[userq->db_index] = userq->next_wptr;
+   }
+
    r = ac_drm_userq_signal(aws->dev, &userq_signal_data);
 
    *seq_no = userq->user_fence_seq_num;

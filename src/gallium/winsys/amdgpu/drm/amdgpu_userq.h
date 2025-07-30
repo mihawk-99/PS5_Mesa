@@ -18,6 +18,9 @@ extern "C" {
 
 /* An offset into doorbell page. Any number will work. */
 #define AMDGPU_USERQ_DOORBELL_INDEX 4
+#define AMDGPU_USERQ_VCN_DB_INDEX 0  /* VCN doorbell offset range */
+#define AMDGPU_USERQ_VCN_DB_RANGE 0x310  /* VCN doorbell offset range */
+#define AGDB_MAX 4
 
 #define amdgpu_pkt_begin() uint32_t *__ring_ptr = userq->ring_ptr; \
    uint64_t __next_wptr = userq->next_wptr;
@@ -30,6 +33,14 @@ extern "C" {
 #define amdgpu_pkt_end() do { \
    assert(__next_wptr - *userq->user_fence_ptr <= AMDGPU_USERQ_RING_SIZE_DW); \
    userq->next_wptr = __next_wptr; \
+} while (0)
+
+#define amdgpu_pkt_dw_align(align) do { \
+   uint32_t count = ALIGN(__next_wptr, align) - __next_wptr; \
+   assert(__next_wptr - *userq->user_fence_ptr + count <= AMDGPU_USERQ_RING_SIZE_DW); \
+   for ( uint32_t i = 0; i < count; i++) { \
+      amdgpu_pkt_add_dw(VCN_ENC_CMD_NO_OP); \
+    } \
 } while (0)
 
 struct amdgpu_winsys;
@@ -73,6 +84,9 @@ struct amdgpu_userq {
    struct pb_buffer_lean *doorbell_bo;
    uint64_t *doorbell_bo_map;
 
+   struct pb_buffer_lean *agdb_bo;
+   uint32_t *agdb_bo_map;
+
    struct pb_buffer_lean *cs_preamble_ib_bo;
    bool is_cs_preamble_ib_sent;
    uint32_t userq_handle;
@@ -80,6 +94,9 @@ struct amdgpu_userq {
    simple_mtx_t lock;
    /* flags used for queue priority level */
    uint32_t flags;
+
+   bool create_vcn_context;
+   int db_index;
 
    union {
       struct amdgpu_userq_gfx_data gfx_data;

@@ -75,6 +75,9 @@ amdgpu_userq_deinit(struct amdgpu_winsys *aws, struct amdgpu_userq *userq)
    case AMD_IP_SDMA:
       radeon_bo_reference(&aws->dummy_sws.base, &userq->sdma_data.csa_bo, NULL);
       break;
+   case AMD_IP_VCN_UNIFIED:
+      radeon_bo_reference(&aws->dummy_sws.base, &userq->agdb_bo, NULL);
+      break;
    default:
       fprintf(stderr, "amdgpu: userq unsupported for ip = %d\n", userq->ip_type);
    }
@@ -85,10 +88,12 @@ amdgpu_userq_init(struct amdgpu_winsys *aws, struct amdgpu_userq *userq, enum am
                   unsigned queue_index)
 {
    int r = -1;
+   uint32_t doorbell_index = AMDGPU_USERQ_DOORBELL_INDEX;
    uint32_t hw_ip_type;
    struct drm_amdgpu_userq_mqd_gfx11 gfx_mqd;
    struct drm_amdgpu_userq_mqd_compute_gfx11 compute_mqd;
    struct drm_amdgpu_userq_mqd_sdma_gfx11 sdma_mqd;
+   struct drm_amdgpu_userq_mqd_vcn vcn_mqd;
    void *mqd;
 
    simple_mtx_lock(&userq->lock);
@@ -99,6 +104,7 @@ amdgpu_userq_init(struct amdgpu_winsys *aws, struct amdgpu_userq *userq, enum am
    }
 
    userq->ip_type = ip_type;
+   userq->user_fence_seq_num = 0;
    if (!amdgpu_userq_ring_init(aws, userq))
       goto fail;
 
@@ -147,6 +153,24 @@ amdgpu_userq_init(struct amdgpu_winsys *aws, struct amdgpu_userq *userq, enum am
       sdma_mqd.csa_va = amdgpu_bo_get_va(userq->sdma_data.csa_bo);
       mqd = &sdma_mqd;
       break;
+   case AMD_IP_VCN_UNIFIED:
+      hw_ip_type = AMDGPU_HW_IP_VCN_ENC;
+      doorbell_index = AMDGPU_USERQ_VCN_DB_INDEX;
+      userq->create_vcn_context = true;
+      userq->agdb_bo = amdgpu_bo_create(aws,  aws->info.gart_page_size, 256, RADEON_DOMAIN_DOORBELL,
+                                      RADEON_FLAG_NO_INTERPROCESS_SHARING);
+      if (!userq->agdb_bo)
+         goto fail;
+
+      userq->agdb_bo_map = amdgpu_bo_map(&aws->dummy_sws.base, userq->agdb_bo, NULL,
+                                         PIPE_MAP_WRITE | PIPE_MAP_UNSYNCHRONIZED);
+      if (!userq->gtt_bo_map)
+         goto fail;
+
+      vcn_mqd.agdb_handle = get_real_bo(amdgpu_winsys_bo(userq->agdb_bo))->kms_handle;
+      vcn_mqd.agdb_offset = doorbell_index;
+      mqd = &vcn_mqd;
+      break;
    default:
       fprintf(stderr, "amdgpu: userq unsupported for ip = %d\n", userq->ip_type);
       goto fail;
@@ -187,7 +211,7 @@ amdgpu_userq_init(struct amdgpu_winsys *aws, struct amdgpu_userq *userq, enum am
    while (1) {
       r = ac_drm_create_userqueue(aws->dev, hw_ip_type,
                                   get_real_bo(amdgpu_winsys_bo(userq->doorbell_bo))->kms_handle,
-                                  AMDGPU_USERQ_DOORBELL_INDEX, ring_va, AMDGPU_USERQ_RING_SIZE,
+                                  doorbell_index, ring_va, AMDGPU_USERQ_RING_SIZE,
                                   amdgpu_bo_get_va(userq->wptr_bo), amdgpu_bo_get_va(userq->rptr_bo),
                                   mqd, priority, &userq->userq_handle);
       if (r == -EACCES && priority == AMDGPU_USERQ_CREATE_FLAGS_QUEUE_PRIORITY_HIGH) {
