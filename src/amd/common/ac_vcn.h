@@ -26,6 +26,14 @@
 #ifndef AC_VCN_H
 #define AC_VCN_H
 
+#define VCN_ENC_CMD_NO_OP          0x00000000
+#define VCN_ENC_CMD_END            0x00000001
+#define VCN_ENC_CMD_IB             0x00000002
+#define VCN_ENC_CMD_FENCE          0x00000003
+#define VCN_PRTED_FENCE_SIG_CMD    0x00000010
+#define VCN_PRTED_FENCE_WAIT_CMD   0x00000011
+#define VCN_HDP_FLUSH_CMD          0x00000012
+
 #define RADEON_VCN_ENGINE_INFO                                        (0x30000001)
 #define RADEON_VCN_SIGNATURE                                          (0x30000002)
 #define RADEON_VCN_ENGINE_TYPE_COMMON                                 (0x00000001)
