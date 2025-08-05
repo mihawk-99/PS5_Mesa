@@ -3563,6 +3563,12 @@ A bit mask of viewports to broadcast the current primitive to. See
 :ext:`GL_NV_viewport_array2` for more details.
 
 
+TGSI_SEMANTIC_VIEW_INDEX
+""""""""""""""""""""""""
+
+The index of the view number to which the current shader invocation belongs.
+
+
 Declaration Interpolate
 ^^^^^^^^^^^^^^^^^^^^^^^
 

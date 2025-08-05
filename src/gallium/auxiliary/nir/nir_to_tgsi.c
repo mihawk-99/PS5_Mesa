@@ -2531,6 +2531,7 @@ ntt_emit_intrinsic(struct ntt_compile *c, nir_intrinsic_instr *instr)
    case nir_intrinsic_load_subgroup_gt_mask:
    case nir_intrinsic_load_subgroup_lt_mask:
    case nir_intrinsic_load_subgroup_le_mask:
+   case nir_intrinsic_load_view_index:
       ntt_emit_load_sysval(c, instr);
       break;
 
@@ -4021,6 +4022,12 @@ const void *nir_to_tgsi_options(struct nir_shader *s,
                        TGSI_FS_COORD_PIXEL_CENTER_HALF_INTEGER);
       }
    }
+
+   if (util_bitcount(s->info.view_mask) > 1) {
+         ureg_property(c->ureg, TGSI_PROPERTY_NUM_VIEWS,
+                       util_bitcount(s->info.view_mask));
+   }
+
    /* Emit the main function */
    nir_function_impl *impl = nir_shader_get_entrypoint(c->s);
    ntt_emit_impl(c, impl);

@@ -112,6 +112,7 @@ const char *tgsi_semantic_names[TGSI_SEMANTIC_COUNT] =
    "SUBGROUP_LT_MASK",
    "CS_USER_DATA_AMD",
    "VIEWPORT_MASK",
+   "VIEW_INDEX",
 };
 
 const char *tgsi_texture_names[TGSI_TEXTURE_COUNT] =
@@ -168,6 +169,7 @@ const char *tgsi_property_names[TGSI_PROPERTY_COUNT] =
    "LAYER_VIEWPORT_RELATIVE",
    "FS_BLEND_EQUATION_ADVANCED",
    "SEPARABLE_PROGRAM",
+   "NUM_VIEWS",
 };
 
 const char *tgsi_return_type_names[TGSI_RETURN_TYPE_COUNT] =

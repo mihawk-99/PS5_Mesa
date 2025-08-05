@@ -493,6 +493,8 @@ virgl_init_screen_caps(struct virgl_screen *vscreen)
       !!(vscreen->caps.caps.v2.capability_bits_v2 & VIRGL_CAP_V2_GROUP_VOTE);
    caps->image_store_formatted = true;
    caps->gl_spirv = true;
+   caps->multiview = (vscreen->caps.caps.v2.capability_bits_v2 & VIRGL_CAP_V2_OVR_MULTIVIEW2) ? 2 :
+      (vscreen->caps.caps.v2.capability_bits_v2 & VIRGL_CAP_V2_OVR_MULTIVIEW) ? 1 : 0;
 
    if (vscreen->caps.caps.v2.host_feature_check_version >= 13)
       caps->max_constant_buffer_size = vscreen->caps.caps.v2.max_uniform_block_size;

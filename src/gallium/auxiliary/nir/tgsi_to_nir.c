@@ -626,6 +626,9 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
          load = nir_load_sample_id(b);
          b->shader->info.fs.uses_sample_shading = true;
          break;
+      case TGSI_SEMANTIC_VIEW_INDEX:
+         load = nir_load_view_index(b);
+         break;
       default:
          UNREACHABLE("bad system value");
       }

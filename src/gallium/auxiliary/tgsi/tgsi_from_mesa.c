@@ -295,6 +295,10 @@ tgsi_get_sysval_semantic(unsigned sysval)
    case SYSTEM_VALUE_SUBGROUP_LT_MASK:
       return TGSI_SEMANTIC_SUBGROUP_LT_MASK;
 
+   /* OVR_multiview */
+   case SYSTEM_VALUE_VIEW_INDEX:
+      return TGSI_SEMANTIC_VIEW_INDEX;
+
    default:
       UNREACHABLE("Unexpected system value to TGSI");
    }

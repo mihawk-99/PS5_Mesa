@@ -908,6 +908,12 @@ int virgl_encoder_set_framebuffer_state(struct virgl_context *ctx,
       virgl_encoder_write_dword(ctx->cbuf, state->width | (state->height << 16));
       virgl_encoder_write_dword(ctx->cbuf, state->layers | (state->samples << 16));
    }
+
+   if (rs->caps.caps.v2.capability_bits_v2 & VIRGL_CAP_V2_OVR_MULTIVIEW && util_bitcount(state->viewmask) > 0) {
+      virgl_encoder_write_cmd_dword(ctx, VIRGL_CMD0(VIRGL_CCMD_SET_FRAMEBUFFER_STATE_VIEWS, 0, VIRGL_SET_FRAMEBUFFER_STATE_VIEWS_SIZE));
+      virgl_encoder_write_dword(ctx->cbuf, util_bitcount(state->viewmask));
+   }
+
    return 0;
 }
 
