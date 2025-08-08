@@ -377,11 +377,6 @@ nvk_BeginCommandBuffer(VkCommandBuffer commandBuffer,
 
    nvk_reset_cmd_buffer(&cmd->vk, 0);
 
-   /* Start with a nop so we have at least something to submit */
-   struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
-   P_MTHD(p, NV90B5, NOP);
-   P_NV90B5_NOP(p, 0);
-
    if (queue_flags & VK_QUEUE_COMPUTE_BIT)
       nvk_cmd_buffer_begin_compute(cmd, pBeginInfo);
 
