@@ -556,9 +556,8 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
       return;
    }
 
-   struct nv_push *p;
    if (nvk_cmd_buffer_compute_cls(cmd) >= TURING_COMPUTE_A) {
-      p = nvk_cmd_buffer_push(cmd, 14);
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 10);
       if (nvk_cmd_buffer_compute_cls(cmd) < BLACKWELL_COMPUTE_A)
          P_IMMD(p, NVC597, SET_MME_DATA_FIFO_CONFIG, FIFO_SIZE_SIZE_4KB);
       P_1INC(p, NV9097, CALL_MME_MACRO(NVK_MME_DISPATCH_INDIRECT));
@@ -570,7 +569,7 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
       P_INLINE_DATA(p, qmd_addr);
       P_INLINE_DATA(p, nvk_compute_local_size(cmd));
    } else {
-      p = nvk_cmd_buffer_push(cmd, 5);
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 5);
       /* Stall the command streamer */
       if (pdev->info.cls_compute >= HOPPER_COMPUTE_A) {
          P_IMMD(p, NVC86F, WFI, 0);
@@ -583,7 +582,7 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
       nvk_cmd_buffer_push_indirect(cmd, dispatch_addr,
                                    sizeof(VkDispatchIndirectCommand),
                                    true /* incomplete */);
-      p = nvk_cmd_buffer_push(cmd, 9);
+      p = nvk_cmd_buffer_push(cmd, 5);
       P_INLINE_DATA(p, root_desc_addr >> 32);
       P_INLINE_DATA(p, root_desc_addr);
       P_INLINE_DATA(p, qmd_addr >> 32);
@@ -591,6 +590,7 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
       P_INLINE_DATA(p, nvk_compute_local_size(cmd));
    }
 
+   struct nv_push *p = nvk_cmd_buffer_push(cmd, 4);
    P_MTHD(p, NVA0C0, SEND_PCAS_A);
    P_NVA0C0_SEND_PCAS_A(p, qmd_addr >> 8);
    if (nvk_cmd_buffer_compute_cls(cmd) <= TURING_COMPUTE_A) {
