@@ -1035,12 +1035,21 @@ nvk_CmdExecuteGeneratedCommandsEXT(VkCommandBuffer commandBuffer,
          .constant = CONSTANT_TRUE,
          .flush_data = FLUSH_DATA_TRUE,
       });
-      if (pdev->info.cls_eng3d >= MAXWELL_COMPUTE_B)
-         P_IMMD(p, NVB1C0, INVALIDATE_SKED_CACHES, 0);
-      if (pdev->info.cls_eng3d >= HOPPER_A)
-         P_IMMD(p, NVC86F, WFI, 0);
-      else
-         __push_immd(p, SUBC_NV9097, NV906F_SET_REFERENCE, 0);
+
+      if (layout->stages & VK_SHADER_STAGE_COMPUTE_BIT) {
+         assert(info->shaderStages == VK_SHADER_STAGE_COMPUTE_BIT);
+         P_IMMD(p, NVA0C0, WAIT_FOR_IDLE, 0);
+         if (pdev->info.cls_eng3d >= MAXWELL_COMPUTE_B)
+            P_IMMD(p, NVB1C0, INVALIDATE_SKED_CACHES, 0);
+      } else if (layout->stages & NVK_SHADER_STAGE_GRAPHICS_BITS) {
+         assert(!(layout->stages & ~NVK_SHADER_STAGE_GRAPHICS_BITS));
+         if (pdev->info.cls_eng3d >= HOPPER_A)
+            P_IMMD(p, NVC86F, WFI, 0);
+         else
+            __push_immd(p, SUBC_NV9097, NV906F_SET_REFERENCE, 0);
+      } else {
+         UNREACHABLE("Unknown shader stage");
+      }
    }
 
    if (layout->stages & VK_SHADER_STAGE_COMPUTE_BIT) {
