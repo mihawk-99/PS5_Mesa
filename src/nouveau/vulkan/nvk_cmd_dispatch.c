@@ -579,8 +579,10 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
       }
 
       P_1INC(p, NV9097, CALL_MME_MACRO(NVK_MME_DISPATCH_INDIRECT));
-      nv_push_update_count(p, sizeof(VkDispatchIndirectCommand) / 4);
-      nvk_cmd_buffer_push_indirect(cmd, dispatch_addr, sizeof(VkDispatchIndirectCommand));
+      nv_push_update_count(p, sizeof(VkDispatchIndirectCommand) / 4 + 5);
+      nvk_cmd_buffer_push_indirect(cmd, dispatch_addr,
+                                   sizeof(VkDispatchIndirectCommand),
+                                   true /* incomplete */);
       p = nvk_cmd_buffer_push(cmd, 9);
       P_INLINE_DATA(p, root_desc_addr >> 32);
       P_INLINE_DATA(p, root_desc_addr);

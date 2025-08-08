@@ -1119,7 +1119,7 @@ nvk_CmdExecuteGeneratedCommandsEXT(VkCommandBuffer commandBuffer,
    while (seq_count > 0) {
       uint32_t push_seq = MIN2(seq_count, max_seq_per_push);
       uint32_t push_size_B = push_seq * layout->cmd_seq_stride_B;
-      nvk_cmd_buffer_push_indirect(cmd, addr, push_size_B);
+      nvk_cmd_buffer_push_indirect(cmd, addr, push_size_B, false);
       addr += push_size_B;
       seq_count -= push_seq;
    }

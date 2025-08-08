@@ -211,13 +211,15 @@ nvk_cmd_buffer_new_push(struct nvk_cmd_buffer *cmd)
 
 void
 nvk_cmd_buffer_push_indirect(struct nvk_cmd_buffer *cmd,
-                             uint64_t addr, uint32_t range)
+                             uint64_t addr, uint32_t range,
+                             bool incomplete)
 {
    nvk_cmd_buffer_flush_push(cmd, true);
 
    struct nvk_cmd_push push = {
       .addr = addr,
       .range = range,
+      .incomplete = incomplete,
       .no_prefetch = true,
    };
 

@@ -3590,7 +3590,7 @@ nvk_cmd_flush_gfx_cbufs(struct nvk_cmd_buffer *cmd)
                P_INLINE_DATA(p, g | (c << 4));
 
                nv_push_update_count(p, 3);
-               nvk_cmd_buffer_push_indirect(cmd, desc_addr, 12);
+               nvk_cmd_buffer_push_indirect(cmd, desc_addr, 12, false);
             }
          }
       }
@@ -4350,7 +4350,7 @@ nvk_CmdDrawIndirect(VkCommandBuffer commandBuffer,
 
          uint64_t range = count * (uint64_t)stride;
          nv_push_update_count(p, range / 4);
-         nvk_cmd_buffer_push_indirect(cmd, draw_addr, range);
+         nvk_cmd_buffer_push_indirect(cmd, draw_addr, range, false);
 
          draw_addr += range;
          drawCount -= count;
@@ -4450,7 +4450,7 @@ nvk_CmdDrawIndexedIndirect(VkCommandBuffer commandBuffer,
 
          uint64_t range = count * (uint64_t)stride;
          nv_push_update_count(p, range / 4);
-         nvk_cmd_buffer_push_indirect(cmd, draw_addr, range);
+         nvk_cmd_buffer_push_indirect(cmd, draw_addr, range, false);
 
          draw_addr += range;
          drawCount -= count;
@@ -4696,7 +4696,7 @@ nvk_CmdDrawIndirectByteCountEXT(VkCommandBuffer commandBuffer,
       P_INLINE_DATA(p, instanceCount);
       P_INLINE_DATA(p, firstInstance);
       nv_push_update_count(p, 1);
-      nvk_cmd_buffer_push_indirect(cmd, counter_addr, 4);
+      nvk_cmd_buffer_push_indirect(cmd, counter_addr, 4, false);
    }
 }
 
@@ -4794,7 +4794,7 @@ nvk_CmdBeginTransformFeedbackEXT(VkCommandBuffer commandBuffer,
          P_1INC(p, NV9097, CALL_MME_MACRO(NVK_MME_XFB_COUNTER_LOAD));
          P_INLINE_DATA(p, cb_idx);
          nv_push_update_count(p, 1);
-         nvk_cmd_buffer_push_indirect(cmd, cb_addr, 4);
+         nvk_cmd_buffer_push_indirect(cmd, cb_addr, 4, false);
       }
    }
 }
