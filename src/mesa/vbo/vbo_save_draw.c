@@ -32,7 +32,6 @@
 #include "main/bufferobj.h"
 #include "main/context.h"
 #include "main/enable.h"
-#include "main/mesa_private.h"
 #include "main/macros.h"
 #include "main/light.h"
 #include "main/state.h"
