@@ -346,6 +346,8 @@ etna_init_screen_caps(struct etna_screen *screen)
    caps->uma = true;
    caps->graphics = !VIV_FEATURE(screen, ETNA_FEATURE_COMPUTE_ONLY);
 
+   caps->validate_all_dirty_states = true;
+
    caps->min_line_width =
    caps->min_line_width_aa =
    caps->min_point_size =
