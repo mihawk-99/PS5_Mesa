@@ -598,8 +598,7 @@ zink_init_shader_caps(struct zink_screen *screen)
 
       caps->fp16 =
          screen->info.feats12.shaderFloat16 ||
-         (screen->info.have_KHR_shader_float16_int8 &&
-          screen->info.shader_float16_int8_feats.shaderFloat16);
+         screen->info.shader_float16_int8_feats.shaderFloat16;
       caps->glsl_16bit_load_dst = true;
 
       caps->int16 = screen->info.feats.features.shaderInt16;
@@ -793,7 +792,7 @@ zink_init_screen_caps(struct zink_screen *screen)
 
    caps->texture_mirror_clamp_to_edge =
       screen->info.have_KHR_sampler_mirror_clamp_to_edge ||
-      (screen->info.have_vulkan12 && screen->info.feats12.samplerMirrorClampToEdge);
+      screen->info.feats12.samplerMirrorClampToEdge;
 
    caps->polygon_offset_clamp = screen->info.feats.features.depthBiasClamp;
 
@@ -820,7 +819,7 @@ zink_init_screen_caps(struct zink_screen *screen)
 
    caps->start_instance =
    caps->draw_parameters =
-      (screen->info.have_vulkan12 && screen->info.feats11.shaderDrawParameters) ||
+      screen->info.feats11.shaderDrawParameters ||
       screen->info.have_KHR_shader_draw_parameters;
 
    caps->vertex_element_instance_divisor =
@@ -2854,8 +2853,7 @@ init_driver_workarounds(struct zink_screen *screen)
    if (!screen->info.have_KHR_maintenance5)
       screen->driver_workarounds.missing_a8_unorm = true;
 
-   if ((!screen->info.have_EXT_line_rasterization ||
-        !screen->info.line_rast_feats.stippledBresenhamLines) &&
+   if (!screen->info.line_rast_feats.stippledBresenhamLines &&
        screen->info.feats.features.geometryShader &&
        screen->info.feats.features.sampleRateShading) {
       /* we're using stippledBresenhamLines as a proxy for all of these, to
