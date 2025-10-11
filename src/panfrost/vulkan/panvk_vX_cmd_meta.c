@@ -246,7 +246,6 @@ meta_gfx_end(struct panvk_cmd_buffer *cmdbuf,
    cmdbuf->state.gfx.vs.attrib_bufs = 0;
    cmdbuf->state.gfx.vs.indirect_attribs_infos = 0;
    cmdbuf->state.gfx.vs.indirect_attrib_bufs_infos = 0;
-   cmdbuf->state.gfx.vs.indirect_varying_bufs_infos = 0;
    cmdbuf->state.gfx.fs.rsd = 0;
 #else
    cmdbuf->state.gfx.fs.desc.res_table = 0;

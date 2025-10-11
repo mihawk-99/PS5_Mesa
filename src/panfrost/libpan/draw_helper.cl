@@ -10,6 +10,7 @@
 #include "lib/pan_encoder.h"
 #include "poly/cl/restart.h"
 #include "draw_helper.h"
+#include "poly/geometry.h"
 
 #if PAN_ARCH >= 10
 
@@ -117,6 +118,8 @@ struct panlib_draw_info {
 
    uint64_t position;
    uint64_t psiz;
+
+   global struct poly_heap *heap;
 };
 
 static void
@@ -260,9 +263,6 @@ panlib_patch_varying_bufs(struct panlib_draw_info *draw)
    uint32_t vertex_count = draw->padded_vertex_count * draw->instance.count;
 
    for (uint32_t i = 0; i < PANLIB_VARY_BUF_MAX; i++) {
-      global struct libpan_draw_helper_varying_buf_info *info =
-         &draw->varying_bufs.info[0];
-
       global struct mali_attribute_buffer_packed *desc =
          &draw->varying_bufs.descs[i];
       pan_unpack(desc, ATTRIBUTE_BUFFER, unpacked_desc)
@@ -271,18 +271,7 @@ panlib_patch_varying_bufs(struct panlib_draw_info *draw)
       pan_pack(desc, ATTRIBUTE_BUFFER, cfg) {
          memcpy(&cfg, &unpacked_desc, sizeof(cfg));
          cfg.size = vertex_count * cfg.stride;
-
-         /* Ensure we are aligned properly */
-         uint32_t offset_add = ALIGN_POT(cfg.size, 64);
-
-         /* Allocate some space for ourself */
-         uint32_t current_offset = atomic_fetch_add_explicit(
-            &info->offset, offset_add, memory_order_relaxed);
-
-         /* Sanity check that we don't overrun the buffer */
-         assert(current_offset + cfg.size <= info->size);
-
-         cfg.pointer = info->address + current_offset;
+         cfg.pointer = (uint64_t) poly_heap_alloc(draw->heap, cfg.size, 64);
 
          if (i == PANLIB_VARY_BUF_POSITION)
             draw->position = cfg.pointer;
@@ -471,8 +460,8 @@ padded_vertex_count(uint32_t vertex_count, uint32_t instance_count, bool idvs)
 KERNEL(1)
 panlib_draw_indirect_helper(
    global VkDrawIndirectCommand *cmd,
+   global struct poly_heap *heap,
    global struct mali_attribute_buffer_packed *varying_bufs_descs,
-   global struct libpan_draw_helper_varying_buf_info *varying_bufs_info,
    global struct mali_attribute_buffer_packed *attrib_bufs_descs,
    global struct libpan_draw_helper_attrib_buf_info *attrib_bufs_infos,
    uint32_t attrib_bufs_valid, uint32_t attribs_valid,
@@ -500,7 +489,6 @@ panlib_draw_indirect_helper(
       .instance.count = instance_count,
 
       .varying_bufs.descs = varying_bufs_descs,
-      .varying_bufs.info = varying_bufs_info,
 
       .attrib_bufs.descs = attrib_bufs_descs,
       .attrib_bufs.infos = attrib_bufs_infos,
@@ -514,6 +502,8 @@ panlib_draw_indirect_helper(
       .padded_vertex_count =
          padded_vertex_count(vertex_count, instance_count, idvs_job != NULL),
       .primitive_vertex_count = primitive_vertex_count,
+
+      .heap = heap,
    };
 
    panlib_patch_draw(&draw);
@@ -529,8 +519,8 @@ panlib_draw_indexed_indirect_helper(
    global struct libpan_draw_helper_index_min_max_result *index_min_max_res,
    uint32_t index_size, uint32_t primitive_vertex_count,
    uint32_t attrib_bufs_valid, uint32_t attribs_valid,
+   global struct poly_heap *heap,
    global struct mali_attribute_buffer_packed *varying_bufs_descs,
-   global struct libpan_draw_helper_varying_buf_info *varying_bufs_info,
    global struct mali_attribute_buffer_packed *attrib_bufs_descs,
    global struct libpan_draw_helper_attrib_buf_info *attrib_bufs_infos,
    global struct mali_attribute_packed *attribs_descs,
@@ -562,7 +552,6 @@ panlib_draw_indexed_indirect_helper(
       .instance.count = instance_count,
 
       .varying_bufs.descs = varying_bufs_descs,
-      .varying_bufs.info = varying_bufs_info,
 
       .attrib_bufs.descs = attrib_bufs_descs,
       .attrib_bufs.infos = attrib_bufs_infos,
@@ -577,6 +566,8 @@ panlib_draw_indexed_indirect_helper(
          padded_vertex_count(vertex_range, instance_count, idvs_job != NULL),
       .primitive_vertex_count = primitive_vertex_count,
       .indices = index_buffer_ptr,
+
+      .heap = heap,
    };
 
    panlib_patch_draw(&draw);
@@ -640,5 +631,4 @@ panlib_draw_index_minmax_search_helper(global uint8_t *index_buffer_ptr,
    atomic_fetch_min(min_ptr, local_min);
    atomic_fetch_max(max_ptr, local_max);
 }
-
 #endif
