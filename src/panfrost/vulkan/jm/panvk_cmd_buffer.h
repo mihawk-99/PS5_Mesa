@@ -87,6 +87,7 @@ struct panvk_cmd_buffer {
       struct panvk_cmd_graphics_state gfx;
       struct panvk_cmd_compute_state compute;
       struct panvk_push_constant_state push_constants;
+      bool uses_poly_heap;
    } state;
 };
 
@@ -148,5 +149,10 @@ void panvk_per_arch(cmd_bind_shaders)(struct vk_command_buffer *vk_cmd,
                                       uint32_t stage_count,
                                       const mesa_shader_stage *stages,
                                       struct vk_shader **const shaders);
+
+/* If a job was added to reset the heap, it's job id is returned in 'job_id'
+ * so that it can be used in dependencies */
+VkResult panvk_per_arch(cmd_init_poly_heap)(struct panvk_cmd_buffer *cmdbuf,
+                                            unsigned *job_id);
 
 #endif

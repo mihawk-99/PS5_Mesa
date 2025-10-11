@@ -39,6 +39,7 @@
 #include "util/u_printf.h"
 #include "pan_props.h"
 #include "pan_samples.h"
+#include "poly/geometry.h"
 
 static void *
 panvk_kmod_zalloc(const struct pan_kmod_allocator *allocator, size_t size,
@@ -112,6 +113,62 @@ panvk_device_cleanup_mempools(struct panvk_device *dev)
    panvk_pool_cleanup(&dev->mempools.rw);
    panvk_pool_cleanup(&dev->mempools.rw_nc);
    panvk_pool_cleanup(&dev->mempools.exec);
+}
+
+/* On JM, this is called during device initialization. On CSF, panthor doesn't
+ * support alloc-on-fault, so we initialize the heap the first time it is used
+ * in a command buffer to avoid wasting memory on the heap buffer on
+ * applications that don't use it */
+static void
+panvk_device_init_poly_heap_inner(const void *data)
+{
+   struct panvk_device *dev = *(struct panvk_device *const *) data;
+
+#if PAN_ARCH >= 10
+   uint32_t flags = PAN_KMOD_BO_FLAG_NO_MMAP;
+#else
+   uint32_t flags = PAN_KMOD_BO_FLAG_NO_MMAP | PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT;
+#endif
+
+   VkResult result = panvk_priv_bo_create(
+      dev, PANVK_POLY_HEAP_SIZE, flags, VK_SYSTEM_ALLOCATION_SCOPE_DEVICE,
+      &dev->poly_heap.buffer);
+   if (result != VK_SUCCESS) {
+      dev->poly_heap.init_result = result;
+      return;
+   }
+
+   struct panvk_pool_alloc_info alloc_info = {
+      .size = sizeof(struct poly_heap),
+      .alignment = 8,
+   };
+   dev->poly_heap.state = panvk_pool_alloc_mem(&dev->mempools.rw, alloc_info);
+   if (!panvk_priv_mem_check_alloc(dev->poly_heap.state)) {
+      dev->poly_heap.init_result =
+         panvk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+      panvk_priv_bo_unref(dev->poly_heap.buffer);
+      return;
+   }
+
+   struct poly_heap *state_cpu = panvk_priv_mem_host_addr(dev->poly_heap.state);
+   state_cpu->base = dev->poly_heap.buffer->addr.dev;
+   state_cpu->bottom = 0;
+   state_cpu->size = PANVK_POLY_HEAP_SIZE;
+
+   dev->poly_heap.init_result = VK_SUCCESS;
+}
+
+VkResult
+panvk_per_arch(device_init_poly_heap)(struct panvk_device *dev)
+{
+#if PAN_ARCH >= 10
+   util_call_once_data(&dev->poly_heap.init_once,
+                       panvk_device_init_poly_heap_inner, &dev);
+#else
+   panvk_device_init_poly_heap_inner(&dev);
+#endif
+
+   return dev->poly_heap.init_result;
 }
 
 static VkResult
@@ -517,6 +574,12 @@ panvk_per_arch(create_device)(struct panvk_physical_device *physical_device,
    panvk_priv_bo_flush(device->sample_positions, 0,
                        pan_sample_positions_buffer_size());
 
+#if PAN_ARCH <= 9
+   result = panvk_per_arch(device_init_poly_heap)(device);
+   if (result != VK_SUCCESS)
+      goto err_free_priv_bos;
+#endif
+
 #if PAN_ARCH >= 10
    result = panvk_per_arch(init_tiler_oom)(device);
    if (result != VK_SUCCESS)
@@ -609,6 +672,8 @@ err_free_priv_bos:
    panvk_priv_bo_unref(device->tiler_oom.handlers_bo);
    panvk_priv_bo_unref(device->sample_positions);
    panvk_priv_bo_unref(device->indirect_varying_buffer);
+   panvk_pool_free_mem(&device->poly_heap.state);
+   panvk_priv_bo_unref(device->poly_heap.buffer);
    panvk_priv_bo_unref(device->tiler_heap);
    panvk_device_cleanup_mempools(device);
    vk_free(&device->vk.alloc, device->dump_region_size);
@@ -661,6 +726,8 @@ panvk_per_arch(destroy_device)(struct panvk_device *device,
    panvk_priv_bo_unref(device->printf.bo);
    panvk_priv_bo_unref(device->tiler_oom.handlers_bo);
    panvk_priv_bo_unref(device->indirect_varying_buffer);
+   panvk_pool_free_mem(&device->poly_heap.state);
+   panvk_priv_bo_unref(device->poly_heap.buffer);
    panvk_priv_bo_unref(device->tiler_heap);
    panvk_priv_bo_unref(device->sample_positions);
    panvk_device_cleanup_mempools(device);

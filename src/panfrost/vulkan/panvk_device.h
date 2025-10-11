@@ -39,6 +39,9 @@
 #define PANVK_JM_MAX_VERTICES_INDIRECT                (2000000)
 #define PANVK_JM_MAX_PER_VTX_ATTRIBUTES_INDIRECT_SIZE (18 * 4)
 
+/* 128 MiB */
+#define PANVK_POLY_HEAP_SIZE (1 << 27)
+
 struct panvk_precomp_cache;
 struct panvk_device_draw_context;
 
@@ -108,6 +111,21 @@ struct panvk_device {
    } utrace;
 
    struct panvk_device_draw_context* draw_ctx;
+
+   struct {
+      /* Only used on CSF */
+      util_once_flag init_once;
+
+      /* Used to propagate errors from poly_heap initialization back to the
+       * caller, since the call_once interface does not allow for a fallible
+       * initialization function */
+      VkResult init_result;
+
+      struct panvk_priv_bo *buffer;
+
+      /* 'struct poly_heap' allocation */
+      struct panvk_priv_mem state;
+   } poly_heap;
 
    struct {
       struct pandecode_context *decode_ctx;
@@ -252,6 +270,8 @@ VkResult panvk_per_arch(device_check_status)(struct vk_device *vk_dev);
 #if PAN_ARCH >= 10
 VkResult panvk_per_arch(init_tiler_oom)(struct panvk_device *device);
 #endif
+
+VkResult panvk_per_arch(device_init_poly_heap)(struct panvk_device *dev);
 #endif
 
 #endif
