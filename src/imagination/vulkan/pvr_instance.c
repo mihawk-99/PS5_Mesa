@@ -51,6 +51,8 @@ struct pvr_drm_device_config {
 /* This is the list of supported DRM render driver configs. */
 static const struct pvr_drm_device_config pvr_drm_configs[] = {
    DEF_CONFIG("mediatek,mt8173-gpu"),
+   DEF_CONFIG("renesas,r8a7796-gpu"),
+   DEF_CONFIG("renesas,r8a77961-gpu"),
    DEF_CONFIG("ti,am62-gpu"),
    DEF_CONFIG("ti,j721s2-gpu"),
 };
