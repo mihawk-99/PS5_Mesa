@@ -117,12 +117,13 @@ static_assert(sizeof(struct poly_heap) == 4 * 4,
 
 #ifdef __OPENCL_VERSION__
 static inline uint
-poly_heap_alloc_offs(global struct poly_heap *heap, uint size_B)
+poly_heap_alloc_offs(global struct poly_heap *heap, uint size_B, uint align_B)
 {
-   size_B = align(size_B, 16);
-
-   uint offs =
-      atomic_fetch_add((volatile atomic_uint *)(&heap->bottom), size_B);
+   /* We need to overallocate in order to leave room to align the allocation
+    * regardless of the alignment of the heap bottom */
+   uint offs = atomic_fetch_add((volatile atomic_uint *)(&heap->bottom),
+                                size_B + align_B);
+   offs = align(offs, align_B);
 
    /* Use printf+abort because assert is stripped from release builds. */
    if (heap->bottom >= heap->size) {
@@ -137,9 +138,12 @@ poly_heap_alloc_offs(global struct poly_heap *heap, uint size_B)
 }
 
 static inline global void *
-poly_heap_alloc(global struct poly_heap *heap, uint size_B)
+poly_heap_alloc(global struct poly_heap *heap, uint size_B, uint align_B)
 {
-   return heap->base + poly_heap_alloc_offs(heap, size_B);
+   if (size_B == 0)
+      return NULL;
+
+   return heap->base + poly_heap_alloc_offs(heap, size_B, align_B);
 }
 
 uint64_t nir_load_ro_sink_address_poly(void);
@@ -638,16 +642,16 @@ poly_gs_setup_indirect(uint64_t index_buffer, constant uint *draw,
 
    if (is_prefix_summing) {
       p->count_buffer = poly_heap_alloc(
-         heap, p->input_primitives * p->count_buffer_stride);
+         heap, p->input_primitives * p->count_buffer_stride, 16);
    }
 
-   vp->output_buffer = (uintptr_t)poly_heap_alloc(heap, vertex_buffer_size);
+   vp->output_buffer = (uintptr_t)poly_heap_alloc(heap, vertex_buffer_size, 16);
 
    vp->outputs = vs_outputs;
 
    if (shape == POLY_GS_SHAPE_DYNAMIC_INDEXED) {
       const uint32_t index_offset =
-         poly_heap_alloc_offs(heap, p->draw.index_count * 4);
+         poly_heap_alloc_offs(heap, p->draw.index_count * 4, 16);
       p->draw.first_index = index_offset / 4;
       p->output_index_buffer = (global uint *)(heap->base + index_offset);
    }
