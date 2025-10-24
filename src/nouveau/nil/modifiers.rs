@@ -6,8 +6,11 @@ use crate::image::Image;
 use crate::tiling::{GOBType, Tiling};
 
 use bitview::*;
+use nil_rs_bindings::*;
+use nvidia_headers::classes::clc597;
+use nvidia_headers::hwref;
 
-pub const MAX_DRM_FORMAT_MODS: usize = 7;
+pub const MAX_DRM_FORMAT_MODS: usize = 13;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -178,6 +181,16 @@ impl BlockLinearModifier {
         BlockLinearModifier { drm_modifier }
     }
 
+    pub fn tegra_2d(height_log2: u8) -> BlockLinearModifier {
+        Self::block_linear_2d(
+            CompressionType::None,
+            SectorLayout::TegraK1,
+            GOBKindVersion::Fermi,
+            0, /* pte_kind */
+            height_log2,
+        )
+    }
+
     pub fn height_log2(&self) -> u8 {
         let bv = BitView::new(&self.drm_modifier);
         bv.get_bit_range_u64(0..4).try_into().unwrap()
@@ -185,7 +198,18 @@ impl BlockLinearModifier {
 
     pub fn pte_kind(&self) -> u8 {
         let bv = BitView::new(&self.drm_modifier);
-        bv.get_bit_range_u64(12..20).try_into().unwrap()
+        let pte_kind = bv.get_bit_range_u64(12..20).try_into().unwrap();
+
+        // The old modifiers for Tegra had a PTE kind of 0 but we actually want
+        // NV_MMU_PTE_KIND_GENERIC_16BX2 inside the driver
+        if pte_kind == 0
+            && self.sector_layout() == SectorLayout::TegraK1
+            && self.gob_kind_version() == GOBKindVersion::Fermi
+        {
+            return hwref::gp100::mmu::NV_MMU_PTE_KIND_GENERIC_16BX2 as u8;
+        }
+
+        pte_kind
     }
 
     pub fn gob_kind_version(&self) -> GOBKindVersion {
@@ -288,6 +312,20 @@ pub fn drm_format_mods_for_format(
         assert!(*mod_count < max_mod_count);
         mods[*mod_count] = bl_mod.drm_modifier;
         *mod_count += 1;
+    }
+
+    // For older Tegra SOCs, we also advertise the legacy Tegra modifiers
+    // because those are required by the tegra display driver.  We put them at
+    // the end, right before LINEAR, so that we'll prefer the newer modifiers.
+    if dev.type_ == NV_DEVICE_TYPE_SOC && dev.cls_eng3d < clc597::TURING_A {
+        for i in 0..6 {
+            let height_log2 = 5 - i;
+            let tegra_mod = BlockLinearModifier::tegra_2d(height_log2);
+
+            assert!(*mod_count < max_mod_count);
+            mods[*mod_count] = tegra_mod.drm_modifier;
+            *mod_count += 1;
+        }
     }
 
     assert!(*mod_count < max_mod_count);
