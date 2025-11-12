@@ -2218,7 +2218,6 @@ v3d_optimize_nir(struct v3d_compile *c, struct nir_shader *s)
                 };
                 bool vectorize_progress = false;
 
-
                 /* This requires that we have called
                  * nir_lower_vars_to_explicit_types / nir_lower_explicit_io
                  * first, which we may not have done yet if we call here too
@@ -2234,6 +2233,13 @@ v3d_optimize_nir(struct v3d_compile *c, struct nir_shader *s)
                                 progress = true;
                         }
                 }
+
+                const nir_opt_offsets_options offset_options = {
+                        .uniform_max = UINT32_MAX,
+                        .buffer_max = UINT32_MAX,
+                        .shared_max = UINT32_MAX,
+                };
+                NIR_PASS(progress, s, nir_opt_offsets, &offset_options);
 
                 if (lower_flrp != 0) {
                         NIR_PASS(progress, s, nir_lower_flrp,
