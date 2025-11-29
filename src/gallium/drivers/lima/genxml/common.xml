@@ -337,8 +337,8 @@
     <field name="Has Samplers" start="13:5" size="1" type="bool"/>
     <field name="Unknown 5" start="13:6" size="1" type="bool"/>
     <field name="Has Uniforms" start="13:7" size="1" type="bool"/>
-    <field name="Unknown 6" start="13:8" size="1" type="bool"/>
-    <field name="Early Z" start="13:9" size="1" type="bool"/>
+    <field name="Early ZS Test" start="13:8" size="1" type="bool"/>
+    <field name="Early ZS Update" start="13:9" size="1" type="bool"/>
     <field name="Unknown 7" start="13:10" size="2" type="hex"/>
     <field name="Pixel Kill" start="13:12" size="1" type="bool"/>
     <field name="Unknown 8" start="13:13" size="1" type="bool"/>

@@ -735,14 +735,14 @@ lima_pack_render_state(struct lima_context *ctx, const struct pipe_draw_info *in
       state.front_face_ccw = ctx->rasterizer->base.front_ccw;
       state.dithering = ctx->blend->base.dither;
 
-      state.early_z = true;
+      state.early_zs_update = true;
       state.pixel_kill = true;
 
       if (fs->state.uses_discard ||
           ctx->zsa->base.alpha_enabled ||
           fs->state.frag_depth_reg != -1 ||
           ctx->blend->base.alpha_to_coverage) {
-         state.early_z = false;
+         state.early_zs_update = false;
          state.pixel_kill = false;
       }
 
