@@ -1754,6 +1754,15 @@ print_intrinsic_instr(nir_intrinsic_instr *instr, print_state *state)
          break;
       }
 
+      case NIR_INTRINSIC_ALIGN_OFFSET: {
+         if (nir_intrinsic_align_offset(instr) != 0) {
+            fprintf(fp, "align_offset=%u, align=%u",
+                    nir_intrinsic_align_offset(instr),
+                    nir_intrinsic_align(instr));
+         }
+         break;
+      }
+
       default: {
          unsigned off = info->index_map[idx] - 1;
          fprintf(fp, "%s=%d", nir_intrinsic_index_names[idx], instr->const_index[off]);
