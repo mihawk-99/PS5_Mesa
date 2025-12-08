@@ -601,6 +601,12 @@ struct v3dv_device {
     */
    struct v3dv_bo *default_attribute_float;
 
+   /* A buffer filled with zeros. If a vertex attribute read goes out of bounds
+    * (or has no buffer), we redirect the GPU to read from here so it gets
+    * safe zero values.
+    */
+   struct v3dv_bo *robustness2_zero_attribs;
+
    void *device_address_mem_ctx;
    struct util_dynarray device_address_bo_list; /* Array of struct v3dv_bo * */
 };

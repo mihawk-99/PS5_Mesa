@@ -2582,6 +2582,8 @@ v3dX(cmd_buffer_emit_gl_shader_state)(struct v3dv_cmd_buffer *cmd_buffer)
    const uint32_t packet_length =
       cl_packet_length(GL_SHADER_STATE_ATTRIBUTE_RECORD);
 
+   struct v3dv_device *device = pipeline->device;
+   assert(device->robustness2_zero_attribs);
    uint32_t emitted_va_count = 0;
    for (uint32_t i = 0; emitted_va_count < pipeline->va_count; i++) {
       assert(i < MAX_VERTEX_ATTRIBS);
@@ -2590,6 +2592,7 @@ v3dX(cmd_buffer_emit_gl_shader_state)(struct v3dv_cmd_buffer *cmd_buffer)
          continue;
 
       const uint32_t binding = pipeline->va[i].binding;
+      const uint32_t attr_size = vk_format_get_blocksize(pipeline->va[i].vk_format);
 
       /* We store each vertex attribute in the array using its driver location
        * as index.
@@ -2597,15 +2600,20 @@ v3dX(cmd_buffer_emit_gl_shader_state)(struct v3dv_cmd_buffer *cmd_buffer)
       const uint32_t location = i;
 
       struct v3dv_vertex_binding *c_vb = &cmd_buffer->state.vertex_bindings[binding];
+      VkDeviceSize binding_range =
+         (c_vb->buffer->mem->bo && c_vb->size > pipeline->va[i].offset) ?
+         c_vb->size - pipeline->va[i].offset : 0;
+
+      bool use_zero_attr = !c_vb->buffer || attr_size > binding_range;
 
       cl_emit_with_prepacked(&job->indirect, GL_SHADER_STATE_ATTRIBUTE_RECORD,
                              &pipeline->vertex_attrs[i * packet_length], attr) {
-
          assert(c_vb->buffer->mem->bo);
-         attr.address = v3dv_cl_address(c_vb->buffer->mem->bo,
-                                        c_vb->buffer->mem_offset +
-                                        pipeline->va[i].offset +
-                                        c_vb->offset);
+         struct v3dv_bo *attr_bo = use_zero_attr ?
+            device->robustness2_zero_attribs : c_vb->buffer->mem->bo;
+         uint32_t attr_offset = use_zero_attr ? 0 :
+            c_vb->buffer->mem_offset + pipeline->va[i].offset + c_vb->offset;
+         attr.address = v3dv_cl_address(attr_bo, attr_offset);
 
          attr.number_of_values_read_by_coordinate_shader =
             prog_data_vs_bin->vattr_sizes[location];
@@ -2631,11 +2639,24 @@ v3dX(cmd_buffer_emit_gl_shader_state)(struct v3dv_cmd_buffer *cmd_buffer)
             cs_loaded_any = true;
          }
 
-         attr.stride =
-            cmd_buffer->vk.dynamic_graphics_state.vi_binding_strides[binding];
+            attr.stride =
+               cmd_buffer->vk.dynamic_graphics_state.vi_binding_strides[binding];
 
-         attr.maximum_index = attr.stride == 0 ?
-                              1u : MIN2(0xffffffu, c_vb->size / attr.stride);
+            uint32_t max_index = 0;
+            if (attr_size > 0 && binding_range >= attr_size) {
+               if (attr.stride == 0) {
+                  max_index = 1u;
+               } else {
+                  const VkDeviceSize usable = binding_range - attr_size;
+                  const VkDeviceSize vertex_count = usable / attr.stride + 1;
+                  if (vertex_count > 0) {
+                     const VkDeviceSize last_index = vertex_count - 1;
+                     max_index = MIN2(0xffffffu, (uint32_t) last_index);
+                  }
+               }
+            }
+
+            attr.maximum_index = max_index;
       }
 
       emitted_va_count++;

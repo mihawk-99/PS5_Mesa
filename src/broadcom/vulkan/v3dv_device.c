@@ -1883,6 +1883,18 @@ v3dv_CreateDevice(VkPhysicalDevice physicalDevice,
    device->default_attribute_float =
       v3d_X((&device->devinfo), create_default_attribute_values)(device, NULL);
 
+   const uint32_t zero_attrib_size = 64;
+   device->robustness2_zero_attribs =
+      v3dv_bo_alloc(device, zero_attrib_size, "robust_zero_attribs", true);
+   if (!device->robustness2_zero_attribs ||
+       !v3dv_bo_map(device, device->robustness2_zero_attribs, true)) {
+      result = vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+      goto fail;
+   }
+
+   memset(device->robustness2_zero_attribs->map, 0, zero_attrib_size);
+   v3dv_bo_unmap(device, device->robustness2_zero_attribs);
+
    device->device_address_mem_ctx = ralloc_context(NULL);
    util_dynarray_init(&device->device_address_bo_list,
                       device->device_address_mem_ctx);
@@ -1913,6 +1925,8 @@ fail:
    v3dv_pipeline_cache_finish(&device->default_pipeline_cache);
    v3dv_event_free_resources(device);
    v3dv_query_free_resources(device);
+   if (device->robustness2_zero_attribs)
+      v3dv_bo_free(device, device->robustness2_zero_attribs);
    vk_device_finish(&device->vk);
    vk_free(&device->vk.alloc, device);
 
@@ -1939,6 +1953,10 @@ v3dv_DestroyDevice(VkDevice _device,
    if (device->default_attribute_float) {
       v3dv_bo_free(device, device->default_attribute_float);
       device->default_attribute_float = NULL;
+   }
+   if (device->robustness2_zero_attribs) {
+      v3dv_bo_free(device, device->robustness2_zero_attribs);
+      device->robustness2_zero_attribs = NULL;
    }
 
    ralloc_free(device->device_address_mem_ctx);
