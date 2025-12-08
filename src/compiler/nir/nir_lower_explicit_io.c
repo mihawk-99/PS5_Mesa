@@ -810,8 +810,7 @@ build_explicit_io_load(nir_builder *b, nir_intrinsic_instr *intrin,
       nir_def *zero = nir_imm_zero(b, load->num_components, bit_size);
 
       /* TODO: Better handle block_intel. */
-      assert(load->num_components == 1);
-      const unsigned load_size = bit_size / 8;
+      const unsigned load_size = load->num_components * bit_size / 8;
       nir_push_if(b, addr_is_in_bounds(b, addr, addr_format, load_size));
 
       nir_builder_instr_insert(b, &load->instr);
@@ -1000,8 +999,7 @@ build_explicit_io_store(nir_builder *b, nir_intrinsic_instr *intrin,
 
    if (addr_format_needs_bounds_check(addr_format)) {
       /* TODO: Better handle block_intel. */
-      assert(store->num_components == 1);
-      const unsigned store_size = value->bit_size / 8;
+      const unsigned store_size = value->num_components * value->bit_size / 8;
       nir_push_if(b, addr_is_in_bounds(b, addr, addr_format, store_size));
 
       nir_builder_instr_insert(b, &store->instr);
@@ -1117,7 +1115,8 @@ build_explicit_io_atomic(nir_builder *b, nir_intrinsic_instr *intrin,
    assert(atomic->def.bit_size % 8 == 0);
 
    if (addr_format_needs_bounds_check(addr_format)) {
-      const unsigned atomic_size = atomic->def.bit_size / 8;
+      const unsigned atomic_size =
+         atomic->def.num_components * atomic->def.bit_size / 8;
       nir_push_if(b, addr_is_in_bounds(b, addr, addr_format, atomic_size));
 
       nir_builder_instr_insert(b, &atomic->instr);
