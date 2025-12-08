@@ -1763,6 +1763,118 @@ should_lower_robustness(const nir_intrinsic_instr *intr, const void *data)
         }
 }
 
+struct v3d_robust_access_2_state {
+        const struct v3d_key *key;
+};
+
+static nir_def *
+v3d_buffer_access_in_bounds(nir_builder *b,
+                            nir_intrinsic_instr *intr,
+                            uint32_t type_sz,
+                            unsigned offset_src,
+                            nir_def *size)
+{
+        const uint32_t access_size = intr->num_components * type_sz;
+
+        nir_def *max_access_offset =
+                nir_iadd_imm(b, intr->src[offset_src].ssa, access_size - 1);
+
+        return nir_ult(b, max_access_offset, size);
+}
+
+static bool
+v3d_lower_robust_access_2_instr(nir_builder *b,
+                                nir_intrinsic_instr *intr,
+                                void *_state)
+{
+        struct v3d_robust_access_2_state *state = _state;
+
+        switch (intr->intrinsic) {
+        case nir_intrinsic_load_ubo: {
+                if (!state->key->robust_uniform_access_2)
+                        return false;
+
+                assert(intr->num_components == 1);
+
+                b->cursor = nir_before_instr(&intr->instr);
+                nir_def *size = nir_get_ubo_size(b, 32, intr->src[0].ssa);
+                uint32_t type_sz = intr->def.bit_size / 8;
+                nir_def *valid = v3d_buffer_access_in_bounds(b, intr,
+                                                        type_sz,
+                                                        1, size);
+                wrap_in_if(b, intr, valid);
+                return true;
+        }
+
+        case nir_intrinsic_load_ssbo: {
+                if (!state->key->robust_storage_access_2)
+                        return false;
+
+                assert(intr->num_components == 1);
+
+                b->cursor = nir_before_instr(&intr->instr);
+                nir_def *size = nir_get_ssbo_size(b, intr->src[0].ssa);
+                uint32_t type_sz = intr->def.bit_size / 8;
+                nir_def *valid = v3d_buffer_access_in_bounds(b, intr,
+                                                        type_sz,
+                                                        1, size);
+                wrap_in_if(b, intr, valid);
+                return true;
+        }
+
+        case nir_intrinsic_store_ssbo: {
+                if (!state->key->robust_storage_access_2)
+                        return false;
+
+                assert(intr->num_components == 1);
+
+                if ((nir_intrinsic_write_mask(intr) & 0x1) == 0)
+                        return false;
+
+                b->cursor = nir_before_instr(&intr->instr);
+                nir_def *size = nir_get_ssbo_size(b, intr->src[1].ssa);
+                uint32_t type_sz = intr->src[0].ssa->bit_size / 8;
+                nir_def *valid = v3d_buffer_access_in_bounds(
+                        b, intr,
+                        type_sz,
+                        2, size);
+                wrap_in_if(b, intr, valid);
+                return true;
+        }
+
+        case nir_intrinsic_ssbo_atomic:
+        case nir_intrinsic_ssbo_atomic_swap: {
+                if (!state->key->robust_storage_access_2)
+                        return false;
+
+                b->cursor = nir_before_instr(&intr->instr);
+                nir_def *size = nir_get_ssbo_size(b, intr->src[0].ssa);
+                nir_def *valid = v3d_buffer_access_in_bounds(b, intr,
+                                                        4, 1, size);
+                wrap_in_if(b, intr, valid);
+                return true;
+        }
+
+        default:
+                return false;
+        }
+}
+
+static bool
+v3d_nir_lower_robust_buffer_access_2(nir_shader *s,
+                                     const struct v3d_key *key)
+{
+        struct v3d_robust_access_2_state state = {
+                .key = key,
+        };
+
+        return nir_shader_intrinsics_pass(s,
+                                          v3d_lower_robust_access_2_instr,
+                                          nir_metadata_block_index |
+                                          nir_metadata_dominance,
+                                          &state);
+}
+
 static void
 v3d_attempt_compile(struct v3d_compile *c)
 {
@@ -1823,8 +1935,20 @@ v3d_attempt_compile(struct v3d_compile *c)
         NIR_PASS(_, c->s, nir_lower_idiv, &idiv_options);
         NIR_PASS(_, c->s, nir_lower_alu);
 
-        if (c->key->robust_uniform_access || c->key->robust_storage_access ||
-            c->key->robust_image_access) {
+        bool need_robust_lowering =
+                c->key->robust_uniform_access ||
+                c->key->robust_storage_access ||
+                c->key->robust_image_access;
+        bool need_robust2_lowering =
+                c->key->robust_uniform_access_2 ||
+                c->key->robust_storage_access_2;
+
+        if (need_robust_lowering || need_robust2_lowering) {
+                if (need_robust2_lowering)
+                        NIR_PASS(_, c->s, nir_lower_io_to_scalar,
+                                 nir_var_mem_ubo | nir_var_mem_ssbo,
+                                 NULL, NULL);
+
                 /* nir_lower_robust_access assumes constant buffer
                  * indices on ubo/ssbo intrinsics so run copy propagation and
                  * constant folding passes before we run the lowering to warrant
@@ -1834,8 +1958,13 @@ v3d_attempt_compile(struct v3d_compile *c)
                 NIR_PASS(_, c->s, nir_opt_copy_prop);
                 NIR_PASS(_, c->s, nir_opt_constant_folding);
 
-                NIR_PASS(_, c->s, nir_lower_robust_access,
-                         should_lower_robustness, c->key);
+                if (need_robust_lowering)
+                        NIR_PASS(_, c->s, nir_lower_robust_access,
+                                 should_lower_robustness, c->key);
+
+                if (need_robust2_lowering)
+                        NIR_PASS(_, c->s, v3d_nir_lower_robust_buffer_access_2,
+                                 c->key);
         }
 
         NIR_PASS(_, c->s, nir_lower_vars_to_scratch,

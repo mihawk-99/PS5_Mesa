@@ -415,6 +415,8 @@ struct v3d_key {
         bool is_last_geometry_stage;
         bool robust_uniform_access;
         bool robust_storage_access;
+        bool robust_uniform_access_2;
+        bool robust_storage_access_2;
         bool robust_image_access;
 };
 
