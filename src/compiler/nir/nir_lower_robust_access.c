@@ -30,7 +30,7 @@ rewrite_offset(nir_builder *b, nir_intrinsic_instr *instr,
  * Wrap a intrinsic in an if, predicated on a "valid" condition. If the
  * intrinsic produces a destination, it will be zero in the invalid case.
  */
-static void
+void
 wrap_in_if(nir_builder *b, nir_intrinsic_instr *instr, nir_def *valid)
 {
    bool has_dest = nir_intrinsic_infos[instr->intrinsic].has_dest;

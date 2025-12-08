@@ -5414,6 +5414,9 @@ bool nir_lower_mem_access_bit_sizes(nir_shader *shader,
 bool nir_lower_robust_access(nir_shader *s,
                              nir_intrin_filter_cb filter, const void *data);
 
+void
+wrap_in_if(nir_builder *b, nir_intrinsic_instr *instr, nir_def *valid);
+
 /* clang-format off */
 typedef bool (*nir_should_vectorize_mem_func)(unsigned align_mul,
                                               unsigned align_offset,
