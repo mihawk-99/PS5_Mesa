@@ -581,6 +581,8 @@ v3d_setup_shared_key(struct v3d_context *v3d, struct v3d_key *key,
 
         key->robust_uniform_access = v3d->robust_buffer;
         key->robust_storage_access = v3d->robust_buffer;
+        key->robust_uniform_access_2 = false;
+        key->robust_storage_access_2 = false;
 }
 
 static void
