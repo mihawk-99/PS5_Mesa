@@ -82,7 +82,6 @@ dEQP-VK.protected_memory.*
 dEQP-VK.query_pool.statistics_query.*
 dEQP-VK.ray_query.*
 dEQP-VK.ray_tracing_pipeline.*
-dEQP-VK.robustness.robustness2.*
 dEQP-VK.shader_object.rendering.*
 dEQP-VK.sparse_resources.*
 dEQP-VK.transform_feedback.*

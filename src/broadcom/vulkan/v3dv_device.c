@@ -167,6 +167,7 @@ get_device_extensions(const struct v3dv_physical_device *device,
       .KHR_load_store_op_none               = true,
       .KHR_performance_query                = device->caps.perfmon,
       .KHR_relaxed_block_layout             = true,
+      .KHR_robustness2                      = true,
       .KHR_maintenance1                     = true,
       .KHR_maintenance2                     = true,
       .KHR_maintenance3                     = true,
@@ -225,6 +226,7 @@ get_device_extensions(const struct v3dv_physical_device *device,
       .EXT_pipeline_creation_cache_control  = true,
       .EXT_pipeline_creation_feedback       = true,
       .EXT_pipeline_robustness              = true,
+      .EXT_robustness2                      = true,
       .EXT_primitive_topology_list_restart  = true,
       .EXT_private_data                     = true,
       .EXT_provoking_vertex                 = true,
@@ -400,6 +402,9 @@ get_features(const struct v3dv_physical_device *physical_device,
       .shaderZeroInitializeWorkgroupMemory = true,
       .synchronization2 = true,
       .robustImageAccess = true,
+      .robustBufferAccess2 = true,
+      .robustImageAccess2 = false,
+      .nullDescriptor = false,
       .shaderIntegerDotProduct = true,
 
       /* VK_EXT_4444_formats */
@@ -1201,6 +1206,10 @@ get_device_properties(const struct v3dv_physical_device *device,
       .defaultRobustnessImages =
             VK_PIPELINE_ROBUSTNESS_IMAGE_BEHAVIOR_DEVICE_DEFAULT_EXT,
 
+      /* VkPhysicalDeviceRobustness2PropertiesEXT */
+      .robustStorageBufferAccessSizeAlignment = 1,
+      .robustUniformBufferAccessSizeAlignment = 1,
+
       /* VkPhysicalDeviceMultiDrawPropertiesEXT */
       .maxMultiDrawCount = 2048,
 
@@ -1866,10 +1875,12 @@ v3dv_CreateDevice(VkPhysicalDevice physicalDevice,
 
    device->devinfo = physical_device->devinfo;
 
-   if (device->vk.enabled_features.robustBufferAccess)
+   if (device->vk.enabled_features.robustBufferAccess ||
+       device->vk.enabled_features.robustBufferAccess2)
       perf_debug("Device created with Robust Buffer Access enabled.\n");
 
-   if (device->vk.enabled_features.robustImageAccess)
+   if (device->vk.enabled_features.robustImageAccess ||
+       device->vk.enabled_features.robustImageAccess2)
       perf_debug("Device created with Robust Image Access enabled.\n");
 
 

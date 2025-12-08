@@ -1018,6 +1018,9 @@ pipeline_populate_v3d_key(struct v3d_key *key,
    const VkPipelineRobustnessBufferBehaviorEXT robust_buffer_enabled =
       VK_PIPELINE_ROBUSTNESS_BUFFER_BEHAVIOR_ROBUST_BUFFER_ACCESS_EXT;
 
+   const VkPipelineRobustnessBufferBehaviorEXT robust_buffer2_enabled =
+      VK_PIPELINE_ROBUSTNESS_BUFFER_BEHAVIOR_ROBUST_BUFFER_ACCESS_2_EXT;
+
    const VkPipelineRobustnessImageBehaviorEXT robust_image_enabled =
       VK_PIPELINE_ROBUSTNESS_IMAGE_BEHAVIOR_ROBUST_IMAGE_ACCESS_EXT;
 
@@ -1025,6 +1028,10 @@ pipeline_populate_v3d_key(struct v3d_key *key,
       p_stage->robustness.uniform_buffers == robust_buffer_enabled;
    key->robust_storage_access =
       p_stage->robustness.storage_buffers == robust_buffer_enabled;
+   key->robust_uniform_access_2 =
+      p_stage->robustness.uniform_buffers == robust_buffer2_enabled;
+   key->robust_storage_access_2 =
+      p_stage->robustness.storage_buffers == robust_buffer2_enabled;
    key->robust_image_access =
       p_stage->robustness.images == robust_image_enabled;
 }
