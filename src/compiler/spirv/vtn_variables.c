@@ -2831,6 +2831,44 @@ vtn_handle_variables(struct vtn_builder *b, SpvOp opcode,
       break;
    }
 
+   case SpvOpRawAccessChainNV: {
+      struct vtn_type *ptr_type = vtn_get_type(b, w[1]);
+      nir_deref_instr *base = vtn_nir_deref(b, w[3]);
+      uint32_t stride = vtn_constant_uint(b, w[4]);
+      nir_def *index = vtn_get_nir_ssa(b, w[5]);
+      nir_def *offset = vtn_get_nir_ssa(b, w[6]);
+
+      uint32_t flags = 0;
+      if (count >= 8) {
+         flags = w[7];
+      }
+
+      nir_deref_instr *deref = base;
+
+      if (stride) {
+         index = nir_i2iN(&b->nb, index, base->def.bit_size);
+         deref = nir_build_deref_cast(&b->nb, &deref->def, base->modes,
+                                      glsl_uint8_t_type(), stride);
+         deref = nir_build_deref_ptr_as_array(&b->nb, deref, index);
+      }
+
+      offset = nir_i2iN(&b->nb, offset, base->def.bit_size);
+      deref = nir_build_deref_cast(&b->nb, &deref->def, base->modes,
+                                   glsl_uint8_t_type(), /* stride */ 1);
+      deref = nir_build_deref_ptr_as_array(&b->nb, deref, offset);
+
+      if (flags & SpvRawAccessChainOperandsRobustnessPerComponentNVMask) {
+         /* Default robustness */
+      } else if (flags & SpvRawAccessChainOperandsRobustnessPerElementNVMask) {
+         deref->arr.base_bounds_check = true;
+      } else {
+         deref->arr.never_bounds_check = true;
+      }
+
+      vtn_push_pointer(b, w[2], vtn_pointer_from_ssa(b, &deref->def, ptr_type));
+      break;
+   }
+
    case SpvOpCopyMemory: {
       struct vtn_value *dest_val = vtn_pointer_value(b, w[1]);
       struct vtn_value *src_val = vtn_pointer_value(b, w[2]);

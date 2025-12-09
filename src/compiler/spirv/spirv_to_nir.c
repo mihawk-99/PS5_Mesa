@@ -141,6 +141,7 @@ static const struct spirv_capabilities implemented_capabilities = {
    .RayTracingKHR = true,
    .RayTracingPositionFetchKHR = true,
    .RayTraversalPrimitiveCullingKHR = true,
+   .RawAccessChainsNV = true,
    .ReplicatedCompositesEXT = true,
    .RoundingModeRTE = true,
    .RoundingModeRTZ = true,
@@ -6606,6 +6607,7 @@ vtn_handle_body_instruction(struct vtn_builder *b, SpvOp opcode,
    case SpvOpPtrAccessChain:
    case SpvOpInBoundsAccessChain:
    case SpvOpInBoundsPtrAccessChain:
+   case SpvOpRawAccessChainNV:
    case SpvOpArrayLength:
    case SpvOpConvertPtrToU:
    case SpvOpConvertUToPtr:
