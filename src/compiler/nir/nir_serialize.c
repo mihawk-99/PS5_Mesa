@@ -545,8 +545,10 @@ union packed_instr {
       unsigned deref_type : 3;
       unsigned cast_type_same_as_last : 1;
       unsigned modes : 6; /* See (de|en)code_deref_modes() */
-      unsigned _pad : 8;
+      unsigned _pad : 6;
       unsigned in_bounds : 1;
+      unsigned base_bounds_check : 1;
+      unsigned never_bounds_check : 1;
       unsigned packed_src_ssa_16bit : 1; /* deref_var redefines this */
       unsigned def : 8;
    } deref;
@@ -919,6 +921,8 @@ write_deref(write_ctx *ctx, const nir_deref_instr *deref)
       header.deref.packed_src_ssa_16bit = are_object_ids_16bit(ctx);
 
       header.deref.in_bounds = deref->arr.in_bounds;
+      header.deref.base_bounds_check = deref->arr.base_bounds_check;
+      header.deref.never_bounds_check = deref->arr.never_bounds_check;
    }
 
    write_def(ctx, &deref->def, header, deref->instr.type);
@@ -1005,6 +1009,8 @@ read_deref(read_ctx *ctx, union packed_instr header)
       }
 
       deref->arr.in_bounds = header.deref.in_bounds;
+      deref->arr.base_bounds_check = header.deref.base_bounds_check;
+      deref->arr.never_bounds_check = header.deref.never_bounds_check;
 
       parent = nir_src_as_deref(deref->parent);
       if (deref->deref_type == nir_deref_type_array)

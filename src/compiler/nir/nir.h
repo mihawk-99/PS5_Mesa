@@ -1696,7 +1696,18 @@ typedef struct nir_deref_instr {
    union {
       struct {
          nir_src index;
+
+         /** If true, the index is always within the bounds of parent */
          bool in_bounds;
+
+         /**
+          * If true, then the deref will be in bounds if the parent's base
+          * address is in bounds
+          */
+         bool base_bounds_check;
+
+         /** If true, all bounds checking should be disabled for this deref */
+         bool never_bounds_check;
       } arr;
 
       struct {

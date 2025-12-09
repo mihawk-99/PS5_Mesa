@@ -1223,6 +1223,13 @@ opt_deref_ptr_as_array(nir_builder *b, nir_deref_instr *deref)
 {
    assert(deref->deref_type == nir_deref_type_ptr_as_array);
 
+   /* Neither of the optimizations below are worthwhile if they discard
+    * bounds checking info
+    */
+   if (deref->arr.base_bounds_check &&
+       deref->arr.never_bounds_check)
+      return false;
+
    nir_deref_instr *parent = nir_deref_instr_parent(deref);
 
    if (nir_src_is_const(deref->arr.index) &&

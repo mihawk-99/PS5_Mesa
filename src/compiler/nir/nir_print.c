@@ -1192,6 +1192,10 @@ print_deref_instr(nir_deref_instr *instr, print_state *state)
    if (nir_deref_instr_is_arr(instr)) {
       if (instr->arr.in_bounds)
          fprintf(fp, "  (in bounds)");
+      if (instr->arr.base_bounds_check)
+         fprintf(fp, "  (base bounds check)");
+      if (instr->arr.never_bounds_check)
+         fprintf(fp, "  (never bounds check)");
    }
 
    if (instr->deref_type != nir_deref_type_var &&

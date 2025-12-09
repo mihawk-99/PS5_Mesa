@@ -321,6 +321,8 @@ clone_deref_instr(clone_state *state, const nir_deref_instr *deref)
       __clone_src(state, &nderef->instr,
                   &nderef->arr.index, &deref->arr.index);
       nderef->arr.in_bounds = deref->arr.in_bounds;
+      nderef->arr.base_bounds_check = deref->arr.base_bounds_check;
+      nderef->arr.never_bounds_check = deref->arr.never_bounds_check;
       break;
 
    case nir_deref_type_array_wildcard:

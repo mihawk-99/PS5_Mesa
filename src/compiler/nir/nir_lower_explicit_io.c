@@ -420,10 +420,37 @@ addr_format_needs_bounds_check(nir_address_format addr_format)
    return addr_format == nir_address_format_64bit_bounded_global;
 }
 
+static nir_deref_instr*
+trailing_array_deref(nir_def *ssa)
+{
+   while (true) {
+      if (!nir_def_is_deref(ssa))
+         return NULL;
+
+      nir_deref_instr *deref = nir_def_as_deref(ssa);
+      if (nir_deref_instr_is_arr(deref)) {
+         return deref;
+      } else if (deref->deref_type == nir_deref_type_cast) {
+         ssa = deref->parent.ssa;
+      } else {
+         return NULL;
+      }
+   }
+}
+
 static nir_def *
 addr_is_in_bounds(nir_builder *b, nir_def *addr,
                   nir_address_format addr_format, unsigned size)
 {
+   nir_deref_instr *arr_deref = trailing_array_deref(addr);
+   if (arr_deref) {
+      if (arr_deref->arr.never_bounds_check) {
+         return nir_imm_true(b);
+      } else if (arr_deref->arr.base_bounds_check) {
+         addr = arr_deref->parent.ssa;
+         size = 1;
+      }
+   }
    assert(addr_format == nir_address_format_64bit_bounded_global);
    assert(addr->num_components == 4);
    assert(size > 0);
@@ -1420,8 +1447,14 @@ nir_lower_explicit_io_instr(nir_builder *b,
     * that information through to nir_lower_explicit_io.  For now, however,
     * scalarizing is at least correct.
     */
-   bool scalarize = vec_stride > scalar_size ||
-                    addr_format_needs_bounds_check(addr_format);
+   bool scalarize = vec_stride > scalar_size;
+   if (addr_format_needs_bounds_check(addr_format)) {
+      nir_deref_instr *arr_deref = trailing_array_deref(&deref->def);
+      bool skip_scalarize = arr_deref &&
+                            (arr_deref->arr.base_bounds_check ||
+                             arr_deref->arr.never_bounds_check);
+      scalarize |= !skip_scalarize;
+   }
 
    switch (intrin->intrinsic) {
    case nir_intrinsic_load_deref: {
