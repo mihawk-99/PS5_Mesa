@@ -120,3 +120,34 @@ TEST_F(string_buffer, string_buffer_tests)
    EXPECT_TRUE(_mesa_string_buffer_append_char(buf, 'a'));
    EXPECT_TRUE(strcmp(buf->buf, "aa") == 0);
 }
+
+#ifndef NDEBUG
+TEST_F(string_buffer, crimp_to_fit_actually_shrinks)
+{
+   /* Create buffer with large initial capacity */
+   struct _mesa_string_buffer *str = _mesa_string_buffer_create(NULL, 1024);
+   ASSERT_NE(str, nullptr);
+
+   EXPECT_TRUE(_mesa_string_buffer_append(str, "Hi"));
+   EXPECT_EQ(str->length, 2u);
+   EXPECT_EQ(str->capacity, 1024u);
+
+   size_t size_before = ralloc_total_size(str);
+
+   _mesa_string_buffer_crimp_to_fit(str);
+
+   size_t size_after = ralloc_total_size(str);
+
+   /* Capacity bookkeeping should be updated */
+   EXPECT_EQ(str->capacity, 3u);
+   EXPECT_EQ(str->length, 2u);
+   EXPECT_STREQ(str->buf, "Hi");
+
+   /* Actual memory should have shrunk significantly */
+   EXPECT_LT(size_after, size_before)
+      << "crimp_to_fit should actually reduce memory usage, "
+      << "before=" << size_before << " after=" << size_after;
+
+   _mesa_string_buffer_destroy(str);
+}
+#endif

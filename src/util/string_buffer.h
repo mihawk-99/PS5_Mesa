@@ -79,14 +79,19 @@ _mesa_string_buffer_clear(struct _mesa_string_buffer *str)
 static inline void
 _mesa_string_buffer_crimp_to_fit(struct _mesa_string_buffer *str)
 {
-    char *crimped =
-       (char *) reralloc_array_size(str, str->buf, sizeof(char),
-                                    str->capacity);
-    if (!crimped)
-       return;
+   const size_t new_size = str->length + 1;
 
-    str->capacity = str->length + 1;
-    str->buf = crimped;
+   /* Allocate new smaller buffer */
+   char *crimped = ralloc_array(str, char, new_size);
+   if (!crimped)
+      return;
+
+   /* Copy content and free old buffer */
+   memcpy(crimped, str->buf, new_size);
+   ralloc_free(str->buf);
+
+   str->buf = crimped;
+   str->capacity = new_size;
 }
 
 bool
