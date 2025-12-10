@@ -23,36 +23,46 @@ Please post `inxi -GSC -xx` output ([fenced with triple backticks](https://docs.
 - GPU: (`lspci -nn | grep VGA` or `lshw -C display -numeric`)
 - Kernel version: (run `uname -a`)
 - Mesa version: (`glxinfo -B | grep "OpenGL version string"`)
-- Xserver version (if applicable): (`sudo X -version`)
-- Desktop manager and compositor:
+- Desktop environment or compositor: (`env | grep XDG_CURRENT_DESKTOP`)
 
 #### If applicable
+- Xserver version: (`sudo X -version`)
 - DXVK version:
 - Wine/Proton version:
-
 
 ### Describe the issue
 
 Please describe what you are doing, what you expect and what you're
 seeing instead.  How frequent is the issue? Is it a one time occurrence? Does it appear multiple times but randomly? Can you easily reproduce it?
 
-"It doesn't work" usually is not a helpful description of an issue. 
+"It doesn't work" usually is not a helpful description of an issue.
 The more detail about how things are going wrong, the better.
 
 
 ### Regression
 
-Did it used to work? It can greatly help to know when the issue started.
+Did it used to work in a previous Mesa version? It can greatly help to know when the issue started.
 
 
-### Log files as attachment
+### Log files (for system lockups / game freezes / crashes)
+
+- Backtrace (for crashes)
 - Output of `dmesg`
-- Backtrace
 - Gpu hang details
-
 
 ### Screenshots/video files (if applicable)
 
+For rendering errors, attach screenshots of the problem and (if possible) of how it should look. For freezes, it may be useful to provide a screenshot of the affected game scene. Prefer screenshots over videos.
+
+### Steps to reproduce
+
+How can Mesa developers reproduce the issue? When reporting a game issue, start explaining from a fresh save file and don't assume prior knowledge of the game's story.
+
+Example:
+
+1. `Start new game and enter second mission (takes about 10 minutes)`
+2. `Talk to the NPC called "Frank"`
+3. `Observe flickering on Frank's body`
 
 
 ### Any extra information would be greatly appreciated
