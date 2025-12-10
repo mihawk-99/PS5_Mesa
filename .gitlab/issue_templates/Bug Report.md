@@ -5,7 +5,7 @@
 - For any logs, backtraces, etc - use [code blocks](https://docs.gitlab.com/user/markdown/#code-spans-and-blocks), GitLab removes line breaks without this.
    - Do not paste long logs directly into the description. Use https://gitlab.freedesktop.org/-/snippets/new, attachments, or a pastebin with a long expiration instead.
 - As examples of good bug reports you may review one of these - #2598, #2615, #2608
-
+- If you are making use of an AI/ML based tool for issue reporting, ensure the technical correctness of its output. Do not use such tool solely because you assume it might be helpful. Any output will be treated as if you'd have written it yourself.
 
 Otherwise, please fill the requested information below.
 And please remove anything that doesn't apply to keep things readable :)
