@@ -2788,13 +2788,34 @@ v3dX(cmd_buffer_emit_index_buffer)(struct v3dv_cmd_buffer *cmd_buffer)
    cmd_buffer->state.dirty &= ~V3DV_CMD_DIRTY_INDEX_BUFFER;
 }
 
-void
-v3dX(cmd_buffer_emit_draw_indexed)(struct v3dv_cmd_buffer *cmd_buffer,
-                                   uint32_t indexCount,
-                                   uint32_t instanceCount,
-                                   uint32_t firstIndex,
-                                   int32_t vertexOffset,
-                                   uint32_t firstInstance)
+static uint32_t
+clamp_index_count_to_binding(const struct v3dv_cmd_buffer_state *state,
+                             uint32_t first_index,
+                             uint32_t index_count,
+                             uint32_t index_size)
+{
+   if (index_size == 0 || index_count == 0)
+      return 0;
+
+   const VkDeviceSize first_byte = first_index * index_size;
+   const VkDeviceSize binding_size = state->index_buffer.size;
+
+   if (first_byte >= binding_size)
+      return 0;
+
+   const VkDeviceSize remaining_bytes = binding_size - first_byte;
+   const VkDeviceSize max_indices = remaining_bytes / index_size;
+
+   return MIN2(index_count, max_indices);
+}
+
+static void
+v3dX(cmd_buffer_emit_draw_indexed_internal)(struct v3dv_cmd_buffer *cmd_buffer,
+                                            uint32_t indexCount,
+                                            uint32_t instanceCount,
+                                            uint32_t firstIndex,
+                                            int32_t vertexOffset,
+                                            uint32_t firstInstance)
 {
    struct v3dv_job *job = cmd_buffer->state.job;
    assert(job);
@@ -2841,6 +2862,98 @@ v3dX(cmd_buffer_emit_draw_indexed)(struct v3dv_cmd_buffer *cmd_buffer,
          prim.number_of_instances = instanceCount;
          prim.instance_length = indexCount;
       }
+   }
+}
+
+static void
+robust_index_bo_free(VkDevice _device,
+                     uint64_t bo_ptr,
+                     VkAllocationCallbacks *alloc)
+{
+   V3DV_FROM_HANDLE(v3dv_device, device, _device);
+   v3dv_bo_free(device, (struct v3dv_bo *)(uintptr_t) bo_ptr);
+}
+
+void
+v3dX(cmd_buffer_emit_draw_indexed)(struct v3dv_cmd_buffer *cmd_buffer,
+                                   uint32_t indexCount,
+                                   uint32_t instanceCount,
+                                   uint32_t firstIndex,
+                                   int32_t vertexOffset,
+                                   uint32_t firstInstance)
+{
+   struct v3dv_job *job = cmd_buffer->state.job;
+   assert(job);
+
+   struct v3dv_device *device = cmd_buffer->device;
+   const struct v3dv_cmd_buffer_state *state = &cmd_buffer->state;
+   struct v3dv_buffer *ibuffer =
+      v3dv_buffer_from_handle(state->index_buffer.buffer);
+
+   assert(ibuffer && ibuffer->mem && ibuffer->mem->bo &&
+          state->index_buffer.index_size > 0);
+
+   const uint32_t ib_offset = ibuffer->mem_offset +
+                              state->index_buffer.offset;
+   const uint32_t ib_size = state->index_buffer.size;
+   assert(ibuffer->mem->bo->size >= ib_offset);
+
+   const uint32_t index_size = state->index_buffer.index_size;
+   const uint32_t valid_count =
+      clamp_index_count_to_binding(state, firstIndex, indexCount, index_size);
+
+   if (valid_count == indexCount) {
+      v3dX(cmd_buffer_emit_draw_indexed_internal)(cmd_buffer, indexCount,
+                                                  instanceCount, firstIndex,
+                                                  vertexOffset, firstInstance);
+      return;
+   }
+
+   const uint32_t index_bytes = indexCount * index_size;
+   const uint32_t valid_bytes = valid_count * index_size;
+   struct v3dv_bo *padded_bo =
+      v3dv_bo_alloc(device, index_bytes, "robust_index_padded", true);
+
+   if (!padded_bo || !v3dv_bo_map(device, padded_bo, padded_bo->size)) {
+      v3dv_flag_oom(cmd_buffer, NULL);
+      return;
+   }
+
+   memset(padded_bo->map, 0, index_bytes);
+   const uint32_t src_off = ib_offset + firstIndex * index_size;
+
+   if (!ibuffer->mem->bo->map &&
+         !v3dv_bo_map(device, ibuffer->mem->bo, ibuffer->mem->bo->size)) {
+         v3dv_flag_oom(cmd_buffer, NULL);
+         return;
+   }
+
+   memcpy(padded_bo->map, ibuffer->mem->bo->map + src_off, valid_bytes);
+   v3dv_job_add_bo(job, padded_bo);
+   v3dv_cmd_buffer_add_private_obj(
+      cmd_buffer, (uintptr_t)padded_bo,
+      (v3dv_cmd_buffer_private_obj_destroy_cb) robust_index_bo_free);
+
+   v3dv_cl_ensure_space_with_branch(&job->bcl,
+                                    cl_packet_length(INDEX_BUFFER_SETUP));
+   v3dv_return_if_oom(cmd_buffer, NULL);
+
+   cl_emit(&job->bcl, INDEX_BUFFER_SETUP, ib) {
+      ib.address = v3dv_cl_address(padded_bo, 0);
+      ib.size = index_bytes;
+   }
+
+   v3dX(cmd_buffer_emit_draw_indexed_internal)(cmd_buffer, indexCount,
+                                                instanceCount, 0,
+                                                vertexOffset, firstInstance);
+
+   v3dv_cl_ensure_space_with_branch(&job->bcl,
+                                    cl_packet_length(INDEX_BUFFER_SETUP));
+   v3dv_return_if_oom(cmd_buffer, NULL);
+
+   cl_emit(&job->bcl, INDEX_BUFFER_SETUP, ib) {
+      ib.address = v3dv_cl_address(ibuffer->mem->bo, ib_offset);
+      ib.size = ib_size;
    }
 }
 
