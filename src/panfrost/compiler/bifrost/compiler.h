@@ -1513,6 +1513,7 @@ void bi_opt_dce_post_ra(bi_context *ctx);
 void bi_opt_message_preload(bi_context *ctx);
 void bi_opt_push_ubo(bi_context *ctx);
 void bi_opt_reorder_push(bi_context *ctx);
+void bi_opt_remove_mkvec(bi_context *ctx);
 void bi_lower_swizzle(bi_context *ctx);
 void bi_lower_fau(bi_context *ctx);
 uint64_t bi_instr_read_mask(bi_instr *I, bool staging_only);

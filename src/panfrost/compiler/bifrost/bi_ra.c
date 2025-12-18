@@ -200,7 +200,10 @@ bi_liveness_ins_update_ra(uint8_t *live, bi_instr *ins)
    /* live_in[s] = GEN[s] + (live_out[s] - KILL[s]) */
 
    bi_foreach_dest(ins, d) {
-      live[ins->dest[d].value] &= ~bi_writemask(ins, d);
+      bool partial = ins->dest[d].swizzle == BI_SWIZZLE_H00 ||
+                     ins->dest[d].swizzle == BI_SWIZZLE_H11;
+      if (!partial)
+         live[ins->dest[d].value] &= ~bi_writemask(ins, d);
    }
 
    bi_foreach_ssa_src(ins, src) {
@@ -803,10 +806,35 @@ bi_spill_register(bi_context *ctx, bi_index index, uint32_t offset,
  * LCRA knows how to deal with offsets (broken SSA), but not how to coalesce
  * these vector moves.
  */
+
+static enum bi_swizzle
+bi_compose_half_swizzle(enum bi_swizzle inner, enum bi_swizzle outer)
+{
+   if (outer == BI_SWIZZLE_H11) {
+      switch (inner) {
+      case BI_SWIZZLE_H00:
+      case BI_SWIZZLE_H10:
+         return BI_SWIZZLE_H0;
+      case BI_SWIZZLE_H01:
+      case BI_SWIZZLE_H11:
+         return BI_SWIZZLE_H1;
+      default:
+         return inner;
+      }
+   }
+   return inner;
+}
+
 static void
 bi_lower_vector(bi_context *ctx, unsigned first_reg)
 {
    bi_index *remap = calloc(ctx->ssa_alloc, sizeof(bi_index));
+   bi_instr **defs = calloc(ctx->ssa_alloc, sizeof(bi_instr *));
+
+   bi_foreach_instr_global(ctx, I) {
+      bi_foreach_ssa_dest(I, d)
+         defs[I->dest[d].value] = I;
+   }
 
    bi_foreach_instr_global_safe(ctx, I) {
       bi_builder b = bi_init_builder(ctx, bi_after_instr(I));
@@ -839,6 +867,25 @@ bi_lower_vector(bi_context *ctx, unsigned first_reg)
          }
 
          bi_remove_instruction(I);
+      } else if (I->op == BI_OPCODE_COLLECT_V2I16) {
+         bi_index dest = I->dest[0];
+
+         for (unsigned i = 0; i < 2; ++i) {
+            bi_index src = I->src[i];
+            assert(src.type == BI_INDEX_NORMAL);
+            bi_instr *prod = defs[src.value];
+            assert(prod);
+
+            prod->dest[0] = bi_replace_index(prod->dest[0], dest);
+            prod->dest[0].swizzle =
+               (i == 0) ? BI_SWIZZLE_H00 : BI_SWIZZLE_H11;
+
+            bi_foreach_src(prod, s) {
+               prod->src[s].swizzle = bi_compose_half_swizzle(
+                  prod->src[s].swizzle, prod->dest[0].swizzle);
+            }
+         }
+         bi_remove_instruction(I);
       }
    }
 
@@ -850,6 +897,7 @@ bi_lower_vector(bi_context *ctx, unsigned first_reg)
    }
 
    free(remap);
+   free(defs);
 
    /* After generating a pile of moves, clean up */
    bi_compute_liveness_ra(ctx);

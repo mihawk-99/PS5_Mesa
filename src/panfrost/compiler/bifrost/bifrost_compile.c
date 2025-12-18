@@ -5357,6 +5357,7 @@ bi_compile_variant_nir(nir_shader *nir,
       if (likely(optimize)) {
          bi_opt_cse(ctx);
          bi_opt_dce(ctx, false);
+         bi_opt_remove_mkvec(ctx);
       }
 
       bi_validate(ctx, "Valhall passes");

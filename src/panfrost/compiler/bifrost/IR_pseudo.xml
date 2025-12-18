@@ -169,6 +169,11 @@
 
   <ins name="COLLECT.i32" pseudo="true" variable_srcs="true" unit="add"/>
 
+  <ins name="COLLECT.v2i16" pseudo="true" unit="add">
+    <src start="0"/>
+    <src start="3"/>
+  </ins>
+
   <ins name="SPLIT.i32" pseudo="true" variable_dests="true" unit="add">
     <src start="0"/>
   </ins>
