@@ -65,6 +65,7 @@ if with_tools.contains('drm-shim')
 endif
 if with_imgui
   subdir('imgui')
+  subdir('cimgui')
 endif
 if with_wayland_bind_display
   subdir('egl/wayland/wayland-drm')
