@@ -256,7 +256,6 @@ nv50_init_screen_caps(struct nv50_screen *screen)
    caps->sampler_view_target = true;
    caps->conditional_render_inverted = true;
    caps->clip_halfz = true;
-   caps->memobj = true;
    caps->polygon_offset_clamp = true;
    caps->query_pipeline_statistics = true;
    caps->texture_float_linear = true;

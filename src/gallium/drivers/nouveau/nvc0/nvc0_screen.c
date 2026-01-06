@@ -305,7 +305,6 @@ nvc0_init_screen_caps(struct nvc0_screen *screen)
    caps->draw_parameters = true;
    caps->shader_pack_half_float = true;
    caps->multi_draw_indirect = true;
-   caps->memobj = true;
    caps->multi_draw_indirect_params = true;
    caps->fs_face_is_integer_sysval = true;
    caps->query_buffer_object = true;
