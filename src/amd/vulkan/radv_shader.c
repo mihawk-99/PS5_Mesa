@@ -725,6 +725,9 @@ radv_shader_spirv_to_nir(struct radv_device *device, const struct radv_shader_st
                .lower_ballot_bit_count_to_mbcnt_amd = 1,
                .lower_boolean_reduce = !use_llvm,
                .lower_boolean_shuffle = true,
+               .lower_cs_local_id_yz_to_subgroup_id =
+                  mesa_shader_stage_is_compute(nir->info.stage) &&
+                  nir->info.min_subgroup_size == nir->info.max_subgroup_size,
             });
 
    NIR_PASS(_, nir, nir_lower_load_const_to_scalar);
