@@ -2068,10 +2068,7 @@ prepare_dcd(struct panvk_cmd_buffer *cmdbuf,
              * single ST_TILE in the blend shader with the current sample ID,
              * requiring per-sample shading.
              */
-            cfg.evaluate_per_sample =
-               (fs->info.fs.sample_shading ||
-                cmdbuf->state.gfx.cb.info.needs_shader) &&
-               (dyns->ms.rasterization_samples > 1);
+            cfg.evaluate_per_sample = fs->info.fs.sample_shading;
 
             cfg.shader_modifies_coverage = fs->info.fs.writes_coverage ||
                                            fs->info.fs.can_discard ||

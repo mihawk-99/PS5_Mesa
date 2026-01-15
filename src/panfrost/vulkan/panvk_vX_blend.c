@@ -23,6 +23,7 @@
 struct panvk_blend_shader_key {
    enum panvk_meta_object_key_type type;
    struct pan_blend_shader_key info;
+   bool multisampled;
 };
 
 static bool
@@ -50,7 +51,7 @@ static VkResult
 get_blend_shader(struct panvk_device *dev,
                  const struct pan_blend_state *state,
                  nir_alu_type src0_type, nir_alu_type src1_type,
-                 unsigned rt, uint64_t *shader_addr)
+                 unsigned rt, bool multisampled, uint64_t *shader_addr)
 {
    struct panvk_physical_device *pdev =
       to_panvk_physical_device(dev->vk.physical);
@@ -67,6 +68,7 @@ get_blend_shader(struct panvk_device *dev,
          .equation = state->rts[rt].equation,
          .alpha_to_one = state->alpha_to_one,
       },
+      .multisampled = multisampled,
    };
    struct panvk_internal_shader *shader;
 
@@ -80,7 +82,8 @@ get_blend_shader(struct panvk_device *dev,
       goto out;
 
    nir_shader *nir =
-      GENX(pan_blend_create_shader)(state, src0_type, src1_type, rt, false);
+      GENX(pan_blend_create_shader)(state, src0_type, src1_type, rt,
+                                    multisampled);
 
    NIR_PASS(_, nir, nir_shader_instructions_pass, lower_load_blend_const,
             nir_metadata_control_flow, NULL);
@@ -363,9 +366,12 @@ panvk_per_arch(blend_emit_descs)(struct panvk_cmd_buffer *cmdbuf,
       if (blend_needs_shader(&bs, i, &ff_blend_constant)) {
          nir_alu_type src0_type = fs_info->bifrost.blend[loc].type;
          nir_alu_type src1_type = fs_info->bifrost.blend_src1_type;
+         bool multisampled = rt->nr_samples > 1 &&
+                             !fs_info->fs.sample_shading;
 
          VkResult result = get_blend_shader(dev, &bs, src0_type, src1_type,
-                                            i, &blend_shaders[i]);
+                                            i, multisampled,
+                                            &blend_shaders[i]);
          if (result != VK_SUCCESS)
             return result;
 
