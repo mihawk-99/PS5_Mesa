@@ -80,7 +80,7 @@ get_blend_shader(struct panvk_device *dev,
       goto out;
 
    nir_shader *nir =
-      GENX(pan_blend_create_shader)(state, src0_type, src1_type, rt);
+      GENX(pan_blend_create_shader)(state, src0_type, src1_type, rt, false);
 
    NIR_PASS(_, nir, nir_shader_instructions_pass, lower_load_blend_const,
             nir_metadata_control_flow, NULL);

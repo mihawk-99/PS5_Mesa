@@ -89,7 +89,7 @@ GENX(pan_blend_get_shader_locked)(struct pan_blend_shader_cache *cache,
    _mesa_hash_table_insert(cache->shaders, &shader->key, shader);
 
    nir_shader *nir =
-      GENX(pan_blend_create_shader)(state, src0_type, src1_type, rt);
+      GENX(pan_blend_create_shader)(state, src0_type, src1_type, rt, false);
 
    nir->info.num_ubos = PAN_UBO_SYSVALS + 1;
    nir_shader_intrinsics_pass(nir, pan_lower_blend_constants,

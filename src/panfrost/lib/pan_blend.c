@@ -794,7 +794,7 @@ get_equation_str(const struct pan_blend_rt_state *rt_state, char *str,
 nir_shader *
 GENX(pan_blend_create_shader)(const struct pan_blend_state *state,
                               nir_alu_type src0_type, nir_alu_type src1_type,
-                              unsigned rt)
+                              unsigned rt, bool multisampled)
 {
    const struct pan_blend_rt_state *rt_state = &state->rts[rt];
    char equation_str[128] = {0};
@@ -870,65 +870,99 @@ GENX(pan_blend_create_shader)(const struct pan_blend_state *state,
    const uint64_t opaque_blend_desc = 0;
 #endif
 
-   nir_def *dest;
-   if (PAN_ARCH >= 6) {
-      nir_def *sample_id =
-         rt_state->nr_samples > 1 ? nir_load_sample_id(b) : nir_imm_int(b, 0);
-      dest = nir_load_tile_pan(b,
-         4, dest_bit_size,
-         pan_nir_tile_rt_sample(b, nir_imm_int(b, rt), sample_id),
-         pan_nir_tile_default_coverage(b),
-         nir_imm_int(b, opaque_blend_desc >> 32),
-         .dest_type = dest_type,
-         .io_semantics.location = FRAG_RESULT_DATA0 + rt,
-         .io_semantics.num_slots = 1);
-   } else {
-      dest = nir_load_output(b,
-         4, dest_bit_size,
-         nir_imm_int(b, 0),
-         .dest_type = dest_type,
-         .io_semantics.location = FRAG_RESULT_DATA0 + rt,
-         .io_semantics.num_slots = 1);
-   }
+   /* We only need to do multisampled if we only have one sample */
+   if (rt_state->nr_samples <= 1)
+      multisampled = false;
 
-   nir_def *color = src0;
-   if (state->logicop_enable) {
-      color = nir_color_logicop(b, src0, dest, state->logicop_func, format);
-   } else if (rt_state->equation.blend_enable) {
-      const nir_lower_blend_rt nir_rt = {
-         .format = format,
-         .rgb.func = rt_state->equation.rgb_func,
-         .rgb.src_factor = rt_state->equation.rgb_src_factor,
-         .rgb.dst_factor = rt_state->equation.rgb_dst_factor,
-         .alpha.func = rt_state->equation.alpha_func,
-         .alpha.src_factor = rt_state->equation.alpha_src_factor,
-         .alpha.dst_factor = rt_state->equation.alpha_dst_factor,
-         .colormask = rt_state->equation.color_mask,
-      };
-      color = nir_color_blend(b, src0, src1, dest, &nir_rt, false);
-   }
-
-   color = nir_color_mask(b, color, dest, rt_state->equation.color_mask);
-
-   /* Throw away any channels we don't need */
-   color = nir_color_mask(b, color, nir_undef(b, 4, dest_bit_size),
-                          util_format_colormask(format_desc));
-
-   /* Only write the destination if it changed */
-   if (color != dest) {
-      if (PAN_ARCH >= 6) {
-         nir_blend_pan(b, nir_load_cumulative_coverage_pan(b),
-                       nir_imm_int64(b, opaque_blend_desc),
-                       color,
-                       .src_type = dest_type,
-                       .io_semantics.location = FRAG_RESULT_DATA0 + rt,
-                       .io_semantics.num_slots = 1);
+   const unsigned passes = multisampled ? rt_state->nr_samples : 1;
+   for (unsigned p = 0; p < passes; p++) {
+      nir_if *nif = NULL;
+      nir_def *sample_id;
+      if (multisampled) {
+         nir_def *coverage = nir_load_cumulative_coverage_pan(b);
+         sample_id = nir_imm_int(b, p);
+         nif = nir_push_if(b, nir_test_mask(b, coverage, BITFIELD_BIT(p)));
+      } else if (rt_state->nr_samples > 1) {
+         sample_id = nir_load_sample_id(b);
       } else {
+         sample_id = nir_imm_int(b, 0);
+      }
+
+      nir_def *dest;
+      if (PAN_ARCH >= 6) {
+         dest = nir_load_tile_pan(b,
+            4, dest_bit_size,
+            pan_nir_tile_rt_sample(b, nir_imm_int(b, rt), sample_id),
+            pan_nir_tile_default_coverage(b),
+            nir_imm_int(b, opaque_blend_desc >> 32),
+            .dest_type = dest_type,
+            .io_semantics.location = FRAG_RESULT_DATA0 + rt,
+            .io_semantics.num_slots = 1);
+      } else {
+         assert(!multisampled);
+         dest = nir_load_output(b,
+            4, dest_bit_size,
+            nir_imm_int(b, 0),
+            .dest_type = dest_type,
+            .io_semantics.location = FRAG_RESULT_DATA0 + rt,
+            .io_semantics.num_slots = 1);
+      }
+
+      nir_def *color = src0;
+      if (state->logicop_enable) {
+         color = nir_color_logicop(b, src0, dest, state->logicop_func, format);
+      } else if (rt_state->equation.blend_enable) {
+         const nir_lower_blend_rt nir_rt = {
+            .format = format,
+            .rgb.func = rt_state->equation.rgb_func,
+            .rgb.src_factor = rt_state->equation.rgb_src_factor,
+            .rgb.dst_factor = rt_state->equation.rgb_dst_factor,
+            .alpha.func = rt_state->equation.alpha_func,
+            .alpha.src_factor = rt_state->equation.alpha_src_factor,
+            .alpha.dst_factor = rt_state->equation.alpha_dst_factor,
+            .colormask = rt_state->equation.color_mask,
+         };
+         color = nir_color_blend(b, src0, src1, dest, &nir_rt, false);
+      }
+
+      color = nir_color_mask(b, color, dest, rt_state->equation.color_mask);
+
+      /* Only write the destination if it changed */
+      if (color == dest)
+         continue;
+
+      /* Throw away any channels we don't need */
+      color = nir_color_mask(b, color, nir_undef(b, 4, dest_bit_size),
+                             util_format_colormask(format_desc));
+
+      if (PAN_ARCH >= 6) {
+         if (multisampled) {
+            nir_store_tile_pan(b,
+               color,
+               pan_nir_tile_rt_sample(b, nir_imm_int(b, rt), sample_id),
+               pan_nir_tile_default_coverage(b),
+               nir_imm_int(b, opaque_blend_desc >> 32),
+               .src_type = dest_type,
+               .io_semantics.location = FRAG_RESULT_DATA0 + rt,
+               .io_semantics.num_slots = 1);
+         } else {
+            nir_blend_pan(b, nir_load_cumulative_coverage_pan(b),
+                          nir_imm_int64(b, opaque_blend_desc),
+                          color,
+                          .src_type = dest_type,
+                          .io_semantics.location = FRAG_RESULT_DATA0 + rt,
+                          .io_semantics.num_slots = 1);
+         }
+      } else {
+         assert(!multisampled);
          nir_store_output(b, color, nir_imm_int(b, 0),
                           .src_type = dest_type,
                           .io_semantics.location = FRAG_RESULT_DATA0 + rt,
                           .io_semantics.num_slots = 1);
       }
+
+      if (multisampled)
+         nir_pop_if(b, nif);
    }
 
    if (PAN_ARCH >= 6)

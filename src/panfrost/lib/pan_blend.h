@@ -135,7 +135,8 @@ uint32_t pan_pack_blend(const struct pan_blend_equation equation);
 
 nir_shader *GENX(pan_blend_create_shader)(const struct pan_blend_state *state,
                                           nir_alu_type src0_type,
-                                          nir_alu_type src1_type, unsigned rt);
+                                          nir_alu_type src1_type,
+                                          unsigned rt, bool multisampled);
 
 #if PAN_ARCH >= 6
 uint64_t GENX(pan_blend_get_internal_desc)(enum pipe_format fmt, unsigned rt,
