@@ -670,14 +670,16 @@ static void r600_set_sampler_views(struct pipe_context *pipe,
 	}
 
 	for (i = 0; i < count; i++) {
-		if (rviews[i] == dst->views.views[i]) {
+		struct r600_pipe_sampler_view *const lrview = rviews[i];
+
+		if (lrview == dst->views.views[i]) {
 			continue;
 		}
 
-		if (rviews[i]) {
+		if (lrview) {
 			struct r600_texture *rtex =
-				r600_as_texture(rviews[i]->base.texture);
-			bool is_buffer = rviews[i]->base.texture->target == PIPE_BUFFER;
+				r600_as_texture(lrview->base.texture);
+			bool is_buffer = lrview->base.texture->target == PIPE_BUFFER;
 
 			if (!is_buffer && rtex->db_compatible) {
 				dst->views.compressed_depthtex_mask |= 1 << i;
@@ -696,14 +698,14 @@ static void r600_set_sampler_views(struct pipe_context *pipe,
 			 * updating TEX_ARRAY_OVERRIDE in sampler states on R6xx-R7xx. */
 			if (rctx->b.gfx_level <= R700 &&
 			    (dst->states.enabled_mask & (1 << i)) &&
-			    (rviews[i]->base.texture->target == PIPE_TEXTURE_1D_ARRAY ||
-			     rviews[i]->base.texture->target == PIPE_TEXTURE_2D_ARRAY) != dst->is_array_sampler[i]) {
+			    (lrview->base.texture->target == PIPE_TEXTURE_1D_ARRAY ||
+			     lrview->base.texture->target == PIPE_TEXTURE_2D_ARRAY) != dst->is_array_sampler[i]) {
 				dirty_sampler_states_mask |= 1 << i;
 			}
 
-			pipe_sampler_view_reference((struct pipe_sampler_view **)&dst->views.views[i], views[i]);
+			pipe_sampler_view_reference((struct pipe_sampler_view **)&dst->views.views[i], &lrview->base);
 			new_mask |= 1 << i;
-			r600_context_add_resource_size(pipe, views[i]->texture);
+			r600_context_add_resource_size(pipe, lrview->base.texture);
 		} else {
 			pipe_sampler_view_reference((struct pipe_sampler_view **)&dst->views.views[i], NULL);
 			disable_mask |= 1 << i;
