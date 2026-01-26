@@ -258,6 +258,12 @@ struct r600_screen {
 	struct compute_memory_pool *global_pool;
 };
 
+enum gather_workaround_mode {
+	gw_nop,
+	gw_standard,
+	gw_zero_one_fallback,
+};
+
 struct r600_pipe_sampler_view {
 	struct pipe_sampler_view	base;
 	struct list_head		list;
@@ -266,6 +272,9 @@ struct r600_pipe_sampler_view {
 	uint32_t			tex_resource_words[8];
 	bool				skip_mip_address_reloc;
 	bool				is_stencil_sampler;
+	enum gather_workaround_mode     gather_signal_about_workaround;
+	bool                            gather_view_enabled;
+	struct r600_pipe_sampler_view  *gather_view;
 };
 
 struct r600_rasterizer_state {
@@ -364,6 +373,8 @@ struct r600_samplerview_state {
 	uint32_t			compressed_depthtex_mask; /* which textures are depth */
 	uint32_t			compressed_colortex_mask;
 	bool				dirty_buffer_constants;
+	bool                            gather_workaround[NUM_TEX_UNITS];
+	uint32_t                        gather_tex_words[NUM_TEX_UNITS][8];
 	bool				shared_state;
 };
 
@@ -744,6 +755,12 @@ uint32_t evergreen_construct_rat_mask(struct r600_context *rctx, struct r600_cb_
 void evergreen_convert_border_color(const union pipe_color_union *in,
 				    union pipe_color_union *out,
 				    const struct pipe_sampler_view *view);
+bool evergreen_gather_workaround(struct r600_context *rctx,
+				 struct r600_pipe_sampler_view *const rview,
+				 uint32_t *const tex_words, const unsigned gather,
+				 const bool tex,
+				 const enum gather_workaround_mode gather_mode,
+				 bool *const gather_workaround);
 
 /* r600_blit.c */
 void r600_init_blit_functions(struct r600_context *rctx);
@@ -878,7 +895,8 @@ unsigned r600_get_swizzle_combined(const unsigned char *swizzle_format,
 uint32_t r600_translate_texformat(struct pipe_screen *screen, enum pipe_format format,
 				  const unsigned char *swizzle_view,
 				  uint32_t *word4_p, uint32_t *yuv_format_p,
-				  bool do_endian_swap);
+				  bool do_endian_swap,
+				  enum gather_workaround_mode *const gather_signal_about_workaround);
 uint32_t r600_translate_colorformat(enum amd_gfx_level chip, enum pipe_format format,
 				  bool do_endian_swap);
 uint32_t r600_colorformat_endian_swap(uint32_t colorformat, bool do_endian_swap);

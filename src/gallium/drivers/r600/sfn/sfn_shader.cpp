@@ -144,6 +144,7 @@ Shader::Shader(const char *type_id):
    m_instr_factory = new InstrFactory();
    m_chain_instr.this_shader = this;
    start_new_block(0);
+   memset(&gather_workaround, 0, sizeof(gather_workaround));
 }
 
 void

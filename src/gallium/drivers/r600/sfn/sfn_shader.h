@@ -249,6 +249,8 @@ public:
 
    auto required_registers() const { return m_required_registers;}
 
+   struct gather_workaround gather_workaround;
+
 protected:
    enum ESlots {
       es_face,

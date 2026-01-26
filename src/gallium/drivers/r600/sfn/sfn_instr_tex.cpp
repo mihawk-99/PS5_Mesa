@@ -569,6 +569,12 @@ TexInstr::emit_lowered_tex(nir_tex_instr *tex, Inputs& src, Shader& shader)
 
    irt->set_inst_mode(inst_mode);
 
+   if (tex->op == nir_texop_tg4) {
+      shader.gather_workaround.gather[tex->texture_index] |= 1U << inst_mode;
+   } else {
+      shader.gather_workaround.tex[tex->texture_index] = true;
+   }
+
    shader.emit_instruction(irt);
    return true;
 }
