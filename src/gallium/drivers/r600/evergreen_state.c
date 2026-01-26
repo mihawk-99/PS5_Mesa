@@ -2493,16 +2493,16 @@ static void evergreen_emit_sampler_views(struct r600_context *rctx,
 	uint32_t dirty_mask = state->dirty_mask;
 
 	while (dirty_mask) {
-		struct r600_pipe_sampler_view *rview;
-		unsigned resource_index = u_bit_scan(&dirty_mask);
+		const unsigned resource_index = u_bit_scan(&dirty_mask);
+		const struct r600_pipe_sampler_view *const rview = state->views[resource_index];
+		const uint32_t *const tex_words = rview->tex_resource_words;
 		unsigned reloc;
 
-		rview = state->views[resource_index];
 		assert(rview);
 
 		radeon_emit(cs, PKT3(PKT3_SET_RESOURCE, 8, 0) | pkt_flags);
 		radeon_emit(cs, (resource_id_base + resource_index) * 8);
-		radeon_emit_array(cs, rview->tex_resource_words, 8);
+		radeon_emit_array(cs, tex_words, 8);
 
 		reloc = radeon_add_to_buffer_list(&rctx->b, &rctx->b.gfx, rview->tex_resource,
 					      RADEON_USAGE_READ |
