@@ -309,7 +309,7 @@ static void r600_init_shader_caps(struct r600_screen *rscreen)
 		caps->integers = true;
 		caps->tgsi_any_inout_decl_range = true;
 		caps->max_texture_samplers =
-		caps->max_sampler_views = 16;
+		caps->max_sampler_views = NUM_TEX_UNITS;
 
 		caps->supported_irs = 1 << PIPE_SHADER_IR_NIR;
 

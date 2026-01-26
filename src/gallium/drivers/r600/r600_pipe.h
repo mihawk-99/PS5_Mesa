@@ -12,6 +12,7 @@
 #include "r600_cs.h"
 #include "r600_public.h"
 #include "r600_atomics.h"
+#include "r600_tex_units.h"
 #include "pipe/p_defines.h"
 
 #include "util/u_suballoc.h"
@@ -349,9 +350,6 @@ struct r600_pipe_sampler_state {
 	bool				border_color_use;
 	bool				seamless_cube_map;
 };
-
-/* needed for blitter save */
-#define NUM_TEX_UNITS 16
 
 struct r600_seamless_cube_map {
 	struct r600_atom		atom;
