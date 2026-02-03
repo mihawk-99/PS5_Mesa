@@ -72,6 +72,7 @@ nvk_files = files(
   'nvk_wsi.h',
   'layers/nvk_app_workarounds.c',
   'layers/nvk_app_workarounds.h',
+  'layers/nvk_hud_layer.c',
   'nvkmd/nouveau/nvkmd_nouveau.h',
   'nvkmd/nouveau/nvkmd_nouveau_ctx.c',
   'nvkmd/nouveau/nvkmd_nouveau_dev.c',
@@ -87,15 +88,25 @@ nvkcl_files = files(
   'cl/nvk_copy_indirect.cl',
 )
 
+nvk_entrypoints_gen_command = [
+  prog_python, '@INPUT0@', '--xml', '@INPUT1@', '--proto', '--weak',
+  '--out-h', '@OUTPUT0@', '--out-c', '@OUTPUT1@',
+  '--beta', with_vulkan_beta.to_string()
+]
+
+nvk_entrypoints_gen_command += [
+  # NVK entrypooints
+  '--prefix', 'nvk',
+
+  # HUD layer entrypoints
+  '--device-prefix', 'hud',
+]
+
 nvk_entrypoints = custom_target(
   'nvk_entrypoints',
   input : [vk_entrypoints_gen, vk_api_xml],
   output : ['nvk_entrypoints.h', 'nvk_entrypoints.c'],
-  command : [
-    prog_python, '@INPUT0@', '--xml', '@INPUT1@', '--proto', '--weak',
-    '--out-h', '@OUTPUT0@', '--out-c', '@OUTPUT1@', '--prefix', 'nvk',
-    '--beta', with_vulkan_beta.to_string(),
-  ],
+  command : nvk_entrypoints_gen_command,
   depend_files : vk_entrypoints_gen_depend_files,
 )
 
@@ -157,6 +168,8 @@ if with_platform_android
   nvk_files += files('nvk_android.c')
 endif
 
+subdir('layers')
+
 libnvk = static_library(
   'nvk',
   [
@@ -166,6 +179,7 @@ libnvk = static_library(
     nvk_files,
     nvkcl,
     sha1_h,
+    hud_spv,
   ],
   include_directories : [
     inc_include,
@@ -180,6 +194,7 @@ libvulkan_nouveau = shared_library(
   'vulkan_nouveau',
   link_whole : [libnvk],
   link_args: [ld_args_build_id, ld_args_bsymbolic, ld_args_gc_sections],
+  link_with : [libcimgui],
   gnu_symbol_visibility : 'hidden',
   install : true,
 )

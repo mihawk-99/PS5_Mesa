@@ -136,7 +136,6 @@ endif
 
 with_any_vulkan_layers = get_option('vulkan-layers').length() != 0
 with_intel_tools = with_tools.contains('intel') or with_tools.contains('intel-ui')
-with_imgui = with_intel_tools or with_vulkan_overlay_layer or with_tools.contains('rti')
 
 dri_drivers_path = get_option('dri-drivers-path')
 if dri_drivers_path == ''
@@ -461,6 +460,8 @@ endforeach
 foreach c : all_codecs
    pre_args += '-DVIDEO_CODEC_@0@=@1@'.format(c.to_upper(), _codecs.contains(c).to_int())
 endforeach
+
+with_imgui = with_intel_tools or with_vulkan_overlay_layer or with_nouveau_vk or with_tools.contains('rti')
 
 _platforms = get_option('platforms')
 if _platforms.contains('auto')

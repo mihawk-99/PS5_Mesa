@@ -216,9 +216,11 @@ init_dispatch_tables(struct nvk_device *dev)
    struct dispatch_table_builder b = {0};
    b.tables[NVK_DEVICE_DISPATCH_TABLE] = &dev->vk.dispatch_table;
    b.tables[NVK_APP_DISPATCH_TABLE] = &dev->layer_dispatch.app;
+   b.tables[NVK_HUD_DISPATCH_TABLE] = &dev->layer_dispatch.hud;
 
    init_app_workarounds_entrypoints(dev, &b);
 
+   add_entrypoints(&b, &hud_device_entrypoints, NVK_HUD_DISPATCH_TABLE);
    add_entrypoints(&b, &nvk_device_entrypoints, NVK_DISPATCH_TABLE_COUNT);
    add_entrypoints(&b, &wsi_device_entrypoints, NVK_DISPATCH_TABLE_COUNT);
    add_entrypoints(&b, &vk_common_device_entrypoints, NVK_DISPATCH_TABLE_COUNT);

@@ -450,6 +450,9 @@ nvk_queue_create(struct nvk_device *dev,
 
    queue->vk.driver_submit = nvk_queue_submit;
 
+   if (queue_family->queue_flags & VK_QUEUE_GRAPHICS_BIT)
+      dev->gfx_queue = queue;
+
    return VK_SUCCESS;
 
 fail_push_stream:

@@ -53,6 +53,8 @@ struct nvk_queue {
    struct nvkmd_mem *draw_cb0;
 };
 
+VK_DEFINE_HANDLE_CASTS(nvk_queue, vk.base, VkQueue, VK_OBJECT_TYPE_QUEUE)
+
 static inline struct nvk_device *
 nvk_queue_device(struct nvk_queue *queue)
 {
