@@ -167,13 +167,20 @@ struct panvk_cs_deps {
    bool needs_layout_transitions;
 };
 
+#if PAN_ARCH > 10
+#define NUM_SB_ENTRIES 16
+#else
+#define NUM_SB_ENTRIES 8
+#endif
+
 enum panvk_sb_ids {
    PANVK_SB_LS = 0,
    PANVK_SB_IMM_FLUSH = 0,
    PANVK_SB_DEFERRED_SYNC = 1,
    PANVK_SB_DEFERRED_FLUSH = 2,
-   PANVK_SB_ITER_START = 3,
-   PANVK_SB_ITER_COUNT = 5,
+   PANVK_SB_DEFERRED_IGNORE = 3,
+   PANVK_SB_ITER_START = 4,
+   PANVK_SB_ITER_COUNT = NUM_SB_ENTRIES - (PANVK_SB_ITER_START + 1),
 };
 
 #define SB_IMM_MASK     0

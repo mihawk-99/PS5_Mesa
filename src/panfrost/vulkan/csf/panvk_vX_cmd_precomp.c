@@ -22,13 +22,8 @@ panvk_per_arch(dispatch_precomp)(struct panvk_precomp_ctx *ctx,
                                  enum libpan_shaders_program idx, void *data,
                                  size_t data_size)
 {
-   ASSERTED enum panlib_barrier supported_barriers =
-      PANLIB_BARRIER_CSF_SYNC | PANLIB_BARRIER_CSF_WAIT;
+   enum panlib_barrier supported_barriers = PANLIB_BARRIER_CSF_WAIT;
    assert(!(barrier & ~supported_barriers) && "Unsupported barrier flags");
-   assert(!(barrier & PANLIB_BARRIER_CSF_SYNC &&
-            barrier & PANLIB_BARRIER_CSF_WAIT) &&
-          "Cannot use both CSF_SYNC and CSF_WAIT barriers simultaneously");
-
 
    struct panvk_cmd_buffer *cmdbuf = ctx->cmdbuf;
    struct panvk_device *dev = to_panvk_device(cmdbuf->vk.base.device);
@@ -163,43 +158,7 @@ panvk_per_arch(dispatch_precomp)(struct panvk_precomp_ctx *ctx,
    cs_trace_run_compute(b, tracing_ctx, cs_scratch_reg_tuple(b, 0, 4),
                         task_increment, task_axis, PANVK_PRECOMP_RES_SEL);
 
-   if (barrier & PANLIB_BARRIER_CSF_SYNC) {
-#if PAN_ARCH >= 11
-      struct cs_index sync_addr = cs_scratch_reg64(b, 0);
-      struct cs_index add_val = cs_scratch_reg64(b, 2);
-
-      cs_load64_to(b, sync_addr, cs_subqueue_ctx_reg(b),
-                   offsetof(struct panvk_cs_subqueue_context, syncobjs));
-      cs_add64(b, sync_addr, sync_addr,
-               PANVK_SUBQUEUE_COMPUTE * sizeof(struct panvk_cs_sync64));
-      cs_move64_to(b, add_val, 1);
-      panvk_instr_sync64_add(cmdbuf, PANVK_SUBQUEUE_COMPUTE, true,
-                             MALI_CS_SYNC_SCOPE_CSG, add_val, sync_addr,
-                             cs_defer_indirect());
-#else
-      struct cs_index sync_addr = cs_scratch_reg64(b, 0);
-      struct cs_index iter_sb = cs_scratch_reg32(b, 2);
-      struct cs_index cmp_scratch = cs_scratch_reg32(b, 3);
-      struct cs_index add_val = cs_scratch_reg64(b, 4);
-
-      cs_load_to(b, cs_scratch_reg_tuple(b, 0, 3), cs_subqueue_ctx_reg(b),
-                 BITFIELD_MASK(3),
-                 offsetof(struct panvk_cs_subqueue_context, syncobjs));
-
-      cs_add64(b, sync_addr, sync_addr,
-               PANVK_SUBQUEUE_COMPUTE * sizeof(struct panvk_cs_sync64));
-      cs_move64_to(b, add_val, 1);
-
-      cs_match_iter_sb(b, x, iter_sb, cmp_scratch) {
-         panvk_instr_sync64_add(cmdbuf, PANVK_SUBQUEUE_COMPUTE, true,
-                                MALI_CS_SYNC_SCOPE_CSG, add_val, sync_addr,
-                                cs_defer(SB_WAIT_ITER(x),
-                                         SB_ID(DEFERRED_SYNC)));
-      }
-#endif
-
-      ++cmdbuf->state.cs[PANVK_SUBQUEUE_COMPUTE].relative_sync_point;
-   } else if (barrier & PANLIB_BARRIER_CSF_WAIT) {
+   if (barrier & PANLIB_BARRIER_CSF_WAIT) {
 #if PAN_ARCH >= 11
       cs_wait_indirect(b);
 #else

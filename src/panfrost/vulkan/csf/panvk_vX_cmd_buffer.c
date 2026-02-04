@@ -649,17 +649,31 @@ panvk_per_arch(emit_barrier)(struct panvk_cmd_buffer *cmdbuf,
 
       /* If no one waits on us, there's no point signaling the sync object. */
       if (wait_subqueue_mask & BITFIELD_BIT(i)) {
-         struct cs_index sync_addr = cs_scratch_reg64(b, 0);
-         struct cs_index add_val = cs_scratch_reg64(b, 2);
-
          assert(deps.src[i].wait_sb_mask);
 
+         /* Check if we have not encoded a self WAIT yet */
+         const uint16_t all_iters_mask =
+            to_panvk_device(cmdbuf->vk.base.device)->csf.sb.all_iters_mask;
+         const bool has_self_wait =
+            (deps.src[i].wait_sb_mask & all_iters_mask) == all_iters_mask;
+
+         struct cs_async_op async;
+         if (has_self_wait) {
+            /* There is already a WAIT on all_iters_mask, signal immediate */
+            async = cs_now();
+         } else {
+            async = cs_defer(all_iters_mask, SB_ID(DEFERRED_IGNORE));
+         }
+
+         /* We need a self wait before signalling any other subqueue */
+         struct cs_index sync_addr = cs_scratch_reg64(b, 0);
+         struct cs_index add_val = cs_scratch_reg64(b, 2);
          cs_load64_to(b, sync_addr, cs_subqueue_ctx_reg(b),
                       offsetof(struct panvk_cs_subqueue_context, syncobjs));
          cs_add64(b, sync_addr, sync_addr, sizeof(struct panvk_cs_sync64) * i);
          cs_move64_to(b, add_val, 1);
          panvk_instr_sync64_add(cmdbuf, i, true, MALI_CS_SYNC_SCOPE_CSG,
-                                add_val, sync_addr, cs_now());
+                                add_val, sync_addr, async);
          ++cs_state->relative_sync_point;
       }
    }

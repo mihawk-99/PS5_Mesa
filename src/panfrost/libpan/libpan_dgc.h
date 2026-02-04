@@ -11,10 +11,8 @@ enum panlib_barrier {
    PANLIB_BARRIER_NONE = 0,
    PANLIB_BARRIER_JM_BARRIER = (1 << 0),
    PANLIB_BARRIER_JM_SUPPRESS_PREFETCH = (1 << 1),
-   /* On panvk, increment the syncobj on the compute subqueue */
-   PANLIB_BARRIER_CSF_SYNC = (1 << 2),
    /* On panvk, insert a WAIT on the compute dispatch */
-   PANLIB_BARRIER_CSF_WAIT = (1 << 3),
+   PANLIB_BARRIER_CSF_WAIT = (1 << 2),
 };
 
 struct panlib_precomp_grid {
