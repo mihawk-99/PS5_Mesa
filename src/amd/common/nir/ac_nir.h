@@ -471,6 +471,9 @@ ac_nir_op_supports_packed_math_16bit(const nir_alu_instr* alu);
 uint8_t
 ac_nir_opt_vectorize_cb(const nir_instr *instr, const void *data);
 
+bool
+ac_nir_lower_non_uniform_ubo_ssbo_to_global(nir_shader *nir);
+
 #ifdef __cplusplus
 }
 #endif

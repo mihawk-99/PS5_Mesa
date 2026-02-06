@@ -141,6 +141,7 @@ amd_common_files = files(
   'nir/ac_nir_lower_legacy_gs.c',
   'nir/ac_nir_lower_legacy_vs.c',
   'nir/ac_nir_lower_mem_access_bit_sizes.c',
+  'nir/ac_nir_lower_non_uniform_ubo_ssbo_to_global.c',
   'nir/ac_nir_lower_resinfo.c',
   'nir/ac_nir_lower_taskmesh_io_to_mem.c',
   'nir/ac_nir_lower_tess_io_to_mem.c',
