@@ -309,7 +309,7 @@ radv_postprocess_nir(struct radv_device *device, const struct radv_graphics_stat
 
    enum nir_lower_non_uniform_access_type lower_non_uniform_access_types =
       nir_lower_non_uniform_ubo_access | nir_lower_non_uniform_ssbo_access | nir_lower_non_uniform_texture_access |
-      nir_lower_non_uniform_image_access | nir_lower_non_uniform_texture_query | nir_lower_non_uniform_image_query;
+      nir_lower_non_uniform_image_access;
 
    /* In practice, most shaders do not have non-uniform-qualified
     * accesses (see

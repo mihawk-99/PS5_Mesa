@@ -951,7 +951,7 @@ static void si_postprocess_nir(struct si_nir_shader_ctx *ctx)
    /* LLVM does not work well with this, so is handled in llvm backend waterfall. */
    if (nir->info.use_aco_amd && ctx->temp_info.has_non_uniform_tex_access) {
       nir_lower_non_uniform_access_options options = {
-         .types = nir_lower_non_uniform_texture_access | nir_lower_non_uniform_texture_query,
+         .types = nir_lower_non_uniform_texture_access,
       };
       NIR_PASS(progress, nir, nir_lower_non_uniform_access, &options);
    }
