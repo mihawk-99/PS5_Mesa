@@ -1514,13 +1514,6 @@ static LLVMValueRef extract_vector_range(struct ac_llvm_context *ctx, LLVMValueR
    }
 }
 
-static LLVMValueRef enter_waterfall_ssbo(struct ac_nir_context *ctx, struct waterfall_context *wctx,
-                                         const nir_intrinsic_instr *instr, nir_src src)
-{
-   return enter_waterfall(ctx, wctx, get_src(ctx, src),
-                          nir_intrinsic_access(instr) & ACCESS_NON_UNIFORM);
-}
-
 static void visit_store_ssbo(struct ac_nir_context *ctx, nir_intrinsic_instr *instr)
 {
    LLVMValueRef src_data = get_src(ctx, instr->src[0]);
@@ -1529,9 +1522,7 @@ static void visit_store_ssbo(struct ac_nir_context *ctx, nir_intrinsic_instr *in
    enum gl_access_qualifier access = nir_intrinsic_access(instr);
    bool may_subdword = ac_nir_store_may_be_subdword(instr);
 
-   struct waterfall_context wctx;
-   LLVMValueRef rsrc_base = enter_waterfall_ssbo(ctx, &wctx, instr, instr->src[1]);
-
+   LLVMValueRef rsrc_base = get_src(ctx, instr->src[1]);
    LLVMValueRef rsrc = ctx->abi->load_ssbo ?
       ctx->abi->load_ssbo(ctx->abi, rsrc_base, true, false) : rsrc_base;
 
@@ -1611,8 +1602,6 @@ static void visit_store_ssbo(struct ac_nir_context *ctx, nir_intrinsic_instr *in
                                      ctx->ac.i32_0, access, may_subdword);
       }
    }
-
-   exit_waterfall(ctx, &wctx, NULL);
 }
 
 static LLVMValueRef emit_ssbo_comp_swap_64(struct ac_nir_context *ctx, LLVMValueRef descriptor,
@@ -1730,8 +1719,7 @@ static LLVMValueRef visit_atomic_ssbo(struct ac_nir_context *ctx, nir_intrinsic_
    LLVMValueRef result;
    int arg_count = 0;
 
-   struct waterfall_context wctx;
-   LLVMValueRef rsrc_base = enter_waterfall_ssbo(ctx, &wctx, instr, instr->src[0]);
+   LLVMValueRef rsrc_base = get_src(ctx, instr->src[0]);
 
    descriptor = ctx->abi->load_ssbo ?
       ctx->abi->load_ssbo(ctx->abi, rsrc_base, true, false) : rsrc_base;
@@ -1769,13 +1757,12 @@ static LLVMValueRef visit_atomic_ssbo(struct ac_nir_context *ctx, nir_intrinsic_
       }
    }
 
-   return exit_waterfall(ctx, &wctx, result);
+   return result;
 }
 
-static LLVMValueRef visit_load_buffer(struct ac_nir_context *ctx, nir_intrinsic_instr *instr)
+static LLVMValueRef visit_load_ssbo(struct ac_nir_context *ctx, nir_intrinsic_instr *instr)
 {
-   struct waterfall_context wctx;
-   LLVMValueRef rsrc_base = enter_waterfall_ssbo(ctx, &wctx, instr, instr->src[0]);
+   LLVMValueRef rsrc_base = get_src(ctx, instr->src[0]);
 
    int elem_size_bytes = instr->def.bit_size / 8;
    int num_components = instr->num_components;
@@ -1828,15 +1815,7 @@ static LLVMValueRef visit_load_buffer(struct ac_nir_context *ctx, nir_intrinsic_
       i += num_elems;
    }
 
-   LLVMValueRef ret = ac_build_gather_values(&ctx->ac, results, num_components);
-   return exit_waterfall(ctx, &wctx, ret);
-}
-
-static LLVMValueRef enter_waterfall_ubo(struct ac_nir_context *ctx, struct waterfall_context *wctx,
-                                        const nir_intrinsic_instr *instr)
-{
-   return enter_waterfall(ctx, wctx, get_src(ctx, instr->src[0]),
-                          nir_intrinsic_access(instr) & ACCESS_NON_UNIFORM);
+   return ac_build_gather_values(&ctx->ac, results, num_components);
 }
 
 static LLVMValueRef get_global_address(struct ac_nir_context *ctx,
@@ -2009,11 +1988,9 @@ static LLVMValueRef visit_global_atomic(struct ac_nir_context *ctx,
 
 static LLVMValueRef visit_load_ubo_buffer(struct ac_nir_context *ctx, nir_intrinsic_instr *instr)
 {
-   struct waterfall_context wctx;
-   LLVMValueRef rsrc_base = enter_waterfall_ubo(ctx, &wctx, instr);
-
+   assert(!(nir_intrinsic_access(instr) & ACCESS_NON_UNIFORM));
    LLVMValueRef ret;
-   LLVMValueRef rsrc = rsrc_base;
+   LLVMValueRef rsrc = get_src(ctx, instr->src[0]);
    LLVMValueRef offset = get_src(ctx, instr->src[1]);
    int num_components = instr->num_components;
 
@@ -2028,9 +2005,7 @@ static LLVMValueRef visit_load_ubo_buffer(struct ac_nir_context *ctx, nir_intrin
 
    ret = ac_build_buffer_load(&ctx->ac, rsrc, num_components, NULL, offset, NULL,
                               ctx->ac.f32, 0, true, true);
-   ret = LLVMBuildBitCast(ctx->ac.builder, ret, get_def_type(ctx, &instr->def), "");
-
-   return exit_waterfall(ctx, &wctx, ret);
+   return LLVMBuildBitCast(ctx->ac.builder, ret, get_def_type(ctx, &instr->def), "");
 }
 
 static void visit_store_output(struct ac_nir_context *ctx, nir_intrinsic_instr *instr)
@@ -2731,7 +2706,7 @@ static bool visit_intrinsic(struct ac_nir_context *ctx, nir_intrinsic_instr *ins
       visit_store_ssbo(ctx, instr);
       break;
    case nir_intrinsic_load_ssbo:
-      result = visit_load_buffer(ctx, instr);
+      result = visit_load_ssbo(ctx, instr);
       break;
    case nir_intrinsic_load_global_amd:
    case nir_intrinsic_load_shared:
