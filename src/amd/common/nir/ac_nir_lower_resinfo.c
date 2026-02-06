@@ -238,14 +238,21 @@ static bool lower_resinfo(nir_builder *b, nir_instr *instr, void *data)
    nir_def *result = NULL;
 
    if (instr->type == nir_instr_type_intrinsic &&
-       nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_get_ssbo_size) {
+       (nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_get_ubo_size ||
+        nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_get_ssbo_size)) {
       /* Lower get_ssbo_size to ssbo_descriptor_amd. */
       nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
 
       b->cursor = nir_before_instr(instr);
 
-      nir_def *desc = nir_ssbo_descriptor_amd(b, intr->src[0].ssa,
-                                              .access = nir_intrinsic_access(intr));
+      nir_def *desc;
+      if (intr->intrinsic == nir_intrinsic_get_ubo_size) {
+         desc = nir_ubo_descriptor_amd(b, intr->src[0].ssa,
+                                       .access = nir_intrinsic_access(intr));
+      } else {
+         desc = nir_ssbo_descriptor_amd(b, intr->src[0].ssa,
+                                        .access = nir_intrinsic_access(intr));
+      }
       result = nir_u2uN(b, nir_channel(b, desc, 2), nir_instr_def(instr)->bit_size);
    } else if (instr->type == nir_instr_type_intrinsic) {
       nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
