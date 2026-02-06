@@ -316,6 +316,11 @@ static bool lower_resource_intrinsic(nir_builder *b, nir_intrinsic_instr *intrin
       nir_def_replace(&intrin->def, load_ssbo_desc(b, &intrin->src[0], s));
       break;
    }
+   case nir_intrinsic_ubo_descriptor_amd: {
+      assert(!(nir_intrinsic_access(intrin) & ACCESS_NON_UNIFORM));
+      nir_def_replace(&intrin->def, load_ubo_desc(b, intrin->src[0].ssa, s));
+      break;
+   }
    case nir_intrinsic_image_deref_load:
    case nir_intrinsic_image_deref_sparse_load:
    case nir_intrinsic_image_deref_fragment_mask_load_amd:

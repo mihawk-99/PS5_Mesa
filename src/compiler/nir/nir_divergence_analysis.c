@@ -638,6 +638,7 @@ visit_intrinsic(nir_intrinsic_instr *instr, struct divergence_state *state)
    }
 
    case nir_intrinsic_get_ssbo_size:
+   case nir_intrinsic_ubo_descriptor_amd:
    case nir_intrinsic_ssbo_descriptor_amd:
    case nir_intrinsic_deref_buffer_array_length:
    case nir_intrinsic_load_texel_buf_conv_pan:

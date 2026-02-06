@@ -210,7 +210,7 @@ load_buffer_descriptor(nir_builder *b, apply_layout_state *state, nir_def *rsrc,
 }
 
 static void
-visit_ssbo_descriptor_amd(nir_builder *b, apply_layout_state *state, nir_intrinsic_instr *intrin)
+visit_ubo_ssbo_descriptor_amd(nir_builder *b, apply_layout_state *state, nir_intrinsic_instr *intrin)
 {
    nir_def *rsrc = intrin->src[0].ssa;
    nir_def *desc;
@@ -442,8 +442,9 @@ apply_layout_to_intrin(nir_builder *b, apply_layout_state *state, nir_intrinsic_
       rsrc = load_buffer_descriptor(b, state, intrin->src[1].ssa, nir_intrinsic_access(intrin));
       nir_src_rewrite(&intrin->src[1], rsrc);
       break;
+   case nir_intrinsic_ubo_descriptor_amd:
    case nir_intrinsic_ssbo_descriptor_amd:
-      visit_ssbo_descriptor_amd(b, state, intrin);
+      visit_ubo_ssbo_descriptor_amd(b, state, intrin);
       break;
    case nir_intrinsic_image_deref_load:
    case nir_intrinsic_image_deref_sparse_load:
