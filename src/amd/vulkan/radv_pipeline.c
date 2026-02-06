@@ -307,23 +307,23 @@ radv_postprocess_nir(struct radv_device *device, const struct radv_graphics_stat
       }
    }
 
-   enum nir_lower_non_uniform_access_type lower_non_uniform_access_types =
-      nir_lower_non_uniform_ubo_access | nir_lower_non_uniform_ssbo_access | nir_lower_non_uniform_texture_access |
-      nir_lower_non_uniform_image_access;
-
    /* In practice, most shaders do not have non-uniform-qualified
     * accesses (see
     * https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/17558#note_1475069)
     * thus a cheaper and likely to fail check is run first.
     */
-   if (nir_has_non_uniform_access(stage->nir, lower_non_uniform_access_types)) {
+   if (nir_has_non_uniform_access(stage->nir, nir_lower_non_uniform_ubo_access | nir_lower_non_uniform_ssbo_access |
+                                  nir_lower_non_uniform_texture_access | nir_lower_non_uniform_image_access)) {
       if (!stage->key.optimisations_disabled) {
          NIR_PASS(_, stage->nir, nir_opt_non_uniform_access);
       }
 
+      NIR_PASS(_, stage->nir, ac_nir_lower_non_uniform_ubo_ssbo_to_global);
+
       if (!radv_use_llvm_for_stage(pdev, stage->stage)) {
          nir_lower_non_uniform_access_options options = {
-            .types = lower_non_uniform_access_types,
+            .types = nir_lower_non_uniform_texture_access |
+                     nir_lower_non_uniform_image_access,
             .callback = &non_uniform_access_callback,
             .callback_data = NULL,
          };
