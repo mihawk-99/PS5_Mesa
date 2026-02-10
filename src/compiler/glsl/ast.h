@@ -690,6 +690,9 @@ struct ast_type_qualifier {
          unsigned task_payload:1;
          unsigned per_primitive:1;
          unsigned max_primitives:1;
+
+         /** GL_EXT_YUV_target */
+         unsigned yuv:1;
       }
       /** \brief Set of flags, accessed by name. */
       q;

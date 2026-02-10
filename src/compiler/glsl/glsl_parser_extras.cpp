@@ -1356,6 +1356,8 @@ _mesa_ast_type_qualifier_print(const struct ast_type_qualifier *q)
       printf("noperspective ");
    if (q->flags.q.per_primitive)
       printf("per_primitive ");
+   if (q->flags.q.yuv)
+      printf("yuv ");
 }
 
 

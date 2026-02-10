@@ -1753,6 +1753,24 @@ layout_qualifier_id:
          }
       }
 
+      /* Layout qualifier for EXT_YUV_target. */
+      if (match_layout_qualifier($1, "yuv", state) == 0) {
+         if (state->stage != MESA_SHADER_FRAGMENT) {
+            _mesa_glsl_error(& @1, state,
+                              "yuv layout qualifier only valid in fragment "
+                              "shaders");
+         }
+
+         if (state->EXT_YUV_target_enable) {
+            $$.flags.q.yuv = 1;
+         } else {
+            _mesa_glsl_error(& @1, state,
+                              "yuv layout qualifier present, but the "
+                              "EXT_YUV_target_enable extension is not "
+                              "enabled.");
+         }
+      }
+
       if (!$$.flags.i) {
          _mesa_glsl_error(& @1, state, "unrecognized layout identifier "
                           "`%s'", $1);

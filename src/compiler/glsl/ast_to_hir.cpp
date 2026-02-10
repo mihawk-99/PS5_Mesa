@@ -4254,6 +4254,9 @@ apply_type_qualifier_to_variable(const struct ast_type_qualifier *qual,
    if (qual->flags.q.patch)
       var->data.patch = 1;
 
+   if (qual->flags.q.yuv)
+      var->data.yuv = 1;
+
    if (qual->flags.q.attribute && state->stage != MESA_SHADER_VERTEX) {
       var->type = &glsl_type_builtin_error;
       _mesa_glsl_error(loc, state,

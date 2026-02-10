@@ -697,6 +697,11 @@ typedef struct nir_variable {
       unsigned depth_layout : 3;
 
       /**
+       * Whether the variable is a YUV color-output.
+       */
+      unsigned yuv : 1;
+
+      /**
        * Vertex stream output identifier.
        *
        * For packed outputs, NIR_STREAM_PACKED is set and bits [2*i+1,2*i]
