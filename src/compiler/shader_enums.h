@@ -1665,6 +1665,12 @@ enum glsl_sampler_dim {
    GLSL_SAMPLER_DIM_SUBPASS_MS, /* for multisampled vulkan input attachments */
 };
 
+enum yuv_csc_standard {
+   YUV_CSC_STANDARD_601,
+   YUV_CSC_STANDARD_601_FULL_RANGE,
+   YUV_CSC_STANDARD_709,
+};
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

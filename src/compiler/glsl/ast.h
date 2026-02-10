@@ -204,6 +204,8 @@ enum ast_operators {
    ast_int64_constant,
    ast_uint64_constant,
 
+   ast_csc_standard,
+
    ast_sequence,
    ast_aggregate
 
@@ -266,6 +268,7 @@ public:
       double double_constant;
       uint64_t uint64_constant;
       int64_t int64_constant;
+      enum yuv_csc_standard csc_standard;
    } primary_expression;
 
 

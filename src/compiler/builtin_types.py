@@ -100,6 +100,8 @@ simple_type("dmat4x3", "GL_DOUBLE_MAT4x3", "GLSL_TYPE_DOUBLE", 3, 4)
 
 simple_type("atomic_uint", "GL_UNSIGNED_INT_ATOMIC_COUNTER", "GLSL_TYPE_ATOMIC_UINT", 1, 1)
 
+simple_type("yuvCscStandardEXT", "GL_INVALID_ENUM", "GLSL_TYPE_INT",  1, 1)
+
 sampler_type("sampler",           "GL_SAMPLER_1D",                   "GLSL_TYPE_SAMPLER", "GLSL_SAMPLER_DIM_1D",   0, 0, "GLSL_TYPE_VOID")
 sampler_type("sampler1D",         "GL_SAMPLER_1D",                   "GLSL_TYPE_SAMPLER", "GLSL_SAMPLER_DIM_1D",   0, 0, "GLSL_TYPE_FLOAT")
 sampler_type("sampler2D",         "GL_SAMPLER_2D",                   "GLSL_TYPE_SAMPLER", "GLSL_SAMPLER_DIM_2D",   0, 0, "GLSL_TYPE_FLOAT")

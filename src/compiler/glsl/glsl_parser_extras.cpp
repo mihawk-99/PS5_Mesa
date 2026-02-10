@@ -1538,6 +1538,17 @@ ast_expression::print(void) const
       break;
    }
 
+   case ast_csc_standard:
+      switch (primary_expression.csc_standard) {
+      case YUV_CSC_STANDARD_601:
+         printf("itu_601 ");
+      case YUV_CSC_STANDARD_601_FULL_RANGE:
+         printf("itu_601_full_range ");
+      case YUV_CSC_STANDARD_709:
+         printf("itu_709 ");
+      }
+      break;
+
    default:
       assert(0);
       break;

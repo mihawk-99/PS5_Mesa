@@ -438,6 +438,8 @@ mat4x2		TYPE(120, 300, 120, 300, &glsl_type_builtin_mat4x2);
 mat4x3		TYPE(120, 300, 120, 300, &glsl_type_builtin_mat4x3);
 mat4x4		TYPE(120, 300, 120, 300, &glsl_type_builtin_mat4);
 
+yuvCscStandardEXT    TYPE_WITH_ALT(0, 0, 0, 0, yyextra->EXT_YUV_target_enable, &glsl_type_builtin_yuvCscStandardEXT);
+
 in		return IN_TOK;
 out		return OUT_TOK;
 inout		return INOUT_TOK;

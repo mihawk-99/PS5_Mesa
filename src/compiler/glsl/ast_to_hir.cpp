@@ -363,6 +363,12 @@ apply_implicit_conversion(const glsl_type *to, ir_rvalue * &from,
    }
 }
 
+static bool
+is_arithmetic_type(const glsl_type *type)
+{
+   return glsl_type_is_numeric(type) &&
+          type != &glsl_type_builtin_yuvCscStandardEXT;
+}
 
 static const struct glsl_type *
 arithmetic_result_type(ir_rvalue * &value_a, ir_rvalue * &value_b,
@@ -378,7 +384,7 @@ arithmetic_result_type(ir_rvalue * &value_a, ir_rvalue * &value_b,
     *    multiply (*), and divide (/) operate on integer and
     *    floating-point scalars, vectors, and matrices."
     */
-   if (!glsl_type_is_numeric(type_a) || !glsl_type_is_numeric(type_b)) {
+   if (!is_arithmetic_type(type_a) || !is_arithmetic_type(type_b)) {
       _mesa_glsl_error(loc, state,
                        "operands to arithmetic operators must be numeric");
       return &glsl_type_builtin_error;
@@ -517,7 +523,7 @@ unary_arithmetic_result_type(const struct glsl_type *type,
     *     component-wise on their operands. These result with the same type
     *     they operated on."
     */
-   if (!glsl_type_is_numeric(type)) {
+   if (!is_arithmetic_type(type)) {
       _mesa_glsl_error(loc, state,
                        "operands to arithmetic operators must be numeric");
       return &glsl_type_builtin_error;
@@ -1624,6 +1630,10 @@ ast_expression::do_hir(ir_exec_list *instructions,
                   glsl_contains_opaque(op[1]->type))) {
          _mesa_glsl_error(&loc, state, "opaque type comparisons forbidden");
          error_emitted = true;
+      } else if (op[0]->type == &glsl_type_builtin_yuvCscStandardEXT ||
+          op[1]->type == &glsl_type_builtin_yuvCscStandardEXT) {
+         _mesa_glsl_error(&loc, state, "yuvCscStandardEXT comparisons forbidden");
+         error_emitted = true;
       }
 
       if (error_emitted) {
@@ -2197,6 +2207,14 @@ ast_expression::do_hir(ir_exec_list *instructions,
       result = new(linalloc) ir_constant(this->primary_expression.int64_constant);
       break;
 
+   case ast_csc_standard: {
+      ir_constant_data data = { { 0 } };
+      data.i[0] = this->primary_expression.csc_standard;
+      result = new(linalloc) ir_constant(&glsl_type_builtin_yuvCscStandardEXT,
+                                         &data);
+      break;
+   }
+
    case ast_sequence: {
       /* It should not be possible to generate a sequence in the AST without
        * any expressions in it.
@@ -2326,6 +2344,7 @@ ast_expression::has_sequence_subexpression() const
    case ast_double_constant:
    case ast_int64_constant:
    case ast_uint64_constant:
+   case ast_csc_standard:
       return false;
 
    case ast_aggregate:

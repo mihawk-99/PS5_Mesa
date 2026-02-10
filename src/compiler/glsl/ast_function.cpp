@@ -2156,7 +2156,8 @@ ast_function_expression::handle_method(ir_exec_list *instructions,
 static inline bool is_valid_constructor(const glsl_type *type,
                                         struct _mesa_glsl_parse_state *state)
 {
-   return glsl_type_is_numeric(type) || glsl_type_is_boolean(type) ||
+   return (glsl_type_is_numeric(type) && type != &glsl_type_builtin_yuvCscStandardEXT) ||
+          glsl_type_is_boolean(type) ||
           (state->has_bindless() && (glsl_type_is_sampler(type) || glsl_type_is_image(type)));
 }
 
