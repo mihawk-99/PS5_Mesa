@@ -440,6 +440,30 @@ mat4x4		TYPE(120, 300, 120, 300, &glsl_type_builtin_mat4);
 
 yuvCscStandardEXT    TYPE_WITH_ALT(0, 0, 0, 0, yyextra->EXT_YUV_target_enable, &glsl_type_builtin_yuvCscStandardEXT);
 
+itu_601              {
+      if (!yyextra->EXT_YUV_target_enable)
+         return classify_identifier(yyextra, yytext, yyleng, yylval);
+
+      yylval->csc_standard = YUV_CSC_STANDARD_601;
+      return CSCSTANDARD;
+   }
+
+itu_601_full_range   {
+      if (!yyextra->EXT_YUV_target_enable)
+         return classify_identifier(yyextra, yytext, yyleng, yylval);
+
+      yylval->csc_standard = YUV_CSC_STANDARD_601_FULL_RANGE;
+      return CSCSTANDARD;
+   }
+
+itu_709              {
+      if (!yyextra->EXT_YUV_target_enable)
+         return classify_identifier(yyextra, yytext, yyleng, yylval);
+
+      yylval->csc_standard = YUV_CSC_STANDARD_709;
+      return CSCSTANDARD;
+   }
+
 in		return IN_TOK;
 out		return OUT_TOK;
 inout		return INOUT_TOK;
