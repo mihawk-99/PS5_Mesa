@@ -87,6 +87,7 @@
 #include <math.h>
 #include "builtin_functions.h"
 #include "util/hash_table.h"
+#include "util/u_ycbcr.h"
 
 #ifndef M_PIf
 #define M_PIf   ((float) M_PI)
@@ -1234,6 +1235,11 @@ private:
                                                                           unsigned num_arguments,
                                                                           unsigned flags);
 
+   ir_variable *get_to_ycbcr_matrix(ir_factory &body, const char *name,
+                                    const float coeffs[3], bool full_range);
+   ir_variable *get_to_rgb_matrix(ir_factory &body, const char *name,
+                                  const float coeffs[3], bool full_range);
+
    /**
     * Create a new image built-in function for all known image types.
     * \p flags is a bitfield of \c image_function_flags flags.
@@ -1606,6 +1612,9 @@ private:
 
    ir_function_signature *_set_mesh_outputs_intrinsic();
    ir_function_signature *_set_mesh_outputs();
+
+   ir_function_signature *_rgb_2_yuv();
+   ir_function_signature *_yuv_2_rgb();
 
 #undef B0
 #undef B1
@@ -6060,6 +6069,9 @@ builtin_builder::create_builtins()
    add_function("EmitMeshTasksEXT", _emit_mesh_tasks(), NULL);
    add_function("SetMeshOutputsEXT", _set_mesh_outputs(), NULL);
 
+   add_function("rgb_2_yuv", _rgb_2_yuv(), NULL);
+   add_function("yuv_2_rgb", _yuv_2_rgb(), NULL);
+
 #undef F
 #undef FI
 #undef FIUDHF_VEC
@@ -9636,6 +9648,158 @@ ir_function_signature *builtin_builder::_set_mesh_outputs()
 
    body.emit(call(symbols->get_function("__intrinsic_set_mesh_outputs"),
                   NULL, sig->parameters));
+   return sig;
+}
+
+ir_variable *builtin_builder::get_to_ycbcr_matrix(ir_factory &body,
+                                                  const char *name,
+                                                  const float coeffs[3],
+                                                  bool full_range)
+{
+   float data[3][4];
+   util_get_rgb_to_ycbcr_matrix(data, coeffs);
+
+   const unsigned bpc[3] = { 8, 8, 8 };
+   float range[3][2];
+   if (full_range)
+      util_get_full_range_coeffs(range, bpc);
+   else
+      util_get_narrow_range_coeffs(range, bpc);
+
+   util_ycbcr_adjust_to_range(data, range);
+
+   ir_variable *var = body.make_temp(&glsl_type_builtin_mat4x3, name);
+
+   for (int i = 0; i < 4; ++i) {
+      ir_constant_data col_data;
+      col_data.f[0] = data[0][i];
+      col_data.f[1] = data[1][i];
+      col_data.f[2] = data[2][i];
+      ir_constant *col = imm(&glsl_type_builtin_vec3, col_data);
+      body.emit(assign(array_ref(var, i), col));
+   }
+
+   return var;
+}
+
+ir_variable *builtin_builder::get_to_rgb_matrix(ir_factory &body,
+                                                const char *name,
+                                                const float coeffs[3],
+                                                bool full_range)
+{
+   float data[3][4];
+   util_get_ycbcr_to_rgb_matrix(data, coeffs);
+
+   const unsigned bpc[3] = { 8, 8, 8 };
+   float range[3][2];
+   if (full_range)
+      util_get_full_range_coeffs(range, bpc);
+   else
+      util_get_narrow_range_coeffs(range, bpc);
+
+   util_ycbcr_adjust_from_range(data, range);
+
+   ir_variable *var = body.make_temp(&glsl_type_builtin_mat4x3, name);
+
+   for (int i = 0; i < 4; ++i) {
+      ir_constant_data col_data;
+      col_data.f[0] = data[0][i];
+      col_data.f[1] = data[1][i];
+      col_data.f[2] = data[2][i];
+      ir_constant *col = imm(&glsl_type_builtin_vec3, col_data);
+      body.emit(assign(array_ref(var, i), col));
+   }
+
+   return var;
+}
+
+ir_function_signature *
+builtin_builder::_rgb_2_yuv()
+{
+   ir_variable *color = in_var(&glsl_type_builtin_vec3, "color");
+   ir_variable *conv_standard = in_var(&glsl_type_builtin_yuvCscStandardEXT, "conv_standard");
+   MAKE_SIG(&glsl_type_builtin_vec3, texture_external_2d_y2y, 2, color, conv_standard);
+
+   ir_swizzle *r = swizzle(color, SWIZZLE_XXXX, 3);
+   ir_swizzle *g = swizzle(color, SWIZZLE_YYYY, 3);
+   ir_swizzle *b = swizzle(color, SWIZZLE_ZZZZ, 3);
+
+   ir_constant_data data;
+   memset(&data, 0, sizeof(data));
+   data.i[0] = YUV_CSC_STANDARD_601;
+   ir_constant *itu_601 = imm(&glsl_type_builtin_yuvCscStandardEXT, data);
+   data.i[0] = YUV_CSC_STANDARD_601_FULL_RANGE;
+   ir_constant *itu_601_full_range = imm(&glsl_type_builtin_yuvCscStandardEXT, data);
+   data.i[0] = YUV_CSC_STANDARD_709;
+   ir_constant *itu_709 = imm(&glsl_type_builtin_yuvCscStandardEXT, data);
+
+   ir_variable *m = body.make_temp(&glsl_type_builtin_mat4x3, "m");
+   body.emit(
+      if_tree(
+         equal(conv_standard, itu_601),
+         assign(m, get_to_ycbcr_matrix(body, "m_601", util_ycbcr_bt601_coeffs, false)),
+         if_tree(
+            equal(conv_standard, itu_601_full_range),
+            assign(m, get_to_ycbcr_matrix(body, "m_601f", util_ycbcr_bt601_coeffs, true)),
+            if_tree(
+               equal(conv_standard, itu_709),
+               assign(m, get_to_ycbcr_matrix(body, "m_709", util_ycbcr_bt709_coeffs, false))
+            )
+         )
+      )
+   );
+
+   body.emit(ret(
+      ir_builder::fma(r, array_ref(m, 0),
+         ir_builder::fma(g, array_ref(m, 1),
+            ir_builder::fma(b, array_ref(m, 2),
+                            array_ref(m, 3))))));
+
+   return sig;
+}
+
+ir_function_signature *
+builtin_builder::_yuv_2_rgb()
+{
+   ir_variable *color = in_var(&glsl_type_builtin_vec3, "color");
+   ir_variable *conv_standard = in_var(&glsl_type_builtin_yuvCscStandardEXT, "conv_standard");
+   MAKE_SIG(&glsl_type_builtin_vec3, texture_external_2d_y2y, 2, color, conv_standard);
+
+   ir_swizzle *y = swizzle(color, SWIZZLE_XXXX, 3);
+   ir_swizzle *u = swizzle(color, SWIZZLE_YYYY, 3);
+   ir_swizzle *v = swizzle(color, SWIZZLE_ZZZZ, 3);
+
+   ir_constant_data data;
+   memset(&data, 0, sizeof(data));
+   data.i[0] = YUV_CSC_STANDARD_601;
+   ir_constant *itu_601 = imm(&glsl_type_builtin_yuvCscStandardEXT, data);
+   data.i[0] = YUV_CSC_STANDARD_601_FULL_RANGE;
+   ir_constant *itu_601_full_range = imm(&glsl_type_builtin_yuvCscStandardEXT, data);
+   data.i[0] = YUV_CSC_STANDARD_709;
+   ir_constant *itu_709 = imm(&glsl_type_builtin_yuvCscStandardEXT, data);
+
+   ir_variable *m = body.make_temp(&glsl_type_builtin_mat4x3, "m");
+   body.emit(
+      if_tree(
+         equal(conv_standard, itu_601),
+         assign(m, get_to_rgb_matrix(body, "m_601", util_ycbcr_bt601_coeffs, false)),
+         if_tree(
+            equal(conv_standard, itu_601_full_range),
+            assign(m, get_to_rgb_matrix(body, "m_601f", util_ycbcr_bt601_coeffs, true)),
+            if_tree(
+               equal(conv_standard, itu_709),
+               assign(m, get_to_rgb_matrix(body, "m_709", util_ycbcr_bt709_coeffs, false))
+            )
+         )
+      )
+   );
+
+   body.emit(ret(
+      ir_builder::fma(y, array_ref(m, 0),
+         ir_builder::fma(u, array_ref(m, 1),
+            ir_builder::fma(v, array_ref(m, 2),
+                            array_ref(m, 3))))));
+
    return sig;
 }
 
