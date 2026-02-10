@@ -231,6 +231,14 @@ texture_external_es3(const _mesa_glsl_parse_state *state)
 }
 
 static bool
+texture_external_2d_y2y(const _mesa_glsl_parse_state *state)
+{
+   return state->EXT_YUV_target_enable &&
+      state->es_shader &&
+      state->is_version(0, 300);
+}
+
+static bool
 texture_shadow2Dext(const _mesa_glsl_parse_state *state)
 {
    return state->es_shader &&
@@ -2856,6 +2864,8 @@ builtin_builder::create_builtins()
                 _textureSize(texture_multisample_array, &glsl_type_builtin_ivec3, &glsl_type_builtin_usampler2DMSArray),
 
                 _textureSize(texture_external_es3, &glsl_type_builtin_ivec2, &glsl_type_builtin_samplerExternalOES),
+
+                _textureSize(texture_external_2d_y2y, &glsl_type_builtin_ivec2, &glsl_type_builtin_samplerExternal2DY2YEXT),
                 NULL);
 
    add_function("textureSize1D",
@@ -2963,6 +2973,8 @@ builtin_builder::create_builtins()
                 _texture(ir_tex, v130, &glsl_type_builtin_float, &glsl_type_builtin_sampler2DRectShadow, &glsl_type_builtin_vec3),
 
                 _texture(ir_tex, texture_external_es3, &glsl_type_builtin_vec4,  &glsl_type_builtin_samplerExternalOES, &glsl_type_builtin_vec2),
+
+                _texture(ir_tex, texture_external_2d_y2y, &glsl_type_builtin_vec4,  &glsl_type_builtin_samplerExternal2DY2YEXT, &glsl_type_builtin_vec2),
 
                 _texture(ir_txb, v130_derivatives_only, &glsl_type_builtin_vec4,  &glsl_type_builtin_sampler1D,  &glsl_type_builtin_float),
                 _texture(ir_txb, v130_derivatives_only, &glsl_type_builtin_ivec4, &glsl_type_builtin_isampler1D, &glsl_type_builtin_float),
@@ -3209,6 +3221,8 @@ builtin_builder::create_builtins()
                 _texture(ir_tex, v130, &glsl_type_builtin_ivec4, &glsl_type_builtin_isampler2DRect, &glsl_type_builtin_vec3, TEX_PROJECT),
                 _texture(ir_tex, texture_external_es3, &glsl_type_builtin_vec4,  &glsl_type_builtin_samplerExternalOES, &glsl_type_builtin_vec3, TEX_PROJECT),
                 _texture(ir_tex, texture_external_es3, &glsl_type_builtin_vec4,  &glsl_type_builtin_samplerExternalOES, &glsl_type_builtin_vec4, TEX_PROJECT),
+                _texture(ir_tex, texture_external_2d_y2y, &glsl_type_builtin_vec4, &glsl_type_builtin_samplerExternal2DY2YEXT, &glsl_type_builtin_vec3, TEX_PROJECT),
+                _texture(ir_tex, texture_external_2d_y2y, &glsl_type_builtin_vec4, &glsl_type_builtin_samplerExternal2DY2YEXT, &glsl_type_builtin_vec4, TEX_PROJECT),
 
                 _texture(ir_tex, v130, &glsl_type_builtin_uvec4, &glsl_type_builtin_usampler2DRect, &glsl_type_builtin_vec3, TEX_PROJECT),
                 _texture(ir_tex, v130, &glsl_type_builtin_vec4,  &glsl_type_builtin_sampler2DRect,  &glsl_type_builtin_vec4, TEX_PROJECT),
@@ -3277,6 +3291,8 @@ builtin_builder::create_builtins()
                 _texelFetch(texture_multisample_array, &glsl_type_builtin_uvec4, &glsl_type_builtin_usampler2DMSArray, &glsl_type_builtin_ivec3),
 
                 _texelFetch(texture_external_es3, &glsl_type_builtin_vec4,  &glsl_type_builtin_samplerExternalOES, &glsl_type_builtin_ivec2),
+
+                _texelFetch(texture_external_2d_y2y, &glsl_type_builtin_vec4,  &glsl_type_builtin_samplerExternal2DY2YEXT, &glsl_type_builtin_ivec2),
 
                 NULL);
 

@@ -2633,6 +2633,13 @@ get_type_name_for_precision_qualifier(const glsl_type *type)
             };
             return names[type_idx];
          }
+         case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y: {
+            assert(glsl_type_is_sampler(type));
+            static const char *const names[4] = {
+              "__samplerExternal2DY2YEXT", NULL, NULL, NULL
+            };
+            return names[type_idx];
+         }
          default:
             UNREACHABLE("Unsupported sampler/image dimensionality");
          } /* sampler/image float dimensionality */

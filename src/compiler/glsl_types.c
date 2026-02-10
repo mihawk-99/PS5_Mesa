@@ -876,6 +876,11 @@ glsl_sampler_type(enum glsl_sampler_dim dim, bool shadow,
             return &glsl_type_builtin_error;
          else
             return &glsl_type_builtin_samplerExternalOES;
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
+         if (shadow || array)
+            return &glsl_type_builtin_error;
+         else
+            return &glsl_type_builtin_samplerExternal2DY2YEXT;
       case GLSL_SAMPLER_DIM_SUBPASS:
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
          return &glsl_type_builtin_error;
@@ -906,6 +911,7 @@ glsl_sampler_type(enum glsl_sampler_dim dim, bool shadow,
       case GLSL_SAMPLER_DIM_MS:
          return (array ? &glsl_type_builtin_isampler2DMSArray : &glsl_type_builtin_isampler2DMS);
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       case GLSL_SAMPLER_DIM_SUBPASS:
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
@@ -937,6 +943,7 @@ glsl_sampler_type(enum glsl_sampler_dim dim, bool shadow,
       case GLSL_SAMPLER_DIM_MS:
          return (array ? &glsl_type_builtin_usampler2DMSArray : &glsl_type_builtin_usampler2DMS);
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       case GLSL_SAMPLER_DIM_SUBPASS:
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
@@ -999,6 +1006,8 @@ glsl_texture_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type typ
             return &glsl_type_builtin_error;
          else
             return &glsl_type_builtin_textureExternalOES;
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
+         return &glsl_type_builtin_error;
       }
       break;
    case GLSL_TYPE_INT:
@@ -1028,6 +1037,7 @@ glsl_texture_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type typ
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
          return &glsl_type_builtin_itextureSubpassInputMS;
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;
@@ -1058,6 +1068,7 @@ glsl_texture_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type typ
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
          return &glsl_type_builtin_utextureSubpassInputMS;
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;
@@ -1114,6 +1125,7 @@ glsl_image_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type type)
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
          return &glsl_type_builtin_subpassInputMS;
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;
@@ -1144,6 +1156,7 @@ glsl_image_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type type)
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
          return &glsl_type_builtin_isubpassInputMS;
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;
@@ -1174,6 +1187,7 @@ glsl_image_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type type)
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
          return &glsl_type_builtin_usubpassInputMS;
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;
@@ -1202,6 +1216,7 @@ glsl_image_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type type)
       case GLSL_SAMPLER_DIM_SUBPASS:
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;
@@ -1230,6 +1245,7 @@ glsl_image_type(enum glsl_sampler_dim dim, bool array, enum glsl_base_type type)
       case GLSL_SAMPLER_DIM_SUBPASS:
       case GLSL_SAMPLER_DIM_SUBPASS_MS:
       case GLSL_SAMPLER_DIM_EXTERNAL:
+      case GLSL_SAMPLER_DIM_EXTERNAL_2D_Y2Y:
          return &glsl_type_builtin_error;
       }
       break;

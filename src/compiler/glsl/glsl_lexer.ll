@@ -502,6 +502,14 @@ samplerExternalOES		{
 			     return IDENTIFIER;
 		}
 
+__samplerExternal2DY2YEXT {
+			  if (yyextra->EXT_YUV_target_enable) {
+			     yylval->type = &glsl_type_builtin_samplerExternal2DY2YEXT;
+			     return BASIC_TYPE_TOK;
+			  } else
+			     return IDENTIFIER;
+		}
+
    /* keywords available with ARB_gpu_shader5 */
 precise		KEYWORD_WITH_ALT(400, 310, 400, 320, yyextra->ARB_gpu_shader5_enable || yyextra->EXT_gpu_shader5_enable || yyextra->OES_gpu_shader5_enable, PRECISE);
 

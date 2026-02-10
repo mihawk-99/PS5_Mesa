@@ -148,6 +148,8 @@ sampler_type("sampler2DRectShadow",    "GL_SAMPLER_2D_RECT_SHADOW",        "GLSL
 
 sampler_type("samplerExternalOES",     "GL_SAMPLER_EXTERNAL_OES",          "GLSL_TYPE_SAMPLER", "GLSL_SAMPLER_DIM_EXTERNAL", 0, 0, "GLSL_TYPE_FLOAT")
 
+sampler_type("samplerExternal2DY2YEXT", "GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT", "GLSL_TYPE_SAMPLER", "GLSL_SAMPLER_DIM_2D", 0, 0, "GLSL_TYPE_FLOAT")
+
 sampler_type("texture1D",         "GL_SAMPLER_1D",                   "GLSL_TYPE_TEXTURE", "GLSL_SAMPLER_DIM_1D",   0, 0, "GLSL_TYPE_FLOAT")
 sampler_type("texture2D",         "GL_SAMPLER_2D",                   "GLSL_TYPE_TEXTURE", "GLSL_SAMPLER_DIM_2D",   0, 0, "GLSL_TYPE_FLOAT")
 sampler_type("texture3D",         "GL_SAMPLER_3D",                   "GLSL_TYPE_TEXTURE", "GLSL_SAMPLER_DIM_3D",   0, 0, "GLSL_TYPE_FLOAT")

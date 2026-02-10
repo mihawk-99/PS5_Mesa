@@ -311,6 +311,7 @@ translation_unit:
          }
          state->symbols->add_default_precision_qualifier("sampler2D", ast_precision_low);
          state->symbols->add_default_precision_qualifier("samplerExternalOES", ast_precision_low);
+         state->symbols->add_default_precision_qualifier("__samplerExternal2DY2YEXT", ast_precision_low);
          state->symbols->add_default_precision_qualifier("samplerCube", ast_precision_low);
          state->symbols->add_default_precision_qualifier("atomic_uint", ast_precision_high);
       }
