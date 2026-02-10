@@ -287,6 +287,7 @@ _mesa_init_extensions(struct gl_extensions *extensions)
    extensions->EXT_shadow_samplers = GL_TRUE;
    extensions->EXT_stencil_two_side = GL_TRUE;
    extensions->EXT_texture_env_dot3 = GL_TRUE;
+   extensions->EXT_YUV_target = GL_TRUE;
 
    extensions->ATI_fragment_shader = GL_TRUE;
    extensions->ATI_texture_env_combine3 = GL_TRUE;
