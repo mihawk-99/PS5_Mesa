@@ -546,6 +546,21 @@ ast_type_qualifier::merge_qualifier(YYLTYPE *loc,
       }
    }
 
+   // strip the "out" flag
+   ast_type_qualifier tmpa = *this;
+   ast_type_qualifier tmpb = q;
+   tmpa.flags.q.out = 0;
+   tmpb.flags.q.out = 0;
+   if ((tmpa.flags.i && tmpb.flags.q.yuv) ||
+       (tmpa.flags.q.yuv && tmpb.flags.i)) {
+      // The EXT_YUV_target spec says:
+      //    The new yuv layout qualifier can't be combined with any other
+      //    layout qualifier, <snip>
+      _mesa_glsl_error(loc, state, "yuv layout can't be combined with any "
+                       "other layout qualifier");
+      return false;
+   }
+
    return r;
 }
 
