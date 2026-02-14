@@ -9,6 +9,7 @@
 #include "nvk_physical_device.h"
 
 #include "vk_enum_to_str.h"
+#include "vk_extensions.h"
 
 #include "cimgui/cimgui.h"
 
@@ -630,6 +631,14 @@ compute_swapchain_display(struct nvk_device *device, struct swapchain_data *data
          cimgui_draw_text("GTT: %" PRId64 " (budget), %" PRId64 " (usage)", budget, usage);
       }
    }
+
+   cimgui_draw_separator();
+   cimgui_draw_text("Enabled extensions:");
+   uint32_t idx;
+   for (idx = 0; idx < VK_DEVICE_EXTENSION_COUNT; idx++) {
+      if (device->vk.enabled_extensions.extensions[idx])
+         cimgui_draw_text(" - %s", vk_device_extensions[idx].extensionName);
+   }   
 
    data->window_size.y = cimgui_get_cursor_pos_y() + margin;
 
