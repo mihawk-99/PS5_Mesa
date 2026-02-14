@@ -7,10 +7,11 @@
 #include "nvk_device.h"
 #include "nvk_entrypoints.h"
 #include "nvk_physical_device.h"
+#include "util/u_atomic.h"
 
 #include "vk_enum_to_str.h"
 #include "vk_extensions.h"
-
+#include "vk_pipeline.h"
 #include "cimgui/cimgui.h"
 
 #define NVK_QUEUE_GRAPHICS 0
@@ -633,6 +634,30 @@ compute_swapchain_display(struct nvk_device *device, struct swapchain_data *data
    }
 
    cimgui_draw_separator();
+   cimgui_draw_text("Object count:");
+   cimgui_draw_text("Fences:                       %12u", obj_counts.fences);
+   cimgui_draw_text("Semaphores:                   %12u", obj_counts.semaphores);
+   cimgui_draw_text("Events:                       %12u", obj_counts.events);
+   cimgui_draw_text("Query pools:                  %12u", obj_counts.query_pools);
+   cimgui_draw_text("Buffers:                      %12u", obj_counts.buffers);
+   cimgui_draw_text("Buffer views:                 %12u", obj_counts.buffer_views);
+   cimgui_draw_text("Images:                       %12u", obj_counts.images);
+   cimgui_draw_text("Image views:                  %12u", obj_counts.image_views);
+   cimgui_draw_text("Samplers:                     %12u", obj_counts.samplers);
+   cimgui_draw_text("Shalder modules:              %12u", obj_counts.shader_modules);
+   cimgui_draw_text("Pipeline caches:              %12u", obj_counts.pipeline_caches);
+   cimgui_draw_text("Graphics pipelines:           %12u", obj_counts.graphics_pipelines);
+   cimgui_draw_text("Compute pipelines:            %12u", obj_counts.compute_pipelines);
+   cimgui_draw_text("Pipeline layouts:             %12u", obj_counts.pipeline_layouts);
+   cimgui_draw_text("Descriptor pools:             %12u", obj_counts.descriptor_pools);
+   cimgui_draw_text("Descriptor set layouts:       %12u", obj_counts.descriptor_set_layouts);
+   cimgui_draw_text("Descriptor update templates:  %12u", obj_counts.descriptor_update_templates);
+   cimgui_draw_text("Framebuffers:                 %12u", obj_counts.framebuffers);
+   cimgui_draw_text("Render passes:                %12u", obj_counts.render_passes);
+   cimgui_draw_text("Command pools:                %12u", obj_counts.command_pools);
+   cimgui_draw_text("Sampler YCbCr conversions:    %12u", obj_counts.sampler_ycbcr_conversions);
+
+   cimgui_draw_separator();
    cimgui_draw_text("Enabled extensions:");
    uint32_t idx;
    for (idx = 0; idx < VK_DEVICE_EXTENSION_COUNT; idx++) {
@@ -1146,4 +1171,433 @@ hud_QueuePresentKHR(VkQueue _queue, const VkPresentInfoKHR *pPresentInfo)
    }
 
    return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateFence(VkDevice device, const VkFenceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkFence* pFence)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateFence(device, pCreateInfo, pAllocator, pFence);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.fences);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyFence(VkDevice device, VkFence fence, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyFence(device, fence, pAllocator);
+   if (fence != NULL)
+      p_atomic_dec(&dev->obj_counts.fences);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateSemaphore(VkDevice device, const VkSemaphoreCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSemaphore* pSemaphore)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateSemaphore(device, pCreateInfo, pAllocator, pSemaphore);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.semaphores);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroySemaphore(VkDevice device, VkSemaphore semaphore, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroySemaphore(device, semaphore, pAllocator);
+   if (semaphore != NULL)
+      p_atomic_dec(&dev->obj_counts.semaphores);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateEvent(VkDevice device, const VkEventCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkEvent* pEvent)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateEvent(device, pCreateInfo, pAllocator, pEvent);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.events);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyEvent(VkDevice device, VkEvent event, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyEvent(device, event, pAllocator);
+   if (event != NULL)
+      p_atomic_dec(&dev->obj_counts.events);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateQueryPool(VkDevice device, const VkQueryPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkQueryPool* pQueryPool)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateQueryPool(device, pCreateInfo, pAllocator, pQueryPool);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.query_pools);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyQueryPool(VkDevice device, VkQueryPool queryPool, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyQueryPool(device, queryPool, pAllocator);
+   if (queryPool != NULL)
+      p_atomic_dec(&dev->obj_counts.query_pools);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateBuffer(VkDevice device, const VkBufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkBuffer* pBuffer)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateBuffer(device, pCreateInfo, pAllocator, pBuffer);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.buffers);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyBuffer(VkDevice device, VkBuffer buffer, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyBuffer(device, buffer, pAllocator);
+   if (buffer != NULL)
+      p_atomic_dec(&dev->obj_counts.buffers);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateBufferView(VkDevice device, const VkBufferViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkBufferView* pView)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateBufferView(device, pCreateInfo, pAllocator, pView);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.buffer_views);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyBufferView(VkDevice device, VkBufferView bufferView, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyBufferView(device, bufferView, pAllocator);
+   if (bufferView != NULL)
+      p_atomic_dec(&dev->obj_counts.buffer_views);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateImage(VkDevice device, const VkImageCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImage* pImage)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateImage(device, pCreateInfo, pAllocator, pImage);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.images);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyImage(VkDevice device, VkImage image, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyImage(device, image, pAllocator);
+   if (image != NULL)
+      p_atomic_dec(&dev->obj_counts.images);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateImageView(VkDevice device, const VkImageViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImageView* pView)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateImageView(device, pCreateInfo, pAllocator, pView);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.image_views);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyImageView(VkDevice device, VkImageView imageView, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyImageView(device, imageView, pAllocator);
+   if (imageView != NULL)
+      p_atomic_dec(&dev->obj_counts.image_views);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateShaderModule(VkDevice device, const VkShaderModuleCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkShaderModule* pShaderModule)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.shader_modules);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyShaderModule(VkDevice device, VkShaderModule shaderModule, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyShaderModule(device, shaderModule, pAllocator);
+   if (shaderModule != NULL)
+      p_atomic_dec(&dev->obj_counts.shader_modules);
+}
+
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreatePipelineCache(VkDevice device, const VkPipelineCacheCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPipelineCache* pPipelineCache)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreatePipelineCache(device, pCreateInfo, pAllocator, pPipelineCache);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.pipeline_caches);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyPipelineCache(VkDevice device, VkPipelineCache pipelineCache, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyPipelineCache(device, pipelineCache, pAllocator);
+   if (pipelineCache != NULL)
+      p_atomic_dec(&dev->obj_counts.pipeline_caches);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateGraphicsPipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkGraphicsPipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
+   if (ret != VK_SUCCESS)
+      return ret;
+   for (uint32_t i = 0; i < createInfoCount; i++) {
+      if (pPipelines[i] != VK_NULL_HANDLE)
+         p_atomic_inc(&dev->obj_counts.graphics_pipelines);
+   }
+   return ret;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateComputePipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkComputePipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateComputePipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
+   if (ret != VK_SUCCESS)
+      return ret;
+   for (uint32_t i = 0; i < createInfoCount; i++) {
+      if (pPipelines[i] != VK_NULL_HANDLE)
+         p_atomic_inc(&dev->obj_counts.compute_pipelines);
+   }
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyPipeline(VkDevice device, VkPipeline pipeline, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   if (pipeline == NULL)
+      return;
+
+   VK_FROM_HANDLE(vk_pipeline, p, pipeline);
+   if (p->bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+      p_atomic_dec(&dev->obj_counts.graphics_pipelines);
+   else if (p->bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+      p_atomic_dec(&dev->obj_counts.compute_pipelines);
+
+   dev->layer_dispatch.hud.DestroyPipeline(device, pipeline, pAllocator);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreatePipelineLayout(VkDevice device, const VkPipelineLayoutCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPipelineLayout* pPipelineLayout)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreatePipelineLayout(device, pCreateInfo, pAllocator, pPipelineLayout);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.pipeline_layouts);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyPipelineLayout(VkDevice device, VkPipelineLayout pipelineLayout, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyPipelineLayout(device, pipelineLayout, pAllocator);
+   if (pipelineLayout != NULL)
+      p_atomic_dec(&dev->obj_counts.pipeline_layouts);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateSampler(VkDevice device, const VkSamplerCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSampler* pSampler)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateSampler(device, pCreateInfo, pAllocator, pSampler);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.samplers);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroySampler(VkDevice device, VkSampler sampler, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroySampler(device, sampler, pAllocator);
+   if (sampler != NULL)
+      p_atomic_dec(&dev->obj_counts.samplers);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorSetLayout* pSetLayout)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateDescriptorSetLayout(device, pCreateInfo, pAllocator, pSetLayout);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.descriptor_set_layouts);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyDescriptorSetLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyDescriptorSetLayout(device, descriptorSetLayout, pAllocator);
+   if (descriptorSetLayout != NULL)
+      p_atomic_dec(&dev->obj_counts.descriptor_set_layouts);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateDescriptorPool(VkDevice device, const VkDescriptorPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorPool* pDescriptorPool)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateDescriptorPool(device, pCreateInfo, pAllocator, pDescriptorPool);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.descriptor_pools);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyDescriptorPool(VkDevice device, VkDescriptorPool descriptorPool, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyDescriptorPool(device, descriptorPool, pAllocator);
+   if (descriptorPool != NULL)
+      p_atomic_dec(&dev->obj_counts.descriptor_pools);
+}
+
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateFramebuffer(VkDevice device, const VkFramebufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkFramebuffer* pFramebuffer)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateFramebuffer(device, pCreateInfo, pAllocator, pFramebuffer);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.framebuffers);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyFramebuffer(VkDevice device, VkFramebuffer framebuffer, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyFramebuffer(device, framebuffer, pAllocator);
+   if (framebuffer != NULL)
+      p_atomic_dec(&dev->obj_counts.framebuffers);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateRenderPass(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.render_passes);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyRenderPass(VkDevice device, VkRenderPass renderPass, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyRenderPass(device, renderPass, pAllocator);
+   if (renderPass != NULL)
+      p_atomic_dec(&dev->obj_counts.render_passes);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateCommandPool(VkDevice device, const VkCommandPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkCommandPool* pCommandPool)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateCommandPool(device, pCreateInfo, pAllocator, pCommandPool);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.command_pools);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyCommandPool(VkDevice device, VkCommandPool commandPool, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyCommandPool(device, commandPool, pAllocator);
+   if (commandPool != NULL)
+      p_atomic_dec(&dev->obj_counts.command_pools);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateDescriptorUpdateTemplate(VkDevice device, const VkDescriptorUpdateTemplateCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorUpdateTemplate* pDescriptorUpdateTemplate)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateDescriptorUpdateTemplate(device, pCreateInfo, pAllocator, pDescriptorUpdateTemplate);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.descriptor_update_templates);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroyDescriptorUpdateTemplate(VkDevice device, VkDescriptorUpdateTemplate descriptorUpdateTemplate, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroyDescriptorUpdateTemplate(device, descriptorUpdateTemplate, pAllocator);
+   if (descriptorUpdateTemplate != NULL)
+      p_atomic_dec(&dev->obj_counts.descriptor_update_templates);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+hud_CreateSamplerYcbcrConversion(VkDevice device, const VkSamplerYcbcrConversionCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSamplerYcbcrConversion* pYcbcrConversion)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+
+   VkResult ret = dev->layer_dispatch.hud.CreateSamplerYcbcrConversion(device, pCreateInfo, pAllocator, pYcbcrConversion);
+   if (ret == VK_SUCCESS)
+      p_atomic_inc(&dev->obj_counts.sampler_ycbcr_conversions);
+   return ret;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+hud_DestroySamplerYcbcrConversion(VkDevice device, VkSamplerYcbcrConversion ycbcrConversion, const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(nvk_device, dev, device);
+   dev->layer_dispatch.hud.DestroySamplerYcbcrConversion(device, ycbcrConversion, pAllocator);
+   if (ycbcrConversion != NULL)
+      p_atomic_dec(&dev->obj_counts.sampler_ycbcr_conversions);
 }

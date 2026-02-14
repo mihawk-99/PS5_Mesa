@@ -45,6 +45,30 @@ nvk_slm_area_get_mem_ref(struct nvk_slm_area *area,
                          uint32_t *bytes_per_warp_out,
                          uint32_t *bytes_per_mp_out);
 
+struct nvk_object_counts {
+   uint32_t fences;
+   uint32_t semaphores;
+   uint32_t events;
+   uint32_t query_pools;
+   uint32_t buffers;
+   uint32_t buffer_views;
+   uint32_t images;
+   uint32_t image_views;
+   uint32_t samplers;
+   uint32_t shader_modules;
+   uint32_t pipeline_caches;
+   uint32_t graphics_pipelines;
+   uint32_t compute_pipelines;
+   uint32_t pipeline_layouts;
+   uint32_t descriptor_pools;
+   uint32_t descriptor_set_layouts;
+   uint32_t descriptor_update_templates;
+   uint32_t framebuffers;
+   uint32_t render_passes;
+   uint32_t command_pools;
+   uint32_t sampler_ycbcr_conversions;
+};
+
 struct nvk_device {
    struct vk_device vk;
 
@@ -53,6 +77,7 @@ struct nvk_device {
    struct nvk_upload_queue upload;
 
    struct nvk_queue *gfx_queue;
+   struct nvk_object_counts obj_counts;
 
    struct nvk_layer_dispatch_tables layer_dispatch;
    struct nvkmd_mem *zero_page;
