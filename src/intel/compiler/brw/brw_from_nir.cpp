@@ -6201,6 +6201,7 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
                         SHADER_OPCODE_MEMORY_ATOMIC_LOGICAL;
 
    const bool convergent_block_load =
+      (nir_intrinsic_access(instr) & ACCESS_BLOCK_INTEL) ||
       instr->intrinsic == nir_intrinsic_load_ubo_uniform_block_intel ||
       instr->intrinsic == nir_intrinsic_load_ssbo_uniform_block_intel ||
       instr->intrinsic == nir_intrinsic_load_shared_uniform_block_intel ||

@@ -2193,10 +2193,8 @@ brw_nir_should_vectorize_mem(unsigned align_mul, unsigned align_offset,
    if (bit_size > 32)
       return false;
 
-   if (low->intrinsic == nir_intrinsic_load_ubo_uniform_block_intel ||
-       low->intrinsic == nir_intrinsic_load_ssbo_uniform_block_intel ||
-       low->intrinsic == nir_intrinsic_load_shared_uniform_block_intel ||
-       low->intrinsic == nir_intrinsic_load_global_constant_uniform_block_intel) {
+   if ((nir_intrinsic_access(low) &
+        nir_intrinsic_access(high)) & ACCESS_BLOCK_INTEL) {
       if (num_components > 4) {
          if (bit_size != 32)
             return false;

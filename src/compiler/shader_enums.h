@@ -1266,6 +1266,13 @@ enum gl_access_qualifier
     *       intrinsics for sparse.
     */
    ACCESS_SPARSE = (1 << 20),
+
+   /**
+    * Indicates that access is block (uniform for all lanes), this tells the
+    * backend to load the data using less register space.
+    */
+   ACCESS_BLOCK_INTEL = (1 << 21),
+
 };
 
 enum gl_tess_spacing

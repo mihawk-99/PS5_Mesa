@@ -860,6 +860,7 @@ print_access(enum gl_access_qualifier access, print_state *state, const char *se
       { ACCESS_ATOMIC, "atomic" },
       { ACCESS_FUSED_EU_DISABLE_INTEL, "fused-eu-disable-intel" },
       { ACCESS_SPARSE, "sparse" },
+      { ACCESS_BLOCK_INTEL, "block-intel" },
    };
 
    bool first = true;
