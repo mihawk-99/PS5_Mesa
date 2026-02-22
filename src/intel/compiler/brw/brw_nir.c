@@ -2366,11 +2366,31 @@ get_mem_access_size_align(nir_intrinsic_op intrin, uint8_t bytes,
 }
 
 static bool
-brw_nir_ssbo_intel_instr(nir_builder *b,
-                         nir_intrinsic_instr *intrin,
-                         void *cb_data)
+brw_nir_intrinsic_intel_instr(nir_builder *b,
+                              nir_intrinsic_instr *intrin,
+                              void *cb_data)
 {
    switch (intrin->intrinsic) {
+   case nir_intrinsic_load_ubo: {
+      b->cursor = nir_before_instr(&intrin->instr);
+      nir_def *value = nir_load_ubo_intel(
+         b,
+         intrin->def.num_components,
+         intrin->def.bit_size,
+         intrin->src[0].ssa,
+         intrin->src[1].ssa,
+         .access = nir_intrinsic_access(intrin),
+         .align_mul = nir_intrinsic_align_mul(intrin),
+         .align_offset = nir_intrinsic_align_offset(intrin),
+         .range_base = nir_intrinsic_range_base(intrin),
+         .range = nir_intrinsic_range(intrin),
+         .base = 0);
+      value->loop_invariant = intrin->def.loop_invariant;
+      value->divergent = intrin->def.divergent;
+      nir_def_replace(&intrin->def, value);
+      return true;
+   }
+
    case nir_intrinsic_load_ssbo: {
       b->cursor = nir_before_instr(&intrin->instr);
       nir_def *value = nir_load_ssbo_intel(
@@ -2409,10 +2429,10 @@ brw_nir_ssbo_intel_instr(nir_builder *b,
 }
 
 static bool
-brw_nir_ssbo_intel(nir_shader *shader)
+brw_nir_intrinsic_intel(nir_shader *shader)
 {
    return nir_shader_intrinsics_pass(shader,
-                                     brw_nir_ssbo_intel_instr,
+                                     brw_nir_intrinsic_intel_instr,
                                      nir_metadata_control_flow,
                                      NULL);
 }
@@ -2494,7 +2514,7 @@ brw_vectorize_lower_mem_access(brw_pass_tracker *pt,
     * so that we maximize the offset put into the messages.
     */
    if (devinfo->ver >= 20) {
-      OPT(brw_nir_ssbo_intel);
+      OPT(brw_nir_intrinsic_intel);
 
       const nir_opt_offsets_options offset_options = {
          .buffer_max        = UINT32_MAX,
@@ -3105,6 +3125,7 @@ lsc_op_for_nir_intrinsic(const nir_intrinsic_instr *intrin)
    case nir_intrinsic_load_shared_uniform_block_intel:
    case nir_intrinsic_load_ssbo_block_intel:
    case nir_intrinsic_load_ssbo_uniform_block_intel:
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ubo_uniform_block_intel:
    case nir_intrinsic_load_scratch:
       return LSC_OP_LOAD;

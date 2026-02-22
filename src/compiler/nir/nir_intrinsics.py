@@ -2559,6 +2559,10 @@ intrinsic("store_deref_block_intel", src_comp=[-1, 0], indices=[ACCESS])
 
 # Special load_ssbo intrinsic with an additional BASE value for Xe2+ offsets
 # src[] = { buffer_index, offset }.
+load("ubo_intel", [-1, 1], [ACCESS, BASE, ALIGN_MUL, ALIGN_OFFSET, RANGE_BASE, RANGE], flags=[CAN_ELIMINATE, CAN_REORDER])
+
+# Special load_ssbo intrinsic with an additional BASE value for Xe2+ offsets
+# src[] = { buffer_index, offset }.
 load("ssbo_intel", [-1, 1], [ACCESS, BASE, ALIGN_MUL, ALIGN_OFFSET], [CAN_ELIMINATE])
 
 # Special store_ssbo intrinsic with an additional BASE value for Xe2+ offsets

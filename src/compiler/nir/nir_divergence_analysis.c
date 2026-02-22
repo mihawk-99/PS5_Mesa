@@ -593,6 +593,7 @@ visit_intrinsic(nir_intrinsic_instr *instr, struct divergence_state *state)
 
    case nir_intrinsic_load_ubo:
    case nir_intrinsic_load_ubo_vec4:
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_ldc_nv:
    case nir_intrinsic_ldcx_nv:
    case nir_intrinsic_load_texel_buf_index_address_pan:

@@ -1044,6 +1044,7 @@ nir_get_io_offset_src_number(const nir_intrinsic_instr *instr)
    case nir_intrinsic_load_ssbo_block_intel:
    case nir_intrinsic_store_global_block_intel:
    case nir_intrinsic_store_shared_block_intel:
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ubo_uniform_block_intel:
    case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_load_buffer_amd:
@@ -1121,6 +1122,7 @@ nir_get_io_index_src_number(const nir_intrinsic_instr *instr)
    case nir_intrinsic_load_ssbo_block_intel:
    case nir_intrinsic_store_global_block_intel:
    case nir_intrinsic_store_shared_block_intel:
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ubo_uniform_block_intel:
    case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_ssbo_atomic:

@@ -1920,6 +1920,7 @@ get_nir_def(nir_to_brw_state &ntb, const nir_def &def, bool all_sources_uniform)
          break;
 
       case nir_intrinsic_load_ubo:
+      case nir_intrinsic_load_ubo_intel:
          is_scalar = get_nir_src(ntb, instr->src[1], 0).is_scalar;
          break;
 
@@ -5362,6 +5363,7 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
       break;
    }
 
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ubo_uniform_block_intel:
       s.prog_data->has_ubo_pull = true;
       brw_from_nir_emit_memory_access(ntb, bld, xbld, instr);
@@ -6054,6 +6056,7 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
       srcs[MEMORY_LOGICAL_ADDRESS] = get_nir_src(ntb, instr->src[1], 0);
       break;
 
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ubo_uniform_block_intel:
       mode = MEMORY_MODE_CONSTANT;
       FALLTHROUGH;

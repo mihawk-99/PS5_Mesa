@@ -13,6 +13,7 @@ lower_immediate_offsets(nir_builder *b, nir_intrinsic_instr *intrin, void *data)
    unsigned max_bits = 0;
 
    switch (intrin->intrinsic) {
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ssbo_intel:
    case nir_intrinsic_load_ubo_uniform_block_intel:
    case nir_intrinsic_load_ssbo_uniform_block_intel:
