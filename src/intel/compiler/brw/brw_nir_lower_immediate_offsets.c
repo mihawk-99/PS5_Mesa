@@ -15,8 +15,6 @@ lower_immediate_offsets(nir_builder *b, nir_intrinsic_instr *intrin, void *data)
    switch (intrin->intrinsic) {
    case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ssbo_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_store_ssbo_intel:
    case nir_intrinsic_store_ssbo_block_intel: {
       nir_src *binding = nir_get_io_index_src(intrin);

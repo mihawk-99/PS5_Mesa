@@ -375,24 +375,6 @@ visit_intrinsic(nir_intrinsic_instr *instr, struct divergence_state *state)
          src_divergent(instr->src[0], state);
       break;
 
-   case nir_intrinsic_load_ubo_uniform_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
-   case nir_intrinsic_load_shared_uniform_block_intel:
-   case nir_intrinsic_load_global_constant_uniform_block_intel:
-      if (options & (nir_divergence_across_subgroups |
-                     nir_divergence_multiple_workgroup_per_compute_subgroup)) {
-         unsigned num_srcs = nir_intrinsic_infos[instr->intrinsic].num_srcs;
-         for (unsigned i = 0; i < num_srcs; i++) {
-            if (src_divergent(instr->src[i], state)) {
-               is_divergent = true;
-               break;
-            }
-         }
-      } else {
-         is_divergent = false;
-      }
-      break;
-
    /* This is divergent because it specifically loads sequential values into
     * successive SIMD lanes.
     */

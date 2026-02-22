@@ -348,8 +348,6 @@ process_instr(nir_builder *b, nir_instr *instr, void *s)
       need_nuw &= !!(nir_intrinsic_access(intrin) & ACCESS_IS_SWIZZLED_AMD);
       return try_fold_load_store(b, intrin, state, 2, 0, get_max(state, intrin, state->options->buffer_max), need_nuw);
    case nir_intrinsic_load_ssbo_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
       return try_fold_load_store(b, intrin, state, 1, 0, get_max(state, intrin, state->options->buffer_max), need_nuw);
    case nir_intrinsic_store_ssbo_intel:
       return try_fold_load_store(b, intrin, state, 2, 0, get_max(state, intrin, state->options->buffer_max), need_nuw);

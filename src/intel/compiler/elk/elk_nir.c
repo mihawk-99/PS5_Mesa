@@ -1228,28 +1228,11 @@ elk_nir_should_vectorize_mem(unsigned align_mul, unsigned align_offset,
    if (bit_size > 32 || hole_size > 0 || !nir_num_components_valid(num_components))
       return false;
 
-   if (low->intrinsic == nir_intrinsic_load_ubo_uniform_block_intel ||
-       low->intrinsic == nir_intrinsic_load_ssbo_uniform_block_intel ||
-       low->intrinsic == nir_intrinsic_load_shared_uniform_block_intel ||
-       low->intrinsic == nir_intrinsic_load_global_constant_uniform_block_intel) {
-      if (num_components > 4) {
-         if (!util_is_power_of_two_nonzero(num_components))
-            return false;
-
-         if (bit_size != 32)
-            return false;
-
-         if (num_components > 32)
-            return false;
-      }
-   } else {
-      /* We can handle at most a vec4 right now.  Anything bigger would get
-       * immediately split by elk_nir_lower_mem_access_bit_sizes anyway.
-       */
-      if (num_components > 4)
-         return false;
-   }
-
+   /* We can handle at most a vec4 right now. Anything bigger would get
+    * immediately split by elk_nir_lower_mem_access_bit_sizes anyway.
+    */
+   if (num_components > 4)
+      return false;
 
    uint32_t align;
    if (align_offset)
@@ -1941,7 +1924,8 @@ elk_nir_load_global_const(nir_builder *b, nir_intrinsic_instr *load_uniform,
       nir_def *data[2];
       for (unsigned i = 0; i < 2; i++) {
          nir_def *addr = nir_iadd_imm(b, base_addr, aligned_offset + i * 64);
-         data[i] = nir_load_global_constant_uniform_block_intel(b, 16, 32, addr);
+         data[i] = nir_load_global_constant(b, 16, 32, addr,
+            .access = ACCESS_BLOCK_INTEL);
       }
 
       sysval = nir_extract_bits(b, data, 2, suboffset * 8,
@@ -1971,4 +1955,3 @@ elk_nir_get_var_type(const struct nir_shader *nir, nir_variable *var)
 
    return type;
 }
-

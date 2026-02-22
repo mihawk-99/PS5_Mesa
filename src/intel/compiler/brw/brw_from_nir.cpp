@@ -1910,11 +1910,8 @@ get_nir_def(nir_to_brw_state &ntb, const nir_def &def, bool all_sources_uniform)
       case nir_intrinsic_load_btd_global_arg_addr_intel:
       case nir_intrinsic_load_btd_local_arg_addr_intel:
       case nir_intrinsic_load_btd_shader_type_intel:
-      case nir_intrinsic_load_global_constant_uniform_block_intel:
       case nir_intrinsic_load_inline_data_intel:
       case nir_intrinsic_load_reloc_const_intel:
-      case nir_intrinsic_load_ssbo_uniform_block_intel:
-      case nir_intrinsic_load_ubo_uniform_block_intel:
       case nir_intrinsic_load_workgroup_id:
          is_scalar = true;
          break;
@@ -4885,9 +4882,6 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
       /* Nothing to do with these. */
       break;
 
-   case nir_intrinsic_load_global_constant_uniform_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
-   case nir_intrinsic_load_shared_uniform_block_intel:
    case nir_intrinsic_load_global_block_intel:
    case nir_intrinsic_store_global_block_intel:
    case nir_intrinsic_load_shared_block_intel:
@@ -5364,7 +5358,6 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
    }
 
    case nir_intrinsic_load_ubo_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
       s.prog_data->has_ubo_pull = true;
       brw_from_nir_emit_memory_access(ntb, bld, xbld, instr);
       break;
@@ -6057,7 +6050,6 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
       break;
 
    case nir_intrinsic_load_ubo_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
       mode = MEMORY_MODE_CONSTANT;
       FALLTHROUGH;
    case nir_intrinsic_load_ssbo:
@@ -6068,7 +6060,6 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
    case nir_intrinsic_ssbo_atomic_swap:
    case nir_intrinsic_load_ssbo_block_intel:
    case nir_intrinsic_store_ssbo_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
       if (!mode.has_value())
          mode = MEMORY_MODE_UNTYPED;
       binding_type =
@@ -6085,8 +6076,7 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
    case nir_intrinsic_shared_atomic:
    case nir_intrinsic_shared_atomic_swap:
    case nir_intrinsic_load_shared_block_intel:
-   case nir_intrinsic_store_shared_block_intel:
-   case nir_intrinsic_load_shared_uniform_block_intel: {
+   case nir_intrinsic_store_shared_block_intel: {
       mode = MEMORY_MODE_SHARED_LOCAL;
       binding_type = LSC_ADDR_SURFTYPE_FLAT;
       srcs[MEMORY_LOGICAL_ADDRESS] =
@@ -6135,7 +6125,6 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
       break;
    }
 
-   case nir_intrinsic_load_global_constant_uniform_block_intel:
    case nir_intrinsic_load_global:
    case nir_intrinsic_load_global_constant:
    case nir_intrinsic_store_global:
@@ -6201,11 +6190,7 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
                         SHADER_OPCODE_MEMORY_ATOMIC_LOGICAL;
 
    const bool convergent_block_load =
-      (nir_intrinsic_access(instr) & ACCESS_BLOCK_INTEL) ||
-      instr->intrinsic == nir_intrinsic_load_ubo_uniform_block_intel ||
-      instr->intrinsic == nir_intrinsic_load_ssbo_uniform_block_intel ||
-      instr->intrinsic == nir_intrinsic_load_shared_uniform_block_intel ||
-      instr->intrinsic == nir_intrinsic_load_global_constant_uniform_block_intel;
+      (nir_intrinsic_access(instr) & ACCESS_BLOCK_INTEL);
    const bool block = convergent_block_load ||
       instr->intrinsic == nir_intrinsic_load_global_block_intel ||
       instr->intrinsic == nir_intrinsic_load_shared_block_intel ||

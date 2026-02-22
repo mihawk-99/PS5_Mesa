@@ -99,12 +99,12 @@ rebase_const_offset_ubo_loads_intr(nir_builder *b,
  *
  * 1. Run load/store vectorization to combine access within a basic block
  *
- * 2. Find load_ubo_uniform_block_intel intrinsics with constant offsets.
- *    Round their base down to the nearest multiple of 64B, and also increase
- *    their returned vector to be a vec16 (64B for 32-bit values).  However,
- *    only do this if a single vec16 load would cover this additional "pad"
- *    space at the front, and all used components of the existing load.  That
- *    way, we don't blindly turn a single load into two loads.
+ * 2. Find load_ubo with access ACCESS_BLOCK_INTEL intrinsics with constant
+ *    offsets. Round their base down to the nearest multiple of 64B, and also
+ *    increase their returned vector to be a vec16 (64B for 32-bit values).
+ *    However, only do this if a single vec16 load would cover this additional
+ *    "pad" space at the front, and all used components of the existing load.
+ *    That way, we don't blindly turn a single load into two loads.
  *
  *    If we made any progress, then...
  *

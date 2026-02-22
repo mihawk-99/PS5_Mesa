@@ -60,9 +60,9 @@ lower_ubo_load_instr(nir_builder *b, nir_intrinsic_instr *load,
       for (unsigned i = 0; i < 2; i++) {
          nir_def *addr = nir_iadd_imm(b, base_addr, aligned_offset + i * 64);
 
-         data[i] = nir_load_global_constant_uniform_block_intel(
+         data[i] = nir_load_global_constant(
             b, 16, 32, addr,
-            .access = nir_intrinsic_access(load),
+            .access = nir_intrinsic_access(load) | ACCESS_BLOCK_INTEL,
             .align_mul = 64);
       }
 

@@ -1008,8 +1008,6 @@ nir_get_io_offset_src_number(const nir_intrinsic_instr *instr)
    case nir_intrinsic_load_coefficients_agx:
    case nir_intrinsic_load_shared_block_intel:
    case nir_intrinsic_load_global_block_intel:
-   case nir_intrinsic_load_shared_uniform_block_intel:
-   case nir_intrinsic_load_global_constant_uniform_block_intel:
    case nir_intrinsic_load_shared2_amd:
    case nir_intrinsic_load_const_ir3:
    case nir_intrinsic_load_shared_ir3:
@@ -1045,8 +1043,6 @@ nir_get_io_offset_src_number(const nir_intrinsic_instr *instr)
    case nir_intrinsic_store_global_block_intel:
    case nir_intrinsic_store_shared_block_intel:
    case nir_intrinsic_load_ubo_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_load_buffer_amd:
    case nir_intrinsic_store_shared2_amd:
    case nir_intrinsic_store_shared_ir3:
@@ -1123,8 +1119,6 @@ nir_get_io_index_src_number(const nir_intrinsic_instr *instr)
    case nir_intrinsic_store_global_block_intel:
    case nir_intrinsic_store_shared_block_intel:
    case nir_intrinsic_load_ubo_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_ssbo_atomic:
    case nir_intrinsic_ssbo_atomic_swap:
    IMG_CASE(load):
@@ -1272,7 +1266,6 @@ nir_is_shared_access(nir_intrinsic_instr *intr)
           intr->intrinsic == nir_intrinsic_shared_atomic_swap ||
           intr->intrinsic == nir_intrinsic_load_shared_block_intel ||
           intr->intrinsic == nir_intrinsic_store_shared_block_intel ||
-          intr->intrinsic == nir_intrinsic_load_shared_uniform_block_intel ||
           intr->intrinsic == nir_intrinsic_load_shared2_amd ||
           intr->intrinsic == nir_intrinsic_store_shared2_amd ||
           intr->intrinsic == nir_intrinsic_shared_append_amd ||

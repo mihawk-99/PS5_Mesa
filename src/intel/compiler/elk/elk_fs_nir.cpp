@@ -4952,8 +4952,7 @@ fs_nir_emit_intrinsic(nir_to_elk_state &ntb,
       break;
    }
 
-   case nir_intrinsic_load_ubo:
-   case nir_intrinsic_load_ubo_uniform_block_intel: {
+   case nir_intrinsic_load_ubo: {
       elk_fs_reg surface, surface_handle;
 
       if (get_nir_src_bindless(ntb, instr->src[0]))
@@ -4962,7 +4961,7 @@ fs_nir_emit_intrinsic(nir_to_elk_state &ntb,
          surface = get_nir_buffer_intrinsic_index(ntb, bld, instr);
 
       if (!nir_src_is_const(instr->src[1])) {
-         if (instr->intrinsic == nir_intrinsic_load_ubo) {
+         if (!(nir_intrinsic_access(instr) & ACCESS_BLOCK_INTEL)) {
             /* load_ubo with non-uniform offset */
             elk_fs_reg base_offset = retype(get_nir_src(ntb, instr->src[1]),
                                         ELK_REGISTER_TYPE_UD);
@@ -5111,37 +5110,78 @@ fs_nir_emit_intrinsic(nir_to_elk_state &ntb,
 
    case nir_intrinsic_load_global:
    case nir_intrinsic_load_global_constant: {
-      assert(devinfo->ver >= 8);
+      if (nir_intrinsic_access(instr) & ACCESS_BLOCK_INTEL) {
+         const unsigned total_dwords = align(instr->num_components,
+                                             REG_SIZE * reg_unit(devinfo) / 4);
+         unsigned loaded_dwords = 0;
 
-      assert(instr->def.bit_size <= 32);
-      assert(nir_intrinsic_align(instr) > 0);
-      elk_fs_reg srcs[A64_LOGICAL_NUM_SRCS];
-      srcs[A64_LOGICAL_ADDRESS] = get_nir_src(ntb, instr->src[0]);
-      srcs[A64_LOGICAL_SRC] = elk_fs_reg(); /* No source data */
-      srcs[A64_LOGICAL_ENABLE_HELPERS] =
-         elk_imm_ud(nir_intrinsic_access(instr) & ACCESS_INCLUDE_HELPERS);
+         const fs_builder ubld1 = bld.exec_all().group(1, 0);
+         const fs_builder ubld8 = bld.exec_all().group(8, 0);
+         const fs_builder ubld16 = bld.exec_all().group(16, 0);
 
-      if (instr->def.bit_size == 32 &&
-          nir_intrinsic_align(instr) >= 4) {
-         assert(instr->def.num_components <= 4);
+         const elk_fs_reg packed_consts =
+            ubld1.vgrf(ELK_REGISTER_TYPE_UD, total_dwords);
+         elk_fs_reg address = bld.emit_uniformize(get_nir_src(ntb, instr->src[0]));
 
-         srcs[A64_LOGICAL_ARG] = elk_imm_ud(instr->num_components);
+         while (loaded_dwords < total_dwords) {
+            const unsigned block =
+               choose_oword_block_size_dwords(devinfo,
+                                              total_dwords - loaded_dwords);
+            const unsigned block_bytes = block * 4;
 
-         elk_fs_inst *inst =
-            bld.emit(ELK_SHADER_OPCODE_A64_UNTYPED_READ_LOGICAL, dest,
-                     srcs, A64_LOGICAL_NUM_SRCS);
-         inst->size_written = instr->num_components *
-                              inst->dst.component_size(inst->exec_size);
+            const fs_builder &ubld = block <= 8 ? ubld8 : ubld16;
+
+            elk_fs_reg srcs[A64_LOGICAL_NUM_SRCS];
+            srcs[A64_LOGICAL_ADDRESS] = address;
+            srcs[A64_LOGICAL_SRC] = elk_fs_reg(); /* No source data */
+            srcs[A64_LOGICAL_ARG] = elk_imm_ud(block);
+            srcs[A64_LOGICAL_ENABLE_HELPERS] = elk_imm_ud(0);
+            ubld.emit(ELK_SHADER_OPCODE_A64_UNALIGNED_OWORD_BLOCK_READ_LOGICAL,
+                      retype(byte_offset(packed_consts, loaded_dwords * 4), ELK_REGISTER_TYPE_UD),
+                      srcs, A64_LOGICAL_NUM_SRCS)->size_written =
+               align(block_bytes, REG_SIZE * reg_unit(devinfo));
+
+            increment_a64_address(ubld1, address, block_bytes);
+            loaded_dwords += block;
+         }
+
+         for (unsigned c = 0; c < instr->num_components; c++)
+            bld.MOV(retype(offset(dest, bld, c), ELK_REGISTER_TYPE_UD),
+                    component(packed_consts, c));
+
       } else {
-         const unsigned bit_size = instr->def.bit_size;
-         assert(instr->def.num_components == 1);
-         elk_fs_reg tmp = bld.vgrf(ELK_REGISTER_TYPE_UD);
+         assert(devinfo->ver >= 8);
 
-         srcs[A64_LOGICAL_ARG] = elk_imm_ud(bit_size);
+         assert(instr->def.bit_size <= 32);
+         assert(nir_intrinsic_align(instr) > 0);
+         elk_fs_reg srcs[A64_LOGICAL_NUM_SRCS];
+         srcs[A64_LOGICAL_ADDRESS] = get_nir_src(ntb, instr->src[0]);
+         srcs[A64_LOGICAL_SRC] = elk_fs_reg(); /* No source data */
+         srcs[A64_LOGICAL_ENABLE_HELPERS] =
+            elk_imm_ud(nir_intrinsic_access(instr) & ACCESS_INCLUDE_HELPERS);
 
-         bld.emit(ELK_SHADER_OPCODE_A64_BYTE_SCATTERED_READ_LOGICAL, tmp,
-                  srcs, A64_LOGICAL_NUM_SRCS);
-         bld.MOV(dest, subscript(tmp, dest.type, 0));
+         if (instr->def.bit_size == 32 &&
+             nir_intrinsic_align(instr) >= 4) {
+            assert(instr->def.num_components <= 4);
+
+            srcs[A64_LOGICAL_ARG] = elk_imm_ud(instr->num_components);
+
+            elk_fs_inst *inst =
+               bld.emit(ELK_SHADER_OPCODE_A64_UNTYPED_READ_LOGICAL, dest,
+                        srcs, A64_LOGICAL_NUM_SRCS);
+            inst->size_written = instr->num_components *
+               inst->dst.component_size(inst->exec_size);
+         } else {
+            const unsigned bit_size = instr->def.bit_size;
+            assert(instr->def.num_components == 1);
+            elk_fs_reg tmp = bld.vgrf(ELK_REGISTER_TYPE_UD);
+
+            srcs[A64_LOGICAL_ARG] = elk_imm_ud(bit_size);
+
+            bld.emit(ELK_SHADER_OPCODE_A64_BYTE_SCATTERED_READ_LOGICAL, tmp,
+                     srcs, A64_LOGICAL_NUM_SRCS);
+            bld.MOV(dest, subscript(tmp, dest.type, 0));
+         }
       }
       break;
    }
@@ -5189,48 +5229,6 @@ fs_nir_emit_intrinsic(nir_to_elk_state &ntb,
    case nir_intrinsic_global_atomic_swap:
       fs_nir_emit_global_atomic(ntb, bld, instr);
       break;
-
-   case nir_intrinsic_load_global_constant_uniform_block_intel: {
-      const unsigned total_dwords = align(instr->num_components,
-                                          REG_SIZE * reg_unit(devinfo) / 4);
-      unsigned loaded_dwords = 0;
-
-      const fs_builder ubld1 = bld.exec_all().group(1, 0);
-      const fs_builder ubld8 = bld.exec_all().group(8, 0);
-      const fs_builder ubld16 = bld.exec_all().group(16, 0);
-
-      const elk_fs_reg packed_consts =
-         ubld1.vgrf(ELK_REGISTER_TYPE_UD, total_dwords);
-      elk_fs_reg address = bld.emit_uniformize(get_nir_src(ntb, instr->src[0]));
-
-      while (loaded_dwords < total_dwords) {
-         const unsigned block =
-            choose_oword_block_size_dwords(devinfo,
-                                           total_dwords - loaded_dwords);
-         const unsigned block_bytes = block * 4;
-
-         const fs_builder &ubld = block <= 8 ? ubld8 : ubld16;
-
-         elk_fs_reg srcs[A64_LOGICAL_NUM_SRCS];
-         srcs[A64_LOGICAL_ADDRESS] = address;
-         srcs[A64_LOGICAL_SRC] = elk_fs_reg(); /* No source data */
-         srcs[A64_LOGICAL_ARG] = elk_imm_ud(block);
-         srcs[A64_LOGICAL_ENABLE_HELPERS] = elk_imm_ud(0);
-         ubld.emit(ELK_SHADER_OPCODE_A64_UNALIGNED_OWORD_BLOCK_READ_LOGICAL,
-                   retype(byte_offset(packed_consts, loaded_dwords * 4), ELK_REGISTER_TYPE_UD),
-                   srcs, A64_LOGICAL_NUM_SRCS)->size_written =
-            align(block_bytes, REG_SIZE * reg_unit(devinfo));
-
-         increment_a64_address(ubld1, address, block_bytes);
-         loaded_dwords += block;
-      }
-
-      for (unsigned c = 0; c < instr->num_components; c++)
-         bld.MOV(retype(offset(dest, bld, c), ELK_REGISTER_TYPE_UD),
-                 component(packed_consts, c));
-
-      break;
-   }
 
    case nir_intrinsic_load_ssbo: {
       assert(devinfo->ver >= 7);
@@ -5308,70 +5306,6 @@ fs_nir_emit_intrinsic(nir_to_elk_state &ntb,
          bld.emit(ELK_SHADER_OPCODE_BYTE_SCATTERED_WRITE_LOGICAL,
                   elk_fs_reg(), srcs, SURFACE_LOGICAL_NUM_SRCS);
       }
-      break;
-   }
-
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
-   case nir_intrinsic_load_shared_uniform_block_intel: {
-      elk_fs_reg srcs[SURFACE_LOGICAL_NUM_SRCS];
-
-      const bool is_ssbo =
-         instr->intrinsic == nir_intrinsic_load_ssbo_uniform_block_intel;
-      if (is_ssbo) {
-         srcs[get_nir_src_bindless(ntb, instr->src[0]) ?
-              SURFACE_LOGICAL_SRC_SURFACE_HANDLE :
-              SURFACE_LOGICAL_SRC_SURFACE] =
-            get_nir_buffer_intrinsic_index(ntb, bld, instr);
-      } else {
-         srcs[SURFACE_LOGICAL_SRC_SURFACE] = elk_fs_reg(elk_imm_ud(GFX7_BTI_SLM));
-      }
-
-      const unsigned total_dwords = align(instr->num_components,
-                                          REG_SIZE * reg_unit(devinfo) / 4);
-      unsigned loaded_dwords = 0;
-
-      const fs_builder ubld1 = bld.exec_all().group(1, 0);
-      const fs_builder ubld8 = bld.exec_all().group(8, 0);
-      const fs_builder ubld16 = bld.exec_all().group(16, 0);
-
-      const elk_fs_reg packed_consts =
-         ubld1.vgrf(ELK_REGISTER_TYPE_UD, total_dwords);
-
-      const nir_src load_offset = is_ssbo ? instr->src[1] : instr->src[0];
-      if (nir_src_is_const(load_offset)) {
-         elk_fs_reg addr = ubld8.vgrf(ELK_REGISTER_TYPE_UD);
-         ubld8.MOV(addr, elk_imm_ud(nir_src_as_uint(load_offset)));
-         srcs[SURFACE_LOGICAL_SRC_ADDRESS] = component(addr, 0);
-      } else {
-         srcs[SURFACE_LOGICAL_SRC_ADDRESS] =
-            bld.emit_uniformize(get_nir_src(ntb, load_offset));
-      }
-
-      while (loaded_dwords < total_dwords) {
-         const unsigned block =
-            choose_oword_block_size_dwords(devinfo,
-                                           total_dwords - loaded_dwords);
-         const unsigned block_bytes = block * 4;
-
-         srcs[SURFACE_LOGICAL_SRC_IMM_ARG] = elk_imm_ud(block);
-
-         const fs_builder &ubld = block <= 8 ? ubld8 : ubld16;
-         ubld.emit(ELK_SHADER_OPCODE_UNALIGNED_OWORD_BLOCK_READ_LOGICAL,
-                   retype(byte_offset(packed_consts, loaded_dwords * 4), ELK_REGISTER_TYPE_UD),
-                   srcs, SURFACE_LOGICAL_NUM_SRCS)->size_written =
-            align(block_bytes, REG_SIZE * reg_unit(devinfo));
-
-         loaded_dwords += block;
-
-         ubld1.ADD(srcs[SURFACE_LOGICAL_SRC_ADDRESS],
-                   srcs[SURFACE_LOGICAL_SRC_ADDRESS],
-                   elk_imm_ud(block_bytes));
-      }
-
-      for (unsigned c = 0; c < instr->num_components; c++)
-         bld.MOV(retype(offset(dest, bld, c), ELK_REGISTER_TYPE_UD),
-                 component(packed_consts, c));
-
       break;
    }
 
@@ -6976,4 +6910,3 @@ nir_to_elk(elk_fs_visitor *s)
 
    ralloc_free(ntb.mem_ctx);
 }
-

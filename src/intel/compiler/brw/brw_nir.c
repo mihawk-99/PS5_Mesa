@@ -2673,8 +2673,6 @@ flag_fused_eu_disable_instr(nir_builder *b, nir_instr *instr, void *data)
        * handle/offset.
        */
       switch (intrin->intrinsic) {
-      case nir_intrinsic_load_ssbo_uniform_block_intel:
-      case nir_intrinsic_load_ubo_uniform_block_intel:
       case nir_intrinsic_load_ssbo_block_intel:
       case nir_intrinsic_load_ssbo_intel:
       case nir_intrinsic_store_ssbo_intel:
@@ -3159,13 +3157,9 @@ lsc_op_for_nir_intrinsic(const nir_intrinsic_instr *intrin)
    case nir_intrinsic_load_global:
    case nir_intrinsic_load_global_block_intel:
    case nir_intrinsic_load_global_constant:
-   case nir_intrinsic_load_global_constant_uniform_block_intel:
    case nir_intrinsic_load_shared_block_intel:
-   case nir_intrinsic_load_shared_uniform_block_intel:
    case nir_intrinsic_load_ssbo_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_load_ubo_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
    case nir_intrinsic_load_scratch:
       return LSC_OP_LOAD;
 
@@ -3334,7 +3328,7 @@ brw_nir_load_global_const(nir_builder *b, nir_intrinsic_instr *load,
       for (unsigned i = 0; i < 2; i++) {
          nir_def *addr = nir_iadd_imm(b, base_addr, aligned_offset + i * 64);
 
-         data[i] = nir_load_global_constant_uniform_block_intel(
+         data[i] = nir_load_global_constant(
             b, 16, 32, addr,
             .access = ACCESS_CAN_REORDER | ACCESS_NON_WRITEABLE,
             .align_mul = 64);

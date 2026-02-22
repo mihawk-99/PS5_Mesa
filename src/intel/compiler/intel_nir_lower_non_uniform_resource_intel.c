@@ -65,14 +65,13 @@ intel_nir_lower_non_uniform_intrinsic(nir_builder *b,
    unsigned source;
    switch (intrin->intrinsic) {
    case nir_intrinsic_load_ubo:
+   case nir_intrinsic_load_ubo_intel:
    case nir_intrinsic_load_ssbo:
    case nir_intrinsic_get_ssbo_size:
    case nir_intrinsic_ssbo_atomic:
    case nir_intrinsic_ssbo_atomic_swap:
    case nir_intrinsic_load_ssbo_block_intel:
    case nir_intrinsic_store_ssbo_block_intel:
-   case nir_intrinsic_load_ubo_uniform_block_intel:
-   case nir_intrinsic_load_ssbo_uniform_block_intel:
    case nir_intrinsic_image_load_raw_intel:
    case nir_intrinsic_image_store_raw_intel:
    case nir_intrinsic_image_load:
@@ -234,7 +233,6 @@ skip_resource_intel_cleanup(nir_instr *instr)
       case nir_intrinsic_ssbo_atomic_swap:
       case nir_intrinsic_load_ssbo_block_intel:
       case nir_intrinsic_store_ssbo_block_intel:
-      case nir_intrinsic_load_ssbo_uniform_block_intel:
       case nir_intrinsic_image_load_raw_intel:
       case nir_intrinsic_image_store_raw_intel:
       case nir_intrinsic_image_load:

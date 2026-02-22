@@ -109,12 +109,8 @@ get_info(nir_intrinsic_op op)
       LOAD(nir_var_shader_temp, scratch, -1, 0, -1, 1)
       STORE(nir_var_shader_temp, scratch, -1, 1, -1, 0, 1)
       LOAD(nir_var_mem_ubo, ubo_intel, 0, 1, -1, 1)
-      LOAD(nir_var_mem_ubo, ubo_uniform_block_intel, 0, 1, -1, 1)
-      LOAD(nir_var_mem_ssbo, ssbo_uniform_block_intel, 0, 1, -1, 1)
       LOAD(nir_var_mem_ssbo, ssbo_intel, 0, 1, -1, 1)
       STORE(nir_var_mem_ssbo, ssbo_intel, 1, 2, -1, 0, 1)
-      LOAD(nir_var_mem_shared, shared_uniform_block_intel, -1, 0, -1, 1)
-      LOAD(nir_var_mem_global, global_constant_uniform_block_intel, -1, 0, -1, 1)
       INFO(nir_var_mem_ubo, ldc_nv, false, 0, 1, -1, -1, 1)
       INFO(nir_var_mem_ubo, ldcx_nv, false, 0, 1, -1, -1, 1)
       LOAD(nir_var_uniform, const_ir3, -1, 0, -1, 4)
@@ -1614,7 +1610,7 @@ try_vectorize_shared2(struct vectorize_ctx *ctx,
                            nir_bitcast_vector(&b, nir_channel(&b, new_def, 0), low_bit_size));
       nir_def_rewrite_uses(&high->intrin->def,
                            nir_bitcast_vector(&b, nir_channel(&b, new_def, 1), high_bit_size));
-      new_entry = create_entry(ctx, get_info(nir_intrinsic_load_shared2_amd), nir_def_as_intrinsic(new_def));                     
+      new_entry = create_entry(ctx, get_info(nir_intrinsic_load_shared2_amd), nir_def_as_intrinsic(new_def));
    }
 
    /* Add a new entry, so that alias checks stay intact. Remove the old entries,

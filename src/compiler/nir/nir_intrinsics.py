@@ -2587,25 +2587,6 @@ store("ssbo_block_intel", [-1, 1], [ACCESS, ALIGN_MUL, ALIGN_OFFSET])
 # src[] = { value, offset }.
 store("shared_block_intel", [1], [BASE, ALIGN_MUL, ALIGN_OFFSET])
 
-# src[] = { address }.
-load("global_constant_uniform_block_intel", [1],
-     [ACCESS, ALIGN_MUL, ALIGN_OFFSET], [CAN_ELIMINATE, CAN_REORDER])
-
-# Similar to load_global_const_block_intel but for UBOs
-# offset should be uniform
-# src[] = { buffer_index, offset }.
-load("ubo_uniform_block_intel", [-1, 1],
-     [ACCESS, ALIGN_MUL, ALIGN_OFFSET, BASE, RANGE], [CAN_ELIMINATE, CAN_REORDER])
-
-# Similar to load_global_const_block_intel but for SSBOs
-# offset should be uniform
-# src[] = { buffer_index, offset }.
-load("ssbo_uniform_block_intel", [-1, 1], [ACCESS, ALIGN_MUL, ALIGN_OFFSET, BASE], [CAN_ELIMINATE])
-
-# Similar to load_global_const_block_intel but for shared memory
-# src[] = { offset }.
-load("shared_uniform_block_intel", [1], [BASE, ACCESS, ALIGN_MUL, ALIGN_OFFSET], [CAN_ELIMINATE])
-
 # Legacy pre-Xe2 URB read.  This takes a URB handle and a 128-bit (vec4)
 # aligned offset.  The hardware can implicitly add a constant offset ("base")
 # to the total offset (which is also in 128-bit units).  Certain stages can
