@@ -2491,6 +2491,28 @@ brw_vectorize_lower_mem_access(brw_pass_tracker *pt,
 
    OPT(nir_opt_load_store_vectorize, &options);
 
+   struct brw_mem_access_cb_data cb_data = {
+      .devinfo = devinfo,
+   };
+
+   nir_lower_mem_access_bit_sizes_options mem_access_options = {
+      .modes = nir_var_mem_ubo |
+               nir_var_mem_ssbo |
+               nir_var_mem_constant |
+               nir_var_mem_task_payload |
+               nir_var_shader_temp |
+               nir_var_function_temp |
+               nir_var_mem_global |
+               nir_var_mem_shared,
+      .callback = get_mem_access_size_align,
+      .cb_data = &cb_data,
+   };
+   OPT(nir_lower_mem_access_bit_sizes, &mem_access_options);
+   OPT(nir_opt_copy_prop);
+   OPT(nir_opt_dce);
+   OPT(nir_opt_algebraic);
+   OPT(nir_opt_cse);
+
    /* When HW supports block loads, using the divergence analysis, try
     * to find uniform SSBO loads and turn them into block loads.
     *
@@ -2521,23 +2543,6 @@ brw_vectorize_lower_mem_access(brw_pass_tracker *pt,
       }
    }
 
-   struct brw_mem_access_cb_data cb_data = {
-      .devinfo = devinfo,
-   };
-
-   nir_lower_mem_access_bit_sizes_options mem_access_options = {
-      .modes = nir_var_mem_ubo |
-               nir_var_mem_ssbo |
-               nir_var_mem_constant |
-               nir_var_mem_task_payload |
-               nir_var_shader_temp |
-               nir_var_function_temp |
-               nir_var_mem_global |
-               nir_var_mem_shared,
-      .callback = get_mem_access_size_align,
-      .cb_data = &cb_data,
-   };
-   OPT(nir_lower_mem_access_bit_sizes, &mem_access_options);
    OPT(nir_lower_pack);
    OPT(nir_opt_copy_prop);
    OPT(nir_opt_dce);
