@@ -2273,6 +2273,41 @@ get_mem_access_size_align(nir_intrinsic_op intrin, uint8_t bytes,
       (struct brw_mem_access_cb_data *)cb_data;
    const struct intel_device_info *devinfo = mem_cb_data->devinfo;
 
+   if (access & ACCESS_BLOCK_INTEL) {
+      if (devinfo->has_lsc) {
+         if (align_mul >= 4) {
+            /* For the block element size choose at least 32.
+             *
+             * ATSM PRMs, Vol 2a: Command Reference: Instructions,
+             * DP_LOAD/DP_STORE:
+             *    "8b and 16b data sizes are only supported with vector size 1
+             *     and Transpose off."
+             */
+            uint8_t block_bit_size = MAX2(bit_size, 32);
+            /* At most the LSC can load 256bytes worth of data */
+            uint8_t block_components = MIN2(
+               DIV_ROUND_UP(bytes, block_bit_size / 8),
+               256 / (block_bit_size / 8));
+
+            return (nir_mem_access_size_align) {
+               .bit_size = block_bit_size,
+               .num_components = block_components,
+               .align = 4,
+               .shift = nir_mem_access_shift_method_scalar,
+            };
+         }
+      } else {
+         if (align_mul >= 16) {
+            return (nir_mem_access_size_align) {
+               .bit_size = 32,
+               .num_components = bytes / 4,
+               .align = 4,
+               .shift = nir_mem_access_shift_method_scalar,
+            };
+         }
+      }
+   }
+
    switch (intrin) {
    case nir_intrinsic_load_ssbo:
    case nir_intrinsic_load_shared:
@@ -2491,7 +2526,8 @@ brw_vectorize_lower_mem_access(brw_pass_tracker *pt,
    };
 
    nir_lower_mem_access_bit_sizes_options mem_access_options = {
-      .modes = nir_var_mem_ssbo |
+      .modes = nir_var_mem_ubo |
+               nir_var_mem_ssbo |
                nir_var_mem_constant |
                nir_var_mem_task_payload |
                nir_var_shader_temp |
