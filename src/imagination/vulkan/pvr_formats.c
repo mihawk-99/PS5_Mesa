@@ -312,6 +312,9 @@ pvr_get_image_format_features2(struct pvr_physical_device *pdevice,
                VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT;
    }
 
+   if (pvr_format->bind & PVR_BIND_STORAGE_IMAGE)
+      flags |= VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
+
    if (vk_tiling == VK_IMAGE_TILING_OPTIMAL) {
       if (vk_format_is_color(vk_format) &&
           vk_format_get_nr_components(vk_format) == 1 &&
@@ -323,9 +326,6 @@ pvr_get_image_format_features2(struct pvr_physical_device *pdevice,
 
       if (vk_format_has_stencil(vk_format))
          flags |= VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT;
-
-      if (pvr_format->bind & PVR_BIND_STORAGE_IMAGE)
-         flags |= VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
    }
 
    if (flags & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT) {
