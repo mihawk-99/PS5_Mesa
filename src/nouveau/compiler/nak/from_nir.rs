@@ -1349,6 +1349,13 @@ impl<'a> ShaderFromNir<'a> {
                     FloatType::from_bits(alu.def.bit_size().into()),
                 )
                 .into(),
+            nir_op_ftanh => b
+                .mufu(
+                    MuFuOp::Tanh,
+                    srcs(0),
+                    FloatType::from_bits(alu.def.bit_size().into()),
+                )
+                .into(),
             nir_op_i2f16 | nir_op_i2f32 | nir_op_i2f64 => {
                 let src_bits = alu.get_src(0).src.bit_size();
                 let dst_bits = alu.def.bit_size();

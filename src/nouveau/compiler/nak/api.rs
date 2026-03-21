@@ -164,6 +164,7 @@ fn nir_options(dev: &nv_device_info) -> nir_shader_compiler_options {
         lower_fmod: true,
         lower_ffract: true,
         lower_fpow: true,
+        has_ftanh: dev.sm >= 73,
         lower_scmp: true,
         lower_uadd_carry: true,
         lower_usub_borrow: true,
