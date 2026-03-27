@@ -1300,6 +1300,12 @@ is_vector_bitcast_deref(nir_deref_instr *cast,
    if (bytes_used > parent_bytes)
       return false;
 
+   /* If it's dead then the above check that the casts are legal will be bogus.
+    * Let DCE clean it up instead.
+    */
+   if (bytes_used == 0)
+      return false;
+
    if (is_write && !nir_component_mask_can_reinterpret(mask, cast_bit_size,
                                                        parent_bit_size))
       return false;
