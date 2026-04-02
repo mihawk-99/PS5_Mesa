@@ -674,6 +674,11 @@ iris_copy_region(struct blorp_context *blorp,
    struct iris_resource *src_res = (void *) src;
    struct iris_resource *dst_res = (void *) dst;
 
+   /* Prevent crashes in case something attempts unsupported blorp copy. */
+   if (isl_format_get_layout(src_res->surf.format)->bpb !=
+      isl_format_get_layout(dst_res->surf.format)->bpb)
+      return;
+
    enum iris_domain write_domain =
       batch->name == IRIS_BATCH_BLITTER ? IRIS_DOMAIN_OTHER_WRITE
                                         : IRIS_DOMAIN_RENDER_WRITE;
