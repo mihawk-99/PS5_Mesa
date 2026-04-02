@@ -805,6 +805,7 @@ process_fp_query(struct analysis_state *state, struct analysis_query *aq, uint32
       case nir_op_ffract:
       case nir_op_fsin:
       case nir_op_fcos:
+      case nir_op_ftanh:
       case nir_op_fsin_normalized_2_pi:
       case nir_op_fcos_normalized_2_pi:
       case nir_op_f2f16:
@@ -1210,6 +1211,17 @@ process_fp_query(struct analysis_state *state, struct analysis_query *aq, uint32
           FP_CLASS_GT_ZERO_LT_POS_ONE | FP_CLASS_POS_ONE | FP_CLASS_NON_INTEGRAL;
 
       if (src_res[0] & (FP_CLASS_NAN | FP_CLASS_ANY_INF))
+         r |= FP_CLASS_NAN;
+
+      break;
+   }
+
+   case nir_op_ftanh: {
+      /* [-1, +1] even for tanh(Inf) */
+      r = FP_CLASS_NEG_ONE | FP_CLASS_LT_ZERO_GT_NEG_ONE | FP_CLASS_ANY_ZERO |
+          FP_CLASS_GT_ZERO_LT_POS_ONE | FP_CLASS_POS_ONE | FP_CLASS_NON_INTEGRAL;
+
+      if (src_res[0] & FP_CLASS_NAN)
          r |= FP_CLASS_NAN;
 
       break;

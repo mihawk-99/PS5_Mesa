@@ -436,6 +436,10 @@ handle_glsl450_alu(struct vtn_builder *b, enum GLSLstd450 entrypoint,
       break;
 
    case GLSLstd450Tanh: {
+      if (b->shader->options->has_ftanh) {
+         dest->def = nir_ftanh(nb, src[0]);
+         break;
+      }
       /* tanh(x) := (e^x - e^(-x)) / (e^x + e^(-x))
        *
        * We clamp x to [-10, +10] to avoid precision problems.  When x > 10,

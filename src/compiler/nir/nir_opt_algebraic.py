@@ -3399,7 +3399,7 @@ for op in ['fpow']:
         (('bcsel', a, (op, b, c), (op + '(is_used_once)', d, c)), (op, ('bcsel', a, b, d), c)),
     ]
 
-for op in ['frcp', 'frsq', 'fsqrt', 'fexp2', 'flog2', 'fsign', 'fsin', 'fcos', 'fsin_normalized_2_pi', 'fcos_normalized_2_pi', 'fsin_mdg', 'fcos_mdg', 'fsin_agx', 'fneg', 'fabs', 'fsign', 'fcanonicalize']:
+for op in ['frcp', 'frsq', 'fsqrt', 'fexp2', 'flog2', 'fsign', 'fsin', 'fcos', 'fsin_normalized_2_pi', 'fcos_normalized_2_pi', 'fsin_mdg', 'fcos_mdg', 'fsin_agx', 'fneg', 'fabs', 'fsign', 'fcanonicalize', 'ftanh']:
     optimizations += [
         (('bcsel', c, (op + '(is_used_once)', a), (op + '(is_used_once)', b)), (op, ('bcsel', c, a, b))),
     ]
@@ -4033,7 +4033,7 @@ late_optimizations += [
 #
 # Unary opcodes
 for op in ['fabs', 'fceil', 'fcos', 'fexp2', 'ffloor', 'ffract', 'flog2', 'fneg',
-           'frcp', 'fround_even', 'frsq', 'fsat', 'fsign', 'fsin', 'fsqrt']:
+           'frcp', 'fround_even', 'frsq', 'fsat', 'fsign', 'fsin', 'fsqrt', 'ftanh']:
     late_optimizations += [(('~f2f32', (op, ('f2fmp', a))), (op, a), 'true', TestStatus.UNSUPPORTED)]
 
 # Binary opcodes

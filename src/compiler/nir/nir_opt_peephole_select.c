@@ -257,6 +257,7 @@ block_check_for_allowed_instrs(nir_block *block, unsigned *count,
          case nir_op_frem:
          case nir_op_frsq:
          case nir_op_fsin:
+         case nir_op_ftanh:
          case nir_op_idiv:
          case nir_op_irem:
          case nir_op_udiv:

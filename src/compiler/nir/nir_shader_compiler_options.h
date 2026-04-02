@@ -335,6 +335,8 @@ typedef struct nir_shader_compiler_options {
 
    bool lower_ftrunc;
 
+   bool has_ftanh;
+
    /** Lowers fround_even to ffract+feq+csel.
     *
     * Not correct in that it doesn't correctly handle the "_even" part of the
