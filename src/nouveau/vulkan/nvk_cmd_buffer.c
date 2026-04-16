@@ -546,6 +546,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    VkQueueFlags queue_flags = nvk_cmd_buffer_queue_flags(cmd);
    enum nvkmd_engines engines =
       nvk_queue_engines_from_queue_flags(queue_flags);
+   uint32_t last_subchannel = nvk_cmd_buffer_last_subchannel(cmd);
 
    /* Transfer only queues only support WFI */
    if (!(engines & (NVKMD_ENGINE_3D | NVKMD_ENGINE_COMPUTE)))
@@ -563,7 +564,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
 
       /* This is also implicitly a WFI */
-      if (nvk_cmd_buffer_last_subchannel(cmd) == SUBC_NVA097) {
+      if (last_subchannel == SUBC_NVA097) {
          P_IMMD(p, NVA097, INVALIDATE_SHADER_CACHES, {
             .data = DATA_TRUE,
             .flush_data = FLUSH_DATA_TRUE,
@@ -580,7 +581,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
        * We only need to WFI on a single channel. The others will implicitly get
        * a WFI from the channel switch.
        */
-      switch (nvk_cmd_buffer_last_subchannel(cmd)) {
+      switch (last_subchannel) {
       case SUBC_NV9097: {
          struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
          P_IMMD(p, NV9097, WAIT_FOR_IDLE, 0);
@@ -617,7 +618,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    if (barriers & NVK_BARRIER_INVALIDATE_TEX_DATA) {
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       if (pdev->info.cls_eng3d >= MAXWELL_A) {
-         if (nvk_cmd_buffer_last_subchannel(cmd) == SUBC_NVA097) {
+         if (last_subchannel == SUBC_NVA097) {
             P_IMMD(p, NVA097, INVALIDATE_TEXTURE_DATA_CACHE_NO_WFI, {
                .lines = LINES_ALL,
             });
@@ -632,7 +633,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
           * invalidate everything.  Even doing a full WFI before hand isn't
           * sufficient.
           */
-         if (nvk_cmd_buffer_last_subchannel(cmd) == SUBC_NVA097) {
+         if (last_subchannel == SUBC_NVA097) {
             P_IMMD(p, NVA097, INVALIDATE_TEXTURE_DATA_CACHE, {
                .lines = LINES_ALL,
             });
@@ -653,7 +654,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    if (barriers & (NVK_BARRIER_INVALIDATE_SHADER_DATA |
                    NVK_BARRIER_INVALIDATE_CONSTANT)) {
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
-      if (nvk_cmd_buffer_last_subchannel(cmd) == SUBC_NVA097) {
+      if (last_subchannel == SUBC_NVA097) {
          P_IMMD(p, NVA097, INVALIDATE_SHADER_CACHES_NO_WFI, {
             .global_data = (barriers & NVK_BARRIER_INVALIDATE_SHADER_DATA) != 0,
             .constant = (barriers & NVK_BARRIER_INVALIDATE_CONSTANT) != 0,
@@ -670,7 +671,6 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
                    NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM)) {
       const uint32_t dw_count =
          barriers & NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM ? 8 : 6;
-      const uint8_t last_subchannel = nvk_cmd_buffer_last_subchannel(cmd);
       struct nv_push *p = nvk_cmd_buffer_push(cmd, dw_count);
 
       if (pdev->info.cls_eng3d >= HOPPER_A) {
