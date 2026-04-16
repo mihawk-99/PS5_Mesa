@@ -97,24 +97,6 @@ nvk_cmd_buffer_compute_cls(struct nvk_cmd_buffer *cmd)
 }
 
 void
-nvk_cmd_buffer_begin_compute(struct nvk_cmd_buffer *cmd,
-                             const VkCommandBufferBeginInfo *pBeginInfo)
-{
-   if (cmd->vk.level == VK_COMMAND_BUFFER_LEVEL_PRIMARY) {
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 6);
-      if (nvk_cmd_buffer_compute_cls(cmd) >= MAXWELL_COMPUTE_B) {
-         P_IMMD(p, NVB1C0, INVALIDATE_SKED_CACHES, 0);
-      }
-      P_IMMD(p, NVA0C0, INVALIDATE_SAMPLER_CACHE_NO_WFI, {
-         .lines = LINES_ALL,
-      });
-      P_IMMD(p, NVA0C0, INVALIDATE_TEXTURE_HEADER_CACHE_NO_WFI, {
-         .lines = LINES_ALL,
-      });
-   }
-}
-
-void
 nvk_cmd_invalidate_compute_state(struct nvk_cmd_buffer *cmd)
 {
    memset(&cmd->state.cs, 0, sizeof(cmd->state.cs));

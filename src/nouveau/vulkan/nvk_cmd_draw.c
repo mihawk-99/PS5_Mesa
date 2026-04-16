@@ -763,18 +763,7 @@ nvk_cmd_buffer_begin_graphics(struct nvk_cmd_buffer *cmd,
 {
    const struct nvk_device *dev = nvk_cmd_buffer_device(cmd);
    if (cmd->vk.level == VK_COMMAND_BUFFER_LEVEL_PRIMARY) {
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 9);
-      P_MTHD(p, NV9097, INVALIDATE_SAMPLER_CACHE_NO_WFI);
-      P_NV9097_INVALIDATE_SAMPLER_CACHE_NO_WFI(p, {
-         .lines = LINES_ALL,
-      });
-      P_NV9097_INVALIDATE_TEXTURE_HEADER_CACHE_NO_WFI(p, {
-         .lines = LINES_ALL,
-      });
-
-      P_IMMD(p, NVA097, INVALIDATE_SHADER_CACHES_NO_WFI, {
-         .constant = CONSTANT_TRUE,
-      });
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 4);
       if (dev->vk.enabled_extensions.EXT_discard_rectangles) {
          P_IMMD(p, NV9097,
                 SET_MME_SHADOW_SCRATCH(NVK_MME_SCRATCH_WINDOW_CLIP_ENABLED),

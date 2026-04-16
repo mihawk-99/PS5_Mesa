@@ -365,8 +365,23 @@ nvk_BeginCommandBuffer(VkCommandBuffer commandBuffer,
    P_MTHD(p, NV90B5, NOP);
    P_NV90B5_NOP(p, 0);
 
-   if (queue_flags & VK_QUEUE_COMPUTE_BIT)
-      nvk_cmd_buffer_begin_compute(cmd, pBeginInfo);
+   if (cmd->vk.level == VK_COMMAND_BUFFER_LEVEL_PRIMARY) {
+      enum nvk_barrier barriers = 0;
+
+      if (queue_flags & VK_QUEUE_COMPUTE_BIT) {
+         barriers |= NVK_BARRIER_INVALIDATE_TEX_HDR;
+         barriers |= NVK_BARRIER_INVALIDATE_SAMPLER_DATA;
+         barriers |= NVK_BARRIER_INVALIDATE_QMD_DATA;
+      }
+
+      if (queue_flags & VK_QUEUE_GRAPHICS_BIT) {
+         barriers |= NVK_BARRIER_INVALIDATE_TEX_HDR;
+         barriers |= NVK_BARRIER_INVALIDATE_SAMPLER_DATA;
+         barriers |= NVK_BARRIER_INVALIDATE_CONSTANT;
+      }
+
+      nvk_cmd_barrier(cmd, barriers, false);
+   }
 
    if (queue_flags & VK_QUEUE_GRAPHICS_BIT)
       nvk_cmd_buffer_begin_graphics(cmd, pBeginInfo);
@@ -453,19 +468,6 @@ nvk_CmdExecuteCommands(VkCommandBuffer commandBuffer,
    nvk_cmd_invalidate_compute_state(cmd);
 }
 
-enum nvk_barrier {
-   NVK_BARRIER_WFI                        = 1 << 0,
-   NVK_BARRIER_FLUSH_SHADER_DATA          = 1 << 1,
-   NVK_BARRIER_INVALIDATE_SHADER_DATA     = 1 << 2,
-   NVK_BARRIER_INVALIDATE_TEX_DATA        = 1 << 3,
-   NVK_BARRIER_INVALIDATE_CONSTANT        = 1 << 4,
-   NVK_BARRIER_INVALIDATE_MME_DATA        = 1 << 5,
-   NVK_BARRIER_INVALIDATE_QMD_DATA        = 1 << 6,
-   NVK_BARRIER_INVALIDATE_RASTER_CACHE    = 1 << 7,
-   NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM = 1 << 8,
-   NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM      = 1 << 9,
-};
-
 static enum nvk_barrier
 nvk_barrier_flushes_waits(VkPipelineStageFlags2 stages,
                           VkAccessFlags2 access)
@@ -537,7 +539,7 @@ nvk_barrier_invalidates(VkPipelineStageFlags2 stages,
    return barriers;
 }
 
-static void
+void
 nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
                 bool wait)
 {
@@ -652,6 +654,32 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
                .lines = LINES_ALL,
             });
          }
+      }
+   }
+
+   if (barriers & NVK_BARRIER_INVALIDATE_TEX_HDR) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
+      if (last_subchannel == SUBC_NVA097) {
+         P_IMMD(p, NVA097, INVALIDATE_TEXTURE_HEADER_CACHE_NO_WFI, {
+            .lines = LINES_ALL,
+         });
+      } else {
+         P_IMMD(p, NVA0C0, INVALIDATE_TEXTURE_HEADER_CACHE_NO_WFI, {
+            .lines = LINES_ALL,
+         });
+      }
+   }
+
+   if (barriers & NVK_BARRIER_INVALIDATE_SAMPLER_DATA) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
+      if (last_subchannel == SUBC_NVA097) {
+         P_IMMD(p, NVA097, INVALIDATE_SAMPLER_CACHE_NO_WFI, {
+            .lines = LINES_ALL,
+         });
+      } else {
+         P_IMMD(p, NVA0C0, INVALIDATE_SAMPLER_CACHE_NO_WFI, {
+            .lines = LINES_ALL,
+         });
       }
    }
 
