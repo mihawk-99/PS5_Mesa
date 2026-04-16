@@ -536,10 +536,9 @@ nvk_barrier_invalidates(VkPipelineStageFlags2 stages,
    return barriers;
 }
 
-void
-nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
-                       const VkDependencyInfo *dep,
-                       bool wait)
+static void
+nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
+                bool wait)
 {
    struct nvk_device *dev = nvk_cmd_buffer_device(cmd);
    const struct nvk_physical_device *pdev = nvk_device_physical(dev);
@@ -547,49 +546,16 @@ nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
    enum nvkmd_engines engines =
       nvk_queue_engines_from_queue_flags(queue_flags);
 
-   enum nvk_barrier barriers = 0;
-
-   /* For asymmetric, we don't know what the access flags will be yet.
-    * Handle this by setting access to everything.
-    */
-   if (dep->dependencyFlags & VK_DEPENDENCY_ASYMMETRIC_EVENT_BIT_KHR) {
-      /* VUID-vkCmdSetEvent2-dependencyFlags-10785, 10786, 10787 */
-      assert(dep->memoryBarrierCount == 1 &&
-             dep->bufferMemoryBarrierCount == 0 &&
-             dep->imageMemoryBarrierCount == 0);
-
-      const VkMemoryBarrier2 *bar = &dep->pMemoryBarriers[0];
-      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
-                                            VK_ACCESS_2_MEMORY_READ_BIT |
-                                            VK_ACCESS_2_MEMORY_WRITE_BIT);
-   }
-
-   for (uint32_t i = 0; i < dep->memoryBarrierCount; i++) {
-      const VkMemoryBarrier2 *bar = &dep->pMemoryBarriers[i];
-      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
-                                            bar->srcAccessMask);
-   }
-
-   for (uint32_t i = 0; i < dep->bufferMemoryBarrierCount; i++) {
-      const VkBufferMemoryBarrier2 *bar = &dep->pBufferMemoryBarriers[i];
-      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
-                                            bar->srcAccessMask);
-
-      if (bar->srcQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
-         barriers |= NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM;
-   }
-
-   for (uint32_t i = 0; i < dep->imageMemoryBarrierCount; i++) {
-      const VkImageMemoryBarrier2 *bar = &dep->pImageMemoryBarriers[i];
-      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
-                                            bar->srcAccessMask);
-
-      if (bar->srcQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
-         barriers |= NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM;
-   }
-
    if (!(engines & (NVKMD_ENGINE_3D | NVKMD_ENGINE_COMPUTE)))
-      barriers &= ~NVK_BARRIER_FLUSH_SHADER_DATA;
+      barriers &= ~(NVK_BARRIER_INVALIDATE_TEX_DATA |
+                    NVK_BARRIER_INVALIDATE_RASTER_CACHE |
+                    NVK_BARRIER_INVALIDATE_SHADER_DATA |
+                    NVK_BARRIER_INVALIDATE_CONSTANT |
+                    NVK_BARRIER_INVALIDATE_MME_DATA |
+                    NVK_BARRIER_FLUSH_SHADER_DATA);
+
+   if (!(engines & NVKMD_ENGINE_COMPUTE))
+      barriers &= ~NVK_BARRIER_INVALIDATE_QMD_DATA;
 
    if (!barriers)
       return;
@@ -673,62 +639,6 @@ nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
          P_NV906F_MEM_OP_B(p, {.operation = OPERATION_L2_SYSMEM_INVALIDATE});
       }
    }
-}
-
-void
-nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
-                        uint32_t dep_count,
-                        const VkDependencyInfo *deps)
-{
-   struct nvk_device *dev = nvk_cmd_buffer_device(cmd);
-   const struct nvk_physical_device *pdev = nvk_device_physical(dev);
-
-   enum nvk_barrier barriers = 0;
-
-   for (uint32_t d = 0; d < dep_count; d++) {
-      const VkDependencyInfo *dep = &deps[d];
-
-      for (uint32_t i = 0; i < dep->memoryBarrierCount; i++) {
-         const VkMemoryBarrier2 *bar = &dep->pMemoryBarriers[i];
-         barriers |= nvk_barrier_invalidates(bar->dstStageMask,
-                                             bar->dstAccessMask);
-      }
-
-      for (uint32_t i = 0; i < dep->bufferMemoryBarrierCount; i++) {
-         const VkBufferMemoryBarrier2 *bar = &dep->pBufferMemoryBarriers[i];
-         barriers |= nvk_barrier_invalidates(bar->dstStageMask,
-                                             bar->dstAccessMask);
-
-         if (bar->dstQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
-            barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
-      }
-
-      for (uint32_t i = 0; i < dep->imageMemoryBarrierCount; i++) {
-         const VkImageMemoryBarrier2 *bar = &dep->pImageMemoryBarriers[i];
-         barriers |= nvk_barrier_invalidates(bar->dstStageMask,
-                                             bar->dstAccessMask);
-
-         if (bar->dstQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
-            barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
-      }
-   }
-
-   VkQueueFlags queue_flags = nvk_cmd_buffer_queue_flags(cmd);
-   enum nvkmd_engines engines =
-      nvk_queue_engines_from_queue_flags(queue_flags);
-
-   if (!(engines & (NVKMD_ENGINE_3D | NVKMD_ENGINE_COMPUTE)))
-      barriers &= ~(NVK_BARRIER_INVALIDATE_TEX_DATA |
-                    NVK_BARRIER_INVALIDATE_RASTER_CACHE |
-                    NVK_BARRIER_INVALIDATE_SHADER_DATA |
-                    NVK_BARRIER_INVALIDATE_CONSTANT |
-                    NVK_BARRIER_INVALIDATE_MME_DATA);
-
-   if (!(engines & NVKMD_ENGINE_COMPUTE))
-      barriers &= ~NVK_BARRIER_INVALIDATE_QMD_DATA;
-
-   if (!barriers)
-      return;
 
    if (barriers & NVK_BARRIER_INVALIDATE_TEX_DATA) {
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
@@ -841,6 +751,93 @@ nvk_cmd_image_layout_transition(struct nvk_cmd_buffer *cmd,
             nvk_cmd_fill_memory(cmd, image->zcull.addr, image->zcull.nil.size_B, 0);
       }
    }
+}
+
+void
+nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
+                       const VkDependencyInfo *dep,
+                       bool wait)
+{
+   enum nvk_barrier barriers = 0;
+
+   /* For asymmetric, we don't know what the access flags will be yet.
+    * Handle this by setting access to everything.
+    */
+   if (dep->dependencyFlags & VK_DEPENDENCY_ASYMMETRIC_EVENT_BIT_KHR) {
+      /* VUID-vkCmdSetEvent2-dependencyFlags-10785, 10786, 10787 */
+      assert(dep->memoryBarrierCount == 1 &&
+             dep->bufferMemoryBarrierCount == 0 &&
+             dep->imageMemoryBarrierCount == 0);
+
+      const VkMemoryBarrier2 *bar = &dep->pMemoryBarriers[0];
+      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
+                                            VK_ACCESS_2_MEMORY_READ_BIT |
+                                            VK_ACCESS_2_MEMORY_WRITE_BIT);
+   }
+
+   for (uint32_t i = 0; i < dep->memoryBarrierCount; i++) {
+      const VkMemoryBarrier2 *bar = &dep->pMemoryBarriers[i];
+      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
+                                            bar->srcAccessMask);
+   }
+
+   for (uint32_t i = 0; i < dep->bufferMemoryBarrierCount; i++) {
+      const VkBufferMemoryBarrier2 *bar = &dep->pBufferMemoryBarriers[i];
+      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
+                                            bar->srcAccessMask);
+
+      if (bar->srcQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
+         barriers |= NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM;
+   }
+
+   for (uint32_t i = 0; i < dep->imageMemoryBarrierCount; i++) {
+      const VkImageMemoryBarrier2 *bar = &dep->pImageMemoryBarriers[i];
+      barriers |= nvk_barrier_flushes_waits(bar->srcStageMask,
+                                            bar->srcAccessMask);
+
+      if (bar->srcQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
+         barriers |= NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM;
+   }
+
+   nvk_cmd_barrier(cmd, barriers, wait);
+}
+
+void
+nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
+                        uint32_t dep_count,
+                        const VkDependencyInfo *deps)
+{
+   enum nvk_barrier barriers = 0;
+
+   for (uint32_t d = 0; d < dep_count; d++) {
+      const VkDependencyInfo *dep = &deps[d];
+
+      for (uint32_t i = 0; i < dep->memoryBarrierCount; i++) {
+         const VkMemoryBarrier2 *bar = &dep->pMemoryBarriers[i];
+         barriers |= nvk_barrier_invalidates(bar->dstStageMask,
+                                             bar->dstAccessMask);
+      }
+
+      for (uint32_t i = 0; i < dep->bufferMemoryBarrierCount; i++) {
+         const VkBufferMemoryBarrier2 *bar = &dep->pBufferMemoryBarriers[i];
+         barriers |= nvk_barrier_invalidates(bar->dstStageMask,
+                                             bar->dstAccessMask);
+
+         if (bar->dstQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
+            barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
+      }
+
+      for (uint32_t i = 0; i < dep->imageMemoryBarrierCount; i++) {
+         const VkImageMemoryBarrier2 *bar = &dep->pImageMemoryBarriers[i];
+         barriers |= nvk_barrier_invalidates(bar->dstStageMask,
+                                             bar->dstAccessMask);
+
+         if (bar->dstQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT)
+            barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
+      }
+   }
+
+   nvk_cmd_barrier(cmd, barriers, false);
 }
 
 VKAPI_ATTR void VKAPI_CALL
