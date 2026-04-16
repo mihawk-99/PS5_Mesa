@@ -613,31 +613,6 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
       }
    }
 
-   if (barriers & NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM) {
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 8);
-      uint32_t last_subchannel = nvk_cmd_buffer_last_subchannel(cmd);
-
-      if (pdev->info.cls_eng3d >= HOPPER_A) {
-         __push_immd(p, last_subchannel, NVC86F_WFI, 0);
-         __push_mthd(p, last_subchannel, NVC86F_MEM_OP_A);
-         P_NVC86F_MEM_OP_A(p, {});
-         P_NVC86F_MEM_OP_B(p, 0);
-         P_NVC86F_MEM_OP_C(p, { .membar_type = 0 });
-         P_NVC86F_MEM_OP_D(p, { .operation = OPERATION_MEMBAR });
-      } else {
-         __push_immd(p, last_subchannel, NV906F_SET_REFERENCE, 0);
-      }
-
-      /* MEM_OP_D path is really usable starting with Maxwell B */
-      if (pdev->info.cls_eng3d >= MAXWELL_B) {
-         __push_mthd(p, last_subchannel, NVC86F_MEM_OP_D);
-         P_NVC86F_MEM_OP_D(p, {.operation = OPERATION_L2_SYSMEM_INVALIDATE});
-      } else {
-         __push_mthd(p, last_subchannel, NV906F_MEM_OP_B);
-         P_NV906F_MEM_OP_B(p, {.operation = OPERATION_L2_SYSMEM_INVALIDATE});
-      }
-   }
-
    if (barriers & NVK_BARRIER_INVALIDATE_TEX_DATA) {
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       if (pdev->info.cls_eng3d >= MAXWELL_A) {
@@ -690,9 +665,13 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
       }
    }
 
-   if (barriers & NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM) {
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 6);
-      uint32_t last_subchannel = nvk_cmd_buffer_last_subchannel(cmd);
+   if (barriers & (NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM |
+                   NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM)) {
+      const uint32_t dw_count =
+         barriers & NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM ? 8 : 6;
+      const uint8_t last_subchannel = nvk_cmd_buffer_last_subchannel(cmd);
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, dw_count);
+
       if (pdev->info.cls_eng3d >= HOPPER_A) {
          __push_immd(p, last_subchannel, NVC86F_WFI, 0);
          __push_mthd(p, last_subchannel, NVC86F_MEM_OP_A);
@@ -702,6 +681,18 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
          P_NVC86F_MEM_OP_D(p, { .operation = OPERATION_MEMBAR });
       } else {
          __push_immd(p, last_subchannel, NV906F_SET_REFERENCE, 0);
+      }
+
+      if (barriers & NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM) {
+         /* MEM_OP_D path is really usable starting with Maxwell B */
+         if (pdev->info.cls_eng3d >= MAXWELL_B) {
+            __push_mthd(p, last_subchannel, NVC86F_MEM_OP_D);
+            P_NVC86F_MEM_OP_D(p, { .operation = OPERATION_L2_SYSMEM_INVALIDATE });
+         }
+         else {
+            __push_mthd(p, last_subchannel, NV906F_MEM_OP_B);
+            P_NV906F_MEM_OP_B(p, { .operation = OPERATION_L2_SYSMEM_INVALIDATE });
+         }
       }
    }
 
