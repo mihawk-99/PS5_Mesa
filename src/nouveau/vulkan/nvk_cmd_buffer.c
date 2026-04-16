@@ -732,6 +732,23 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    }
 }
 
+static bool
+nvk_cmd_image_needs_layout_transition(struct nvk_cmd_buffer *cmd,
+                                      const VkDependencyInfo *dep)
+{
+   for (uint32_t i = 0; i < dep->imageMemoryBarrierCount; i++) {
+      const VkImageMemoryBarrier2 *bar = &dep->pImageMemoryBarriers[i];
+      if (bar->oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+          bar->newLayout != VK_IMAGE_LAYOUT_UNDEFINED) {
+         VK_FROM_HANDLE(nvk_image, image, bar->image);
+         if (image->zcull.nil.size_B > 0)
+            return true;
+      }
+   }
+
+   return false;
+}
+
 static void
 nvk_cmd_image_layout_transition(struct nvk_cmd_buffer *cmd,
                                 const VkDependencyInfo *dep)
@@ -864,9 +881,20 @@ nvk_CmdPipelineBarrier2(VkCommandBuffer commandBuffer,
 {
    VK_FROM_HANDLE(nvk_cmd_buffer, cmd, commandBuffer);
 
-   nvk_cmd_flush_wait_dep(cmd, pDependencyInfo, true);
-   nvk_cmd_image_layout_transition(cmd, pDependencyInfo);
-   nvk_cmd_invalidate_deps(cmd, 1, pDependencyInfo);
+   enum nvk_barrier barriers = 0;
+   barriers |= nvk_cmd_collect_flush_wait_barriers(cmd, pDependencyInfo);
+
+   if (nvk_cmd_image_needs_layout_transition(cmd, pDependencyInfo)) {
+      /* In case of image transition, we need to wait first and cannot merge the
+       * barrier handling */
+      nvk_cmd_barrier(cmd, barriers, true);
+      barriers = 0;
+
+      nvk_cmd_image_layout_transition(cmd, pDependencyInfo);
+   }
+
+   barriers |= nvk_cmd_collect_invalidate_barriers(cmd, 1, pDependencyInfo);
+   nvk_cmd_barrier(cmd, barriers, true);
 }
 
 void
