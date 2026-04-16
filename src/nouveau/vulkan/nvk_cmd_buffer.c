@@ -751,10 +751,9 @@ nvk_cmd_image_layout_transition(struct nvk_cmd_buffer *cmd,
    }
 }
 
-void
-nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
-                       const VkDependencyInfo *dep,
-                       bool wait)
+static enum nvk_barrier
+nvk_cmd_collect_flush_wait_barriers(struct nvk_cmd_buffer *cmd,
+                                    const VkDependencyInfo *dep)
 {
    enum nvk_barrier barriers = 0;
 
@@ -797,13 +796,23 @@ nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
          barriers |= NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM;
    }
 
-   nvk_cmd_barrier(cmd, barriers, wait);
+   return barriers;
 }
 
 void
-nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
-                        uint32_t dep_count,
-                        const VkDependencyInfo *deps)
+nvk_cmd_flush_wait_dep(struct nvk_cmd_buffer *cmd,
+                       const VkDependencyInfo *dep,
+                       bool wait)
+{
+   enum nvk_barrier barriers =
+      nvk_cmd_collect_flush_wait_barriers(cmd, dep);
+   nvk_cmd_barrier(cmd, barriers, wait);
+}
+
+static enum nvk_barrier
+nvk_cmd_collect_invalidate_barriers(struct nvk_cmd_buffer *cmd,
+                                    uint32_t dep_count,
+                                    const VkDependencyInfo *deps)
 {
    enum nvk_barrier barriers = 0;
 
@@ -834,6 +843,17 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
             barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
       }
    }
+
+   return barriers;
+}
+
+void
+nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
+                        uint32_t dep_count,
+                        const VkDependencyInfo *deps)
+{
+   enum nvk_barrier barriers =
+      nvk_cmd_collect_invalidate_barriers(cmd, dep_count, deps);
 
    nvk_cmd_barrier(cmd, barriers, false);
 }
