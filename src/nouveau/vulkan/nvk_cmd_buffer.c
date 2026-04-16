@@ -504,7 +504,8 @@ nvk_barrier_invalidates(VkPipelineStageFlags2 stages,
                  VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT |
                  VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT |
                  VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT))
-      barriers |= NVK_BARRIER_INVALIDATE_MME_DATA;
+      barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM |
+                  NVK_BARRIER_INVALIDATE_MME_DATA;
 
    if (access & VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT)
       barriers |= NVK_BARRIER_INVALIDATE_CONSTANT |
@@ -696,24 +697,10 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
       }
    }
 
-   if (barriers & (NVK_BARRIER_INVALIDATE_MME_DATA)) {
-      if (pdev->info.cls_eng3d >= HOPPER_A) {
-         /* take from the open kernel watchdog handling, might be overkill */
-         struct nv_push *p = nvk_cmd_buffer_push(cmd, 7);
-         P_IMMD(p, NVC86F, WFI, 0);
-         P_MTHD(p, NVC86F, MEM_OP_A);
-         P_NVC86F_MEM_OP_A(p, {});
-         P_NVC86F_MEM_OP_B(p, 0);
-         P_NVC86F_MEM_OP_C(p, { .membar_type = 0 });
-         P_NVC86F_MEM_OP_D(p, { .operation = OPERATION_MEMBAR });
-
-      } else {
-         struct nv_push *p = nvk_cmd_buffer_push(cmd, 3);
-         __push_immd(p, SUBC_NV9097, NV906F_SET_REFERENCE, 0);
-
-         if (pdev->info.cls_eng3d >= TURING_A)
-            P_IMMD(p, NVC597, MME_DMA_SYSMEMBAR, 0);
-      }
+   if (barriers & NVK_BARRIER_INVALIDATE_MME_DATA &&
+       pdev->info.cls_eng3d >= TURING_A && pdev->info.cls_eng3d < HOPPER_A) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
+      P_IMMD(p, NVC597, MME_DMA_SYSMEMBAR, 0);
    }
 
    if ((barriers & NVK_BARRIER_INVALIDATE_QMD_DATA) &&
