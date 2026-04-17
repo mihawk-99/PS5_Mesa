@@ -485,6 +485,9 @@ nvk_barrier_flushes_waits(VkPipelineStageFlags2 stages,
    if (access & VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT)
       barriers |= NVK_BARRIER_FLUSH_SHADER_DATA;
 
+   if (access & VK_ACCESS_2_HOST_WRITE_BIT)
+      barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
+
    return barriers;
 }
 
@@ -526,6 +529,9 @@ nvk_barrier_invalidates(VkPipelineStageFlags2 stages,
 
    if (access & VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR)
       barriers |= NVK_BARRIER_INVALIDATE_RASTER_CACHE;
+
+   if (access & (VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT))
+      barriers |= NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
 
    return barriers;
 }
