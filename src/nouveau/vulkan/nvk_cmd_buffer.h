@@ -465,5 +465,4 @@ enum nvk_barrier {
 void
 nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
                 bool wait);
-
 #endif

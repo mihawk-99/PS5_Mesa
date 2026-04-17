@@ -1026,9 +1026,7 @@ nvk_cmd_process_cmds(struct nvk_cmd_buffer *cmd,
 
    if (layout->init != NULL) {
       nvk_cmd_dispatch_shader(cmd, layout->init, &push, sizeof(push), 1, 1, 1);
-
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
-      P_IMMD(p, NVA0C0, WAIT_FOR_IDLE, 0);
+      nvk_cmd_barrier(cmd, NVK_BARRIER_WFI, true);
    }
 
    nvk_cmd_dispatch_shader(cmd, layout->process, &push, sizeof(push),
@@ -1244,7 +1242,6 @@ nvk_CmdCopyMemoryIndirectKHR(VkCommandBuffer commandBuffer,
 {
    VK_FROM_HANDLE(nvk_cmd_buffer, cmd, commandBuffer);
    struct nvk_device *dev = nvk_cmd_buffer_device(cmd);
-   const struct nvk_physical_device *pdev = nvk_device_physical(dev);
    VkResult result;
 
    if (info->copyCount == 0)
@@ -1297,14 +1294,7 @@ nvk_CmdCopyMemoryIndirectKHR(VkCommandBuffer commandBuffer,
                               DIV_ROUND_UP(count, 32), 1, 1);
    }
 
-   if (pdev->info.cls_eng3d >= HOPPER_A) {
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 1);
-      P_IMMD_WORD(p, NVC86F, WFI, 0);
-   } else {
-      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
-      P_IMMD_WORD(p, NVA0C0, WAIT_FOR_IDLE, 0);
-      __push_immd(p, SUBC_NV9097, NV906F_SET_REFERENCE, 0);
-   }
+   nvk_cmd_barrier(cmd, NVK_BARRIER_WFI | NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM, true);
 
    for (int i = 0; i < info->copyCount; i += cmds_per_buffer) {
       struct nvk_cmd_mem *temp_mem =
