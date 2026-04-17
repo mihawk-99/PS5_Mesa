@@ -546,13 +546,11 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    enum nvkmd_engines engines =
       nvk_queue_engines_from_queue_flags(queue_flags);
 
+   /* Transfer only queues only support WFI */
    if (!(engines & (NVKMD_ENGINE_3D | NVKMD_ENGINE_COMPUTE)))
-      barriers &= ~(NVK_BARRIER_INVALIDATE_TEX_DATA |
-                    NVK_BARRIER_INVALIDATE_RASTER_CACHE |
-                    NVK_BARRIER_INVALIDATE_SHADER_DATA |
-                    NVK_BARRIER_INVALIDATE_CONSTANT |
-                    NVK_BARRIER_INVALIDATE_MME_DATA |
-                    NVK_BARRIER_FLUSH_SHADER_DATA);
+      barriers &= NVK_BARRIER_WFI |
+                  NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM |
+                  NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM;
 
    if (!(engines & NVKMD_ENGINE_COMPUTE))
       barriers &= ~NVK_BARRIER_INVALIDATE_QMD_DATA;
