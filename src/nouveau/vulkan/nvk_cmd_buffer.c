@@ -557,6 +557,18 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    if (!(engines & NVKMD_ENGINE_COMPUTE))
       barriers &= ~NVK_BARRIER_INVALIDATE_QMD_DATA;
 
+   /* If we don't have FSR we don't need raster cache invalidation */
+   if (!dev->vk.enabled_features.pipelineFragmentShadingRate)
+      barriers &= ~NVK_BARRIER_INVALIDATE_RASTER_CACHE;
+
+   /* If this comes from a vkCmdSetEvent, we don't need to wait */
+   if (!wait)
+      barriers &= ~NVK_BARRIER_WFI;
+
+   /* This is also implicitly a WFI */
+   if (barriers & NVK_BARRIER_FLUSH_SHADER_DATA)
+      barriers |= NVK_BARRIER_WFI;
+
    if (!barriers)
       return;
 
@@ -575,10 +587,8 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
             .flush_data = FLUSH_DATA_TRUE,
          });
       }
-   } else if ((barriers & NVK_BARRIER_WFI) && wait) {
-      /* If this comes from a vkCmdSetEvent, we don't need to wait
-       *
-       * We only need to WFI on a single channel. The others will implicitly get
+   } else if (barriers & NVK_BARRIER_WFI) {
+      /* We only need to WFI on a single channel. The others will implicitly get
        * a WFI from the channel switch.
        */
       switch (last_subchannel) {
@@ -645,8 +655,7 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
       }
    }
 
-   if (barriers & NVK_BARRIER_INVALIDATE_RASTER_CACHE &&
-       dev->vk.enabled_features.pipelineFragmentShadingRate) {
+   if (barriers & NVK_BARRIER_INVALIDATE_RASTER_CACHE) {
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       P_IMMD(p, NVC597, INVALIDATE_RASTER_CACHE_NO_WFI, 0);
    }
