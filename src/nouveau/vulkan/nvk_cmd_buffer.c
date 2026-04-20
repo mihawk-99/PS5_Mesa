@@ -730,9 +730,8 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
    if (!barriers)
       return;
 
-   struct nv_push *p = nvk_cmd_buffer_push(cmd, 24);
-
    if (barriers & NVK_BARRIER_INVALIDATE_TEX_DATA) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       if (pdev->info.cls_eng3d >= MAXWELL_A) {
          if (nvk_cmd_buffer_last_subchannel(cmd) == SUBC_NVA097) {
             P_IMMD(p, NVA097, INVALIDATE_TEXTURE_DATA_CACHE_NO_WFI, {
@@ -762,11 +761,14 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
    }
 
    if (barriers & NVK_BARRIER_INVALIDATE_RASTER_CACHE &&
-       dev->vk.enabled_features.pipelineFragmentShadingRate)
+       dev->vk.enabled_features.pipelineFragmentShadingRate) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       P_IMMD(p, NVC597, INVALIDATE_RASTER_CACHE_NO_WFI, 0);
+   }
 
    if (barriers & (NVK_BARRIER_INVALIDATE_SHADER_DATA |
                    NVK_BARRIER_INVALIDATE_CONSTANT)) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       if (nvk_cmd_buffer_last_subchannel(cmd) == SUBC_NVA097) {
          P_IMMD(p, NVA097, INVALIDATE_SHADER_CACHES_NO_WFI, {
             .global_data = (barriers & NVK_BARRIER_INVALIDATE_SHADER_DATA) != 0,
@@ -781,6 +783,7 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
    }
 
    if (barriers & NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 6);
       uint32_t last_subchannel = nvk_cmd_buffer_last_subchannel(cmd);
       if (pdev->info.cls_eng3d >= HOPPER_A) {
          __push_immd(p, last_subchannel, NVC86F_WFI, 0);
@@ -797,6 +800,7 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
    if (barriers & (NVK_BARRIER_INVALIDATE_MME_DATA)) {
       if (pdev->info.cls_eng3d >= HOPPER_A) {
          /* take from the open kernel watchdog handling, might be overkill */
+         struct nv_push *p = nvk_cmd_buffer_push(cmd, 7);
          P_IMMD(p, NVC86F, WFI, 0);
          P_MTHD(p, NVC86F, MEM_OP_A);
          P_NVC86F_MEM_OP_A(p, {});
@@ -805,6 +809,7 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
          P_NVC86F_MEM_OP_D(p, { .operation = OPERATION_MEMBAR });
 
       } else {
+         struct nv_push *p = nvk_cmd_buffer_push(cmd, 3);
          __push_immd(p, SUBC_NV9097, NV906F_SET_REFERENCE, 0);
 
          if (pdev->info.cls_eng3d >= TURING_A)
@@ -813,8 +818,10 @@ nvk_cmd_invalidate_deps(struct nvk_cmd_buffer *cmd,
    }
 
    if ((barriers & NVK_BARRIER_INVALIDATE_QMD_DATA) &&
-       pdev->info.cls_compute >= MAXWELL_COMPUTE_B)
+       pdev->info.cls_compute >= MAXWELL_COMPUTE_B) {
+      struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
       P_IMMD(p, NVB1C0, INVALIDATE_SKED_CACHES, 0);
+   }
 }
 
 static void
