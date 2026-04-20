@@ -533,8 +533,6 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
 {
    VK_FROM_HANDLE(nvk_cmd_buffer, cmd, commandBuffer);
    VK_FROM_HANDLE(nvk_buffer, buffer, _buffer);
-   struct nvk_device *dev = nvk_cmd_buffer_device(cmd);
-   const struct nvk_physical_device *pdev = nvk_device_physical(dev);
 
    uint64_t dispatch_addr = vk_buffer_address(&buffer->vk, offset);
 
@@ -568,14 +566,10 @@ nvk_CmdDispatchIndirect(VkCommandBuffer commandBuffer,
       P_INLINE_DATA(p, qmd_addr);
       P_INLINE_DATA(p, nvk_compute_local_size(cmd));
    } else {
-      p = nvk_cmd_buffer_push(cmd, 5);
       /* Stall the command streamer */
-      if (pdev->info.cls_compute >= HOPPER_COMPUTE_A) {
-         P_IMMD(p, NVC86F, WFI, 0);
-      } else {
-         __push_immd(p, SUBC_NV9097, NV906F_SET_REFERENCE, 0);
-      }
+      nvk_cmd_barrier(cmd, NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM, true);
 
+      p = nvk_cmd_buffer_push(cmd, 4);
       P_1INC(p, NV9097, CALL_MME_MACRO(NVK_MME_DISPATCH_INDIRECT));
       nv_push_update_count(p, sizeof(VkDispatchIndirectCommand) / 4);
       nvk_cmd_buffer_push_indirect(cmd, dispatch_addr, sizeof(VkDispatchIndirectCommand));
