@@ -581,14 +581,19 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
       if (last_subchannel == SUBC_NVA097) {
          P_IMMD(p, NVA097, INVALIDATE_SHADER_CACHES, {
             .data = DATA_TRUE,
+            .constant = (barriers & NVK_BARRIER_INVALIDATE_CONSTANT) != 0,
             .flush_data = FLUSH_DATA_TRUE,
          });
       } else {
          P_IMMD(p, NVA0C0, INVALIDATE_SHADER_CACHES, {
             .data = DATA_TRUE,
+            .constant = (barriers & NVK_BARRIER_INVALIDATE_CONSTANT) != 0,
             .flush_data = FLUSH_DATA_TRUE,
          });
       }
+
+      barriers &= ~NVK_BARRIER_INVALIDATE_SHADER_DATA;
+      barriers &= ~NVK_BARRIER_INVALIDATE_CONSTANT;
    } else if (barriers & NVK_BARRIER_WFI) {
       /* We only need to WFI on a single channel. The others will implicitly get
        * a WFI from the channel switch.
