@@ -32,6 +32,7 @@
 #include "nv_push_clb06f.h"
 #include "nv_push_clb1c0.h"
 #include "nv_push_clc597.h"
+#include "nv_push_clc7c0.h"
 #include "nv_push_clc86f.h"
 
 static uint8_t
@@ -742,7 +743,12 @@ nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
    if (barriers & NVK_BARRIER_INVALIDATE_MME_DATA &&
        pdev->info.cls_eng3d >= TURING_A && pdev->info.cls_eng3d < HOPPER_A) {
       struct nv_push *p = nvk_cmd_buffer_push(cmd, 2);
-      P_IMMD(p, NVC597, MME_DMA_SYSMEMBAR, 0);
+      if (last_subchannel == SUBC_NVA0C0 &&
+          pdev->info.cls_compute >= AMPERE_COMPUTE_B) {
+         P_IMMD(p, NVC7C0, MME_DMA_SYSMEMBAR, 0);
+      } else {
+         P_IMMD(p, NVC597, MME_DMA_SYSMEMBAR, 0);
+      }
    }
 
    if ((barriers & NVK_BARRIER_INVALIDATE_QMD_DATA) &&
