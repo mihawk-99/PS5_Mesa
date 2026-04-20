@@ -99,7 +99,8 @@ brw_simd_should_compile(brw_simd_selection_state &state, unsigned simd)
 
          unsigned max_threads = state.devinfo->max_cs_workgroup_threads;
 
-         if (simd > min_simd && workgroup_size <= (width / 2)) {
+         if (simd > min_simd && workgroup_size <= (width / 2) &&
+             !(intel_simd & (DEBUG_CS_SIMD8 << simd))) {
             state.error[simd] = "Workgroup size already fits in smaller SIMD";
             return false;
          }
