@@ -284,7 +284,6 @@ lower_bit_size_cb(const nir_instr *instr, void *data)
       case nir_op_fsin:
       case nir_op_fsin_normalized_2_pi:
       case nir_op_fsqrt:
-      case nir_op_ftanh:
          if (bit_size == 16 && nak->sm >= 73)
             return 0;
          break;
