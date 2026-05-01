@@ -184,6 +184,7 @@ class nir_dead_write_vars_test : public nir_vars_test {};
 class nir_combine_stores_test : public nir_vars_test {};
 class nir_split_vars_test : public nir_vars_test {};
 class nir_remove_dead_variables_test : public nir_vars_test {};
+class nir_var_alloc_test : public nir_vars_test {};
 
 } // namespace
 
@@ -2476,4 +2477,390 @@ TEST_F(nir_remove_dead_variables_test, pointer_initializer_dead)
    ASSERT_EQ(count, 0);
 }
 
+TEST_F(nir_var_alloc_test, scratch_simple_can_alias)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
 
+   nir_store_var(b, x, nir_imm_int(b, 1), 0x1);
+   nir_unit_test_output(b, nir_load_var(b, x));
+   nir_store_var(b, y, nir_imm_int(b, 2), 0x1);
+   nir_unit_test_output(b, nir_load_var(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   nir_validate_shader(b->shader, NULL);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+TEST_F(nir_var_alloc_test, scratch_simple_no_alias)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
+
+   nir_store_var(b, x, nir_imm_int(b, 1), 0x1);
+   nir_store_var(b, y, nir_imm_int(b, 2), 0x1);
+   nir_unit_test_output(b, nir_load_var(b, x));
+   nir_unit_test_output(b, nir_load_var(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   nir_validate_shader(b->shader, NULL);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* The scratch variable's live range can end at a branch, depending on the condition. */
+TEST_F(nir_var_alloc_test, scratch_kill_at_branch)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
+
+   nir_store_var(b, x, nir_imm_int(b, 1), 0x1);
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   nir_unit_test_output(b, nir_load_var(b, x));
+   nir_push_else(b, NULL);
+   nir_store_var(b, y, nir_imm_int(b, 2), 0x1);
+   nir_unit_test_output(b, nir_load_var(b, y));
+   nir_pop_if(b, NULL);
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   nir_validate_shader(b->shader, NULL);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+TEST_F(nir_var_alloc_test, scratch_cast)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
+
+   nir_store_var(b, x, nir_imm_int(b, 1), 0x1);
+   nir_store_var(b, y, nir_imm_int(b, 2), 0x1);
+   nir_def *addr = nir_unit_test_uniform_input(b, 1, 32);
+   nir_deref_instr *cast = nir_build_deref_cast(b, addr, nir_var_function_temp, x->type, 0);
+   nir_unit_test_output(b, nir_load_deref(b, cast));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   nir_validate_shader(b->shader, NULL);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* The live range of "x" continues past each access into the next loop iteration. */
+TEST_F(nir_var_alloc_test, scratch_loop)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
+
+   nir_store_var(b, x, nir_imm_int(b, 0), 0x1);
+
+   nir_push_loop(b);
+   nir_store_var(b, x, nir_iadd_imm(b, nir_load_var(b, x), 1), 0x1);
+   nir_store_var(b, y, nir_imm_int(b, 1), 0x1);
+   nir_unit_test_output(b, nir_load_var(b, y));
+   nir_pop_loop(b, NULL);
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   nir_validate_shader(b->shader, NULL);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* Both "x" and "y" are live-in at the merge block, but not at the first access of either variable. */
+TEST_F(nir_var_alloc_test, scratch_live_in_interferences_no_alias)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   nir_store_var(b, x, nir_imm_int(b, 1), 0x1);
+   nir_push_else(b, NULL);
+   nir_store_var(b, y, nir_imm_int(b, 2), 0x1);
+   nir_pop_if(b, NULL);
+
+   nir_unit_test_output(b, nir_load_var(b, x));
+   nir_unit_test_output(b, nir_load_var(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   nir_validate_shader(b->shader, NULL);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* Both "x" and "y" are live-in at the merge block, but they don't need to interfere. */
+TEST_F(nir_var_alloc_test, scratch_live_in_interferences_can_alias)
+{
+   nir_variable *x = create_int(nir_var_function_temp, "x");
+   nir_variable *y = create_int(nir_var_function_temp, "y");
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   nir_store_var(b, x, nir_imm_int(b, 1), 0x1);
+   nir_push_else(b, NULL);
+   nir_store_var(b, y, nir_imm_int(b, 2), 0x1);
+   nir_pop_if(b, NULL);
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   nir_unit_test_output(b, nir_load_var(b, x));
+   nir_push_else(b, NULL);
+   nir_unit_test_output(b, nir_load_var(b, y));
+   nir_pop_if(b, NULL);
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+static inline nir_def *
+atomic_load(nir_builder *b, nir_variable *var)
+{
+   return nir_load_deref_with_access(b, nir_build_deref_var(b, var), ACCESS_ATOMIC);
+}
+
+static inline void
+atomic_store(nir_builder *b, nir_variable *var, nir_def *value)
+{
+   nir_store_deref_with_access(b, nir_build_deref_var(b, var), value, 0x1, ACCESS_ATOMIC);
+}
+
+/* There is no control barrier between uses of "x" and "y", so they cannot alias. */
+TEST_F(nir_var_alloc_test, shared_no_barrier_simple)
+{
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, x));
+
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* Both "x" and "y" are live-in at the merge block, but not at the first access of either variable. They cannot alias because there is no control barrier. */
+TEST_F(nir_var_alloc_test, shared_no_barrier_live_in)
+{
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_push_else(b, NULL);
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+   nir_pop_if(b, NULL);
+
+   nir_unit_test_output(b, atomic_load(b, x));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* There is a control barrier between uses of "x" and "y", so they can alias. */
+TEST_F(nir_var_alloc_test, shared_barrier_simple)
+{
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, x));
+
+   nir_barrier(b, SCOPE_WORKGROUP, SCOPE_WORKGROUP, NIR_MEMORY_ACQ_REL, nir_var_mem_shared);
+
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+TEST_F(nir_var_alloc_test, shared_barrier_in_first_if)
+{
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, x));
+   nir_barrier(b, SCOPE_WORKGROUP, SCOPE_WORKGROUP, NIR_MEMORY_ACQ_REL, nir_var_mem_shared);
+   nir_pop_if(b, NULL);
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+   nir_pop_if(b, NULL);
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+TEST_F(nir_var_alloc_test, shared_barrier_in_second_if)
+{
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, x));
+   nir_pop_if(b, NULL);
+
+   nir_push_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   nir_barrier(b, SCOPE_WORKGROUP, SCOPE_WORKGROUP, NIR_MEMORY_ACQ_REL, nir_var_mem_shared);
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+   nir_pop_if(b, NULL);
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+TEST_F(nir_var_alloc_test, shared_barrier_in_loop)
+{
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   nir_push_loop(b);
+   nir_break_if(b, nir_unit_test_uniform_input(b, 1, 1));
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, x));
+   nir_barrier(b, SCOPE_WORKGROUP, SCOPE_WORKGROUP, NIR_MEMORY_ACQ_REL, nir_var_mem_shared);
+   nir_pop_loop(b, NULL);
+
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_EQ(x->data.driver_location, y->data.driver_location);
+}
+
+TEST_F(nir_var_alloc_test, shared_zero_initialize)
+{
+   b->shader->info.zero_initialize_shared_memory = true;
+
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   atomic_store(b, x, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, x));
+
+   nir_barrier(b, SCOPE_WORKGROUP, SCOPE_WORKGROUP, NIR_MEMORY_ACQ_REL, nir_var_mem_shared);
+
+   atomic_store(b, y, nir_imm_int(b, 2));
+   nir_unit_test_output(b, atomic_load(b, y));
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
+
+/* This could be improved. */
+TEST_F(nir_var_alloc_test, shared_function)
+{
+   nir_function *func = nir_function_create(b->shader, "func");
+   nir_function_impl *impl = nir_function_impl_create(func);
+   nir_builder b2 = nir_builder_at(nir_before_impl(impl));
+
+   nir_variable *x = create_int(nir_var_mem_shared, "x");
+   nir_variable *y = create_int(nir_var_mem_shared, "y");
+
+   atomic_store(&b2, x, nir_imm_int(&b2, 1));
+   nir_unit_test_output(&b2, atomic_load(&b2, x));
+
+   atomic_store(b, y, nir_imm_int(b, 1));
+   nir_unit_test_output(b, atomic_load(b, y));
+   nir_barrier(b, SCOPE_WORKGROUP, SCOPE_WORKGROUP, NIR_MEMORY_ACQ_REL, nir_var_mem_shared);
+   nir_build_call(b, func, 0, NULL);
+
+   nir_validate_shader(b->shader, NULL);
+
+   struct nir_var_alloc_state alloc = nir_var_alloc_setup();
+   nir_var_alloc_add(&alloc, x, 4, 4);
+   nir_var_alloc_add(&alloc, y, 4, 4);
+   nir_var_alloc_finish(&alloc, b->shader, 0);
+
+   ASSERT_GE(llabs((int64_t)x->data.driver_location - (int64_t)y->data.driver_location), 4);
+}
