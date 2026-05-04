@@ -3564,7 +3564,7 @@ lp_build_fpstate_set_denorms_zero(struct gallivm_state *gallivm,
 {
    if (util_get_cpu_caps()->has_sse) {
       /* turn on DAZ (64) | FTZ (32768) = 32832 if available */
-      int daz_ftz = _MM_FLUSH_ZERO_MASK;
+      unsigned daz_ftz = _MM_FLUSH_ZERO_MASK;
 
       LLVMBuilderRef builder = gallivm->builder;
       LLVMValueRef mxcsr_ptr = lp_build_fpstate_get(gallivm);
