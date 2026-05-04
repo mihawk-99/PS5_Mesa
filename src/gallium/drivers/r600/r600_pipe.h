@@ -632,6 +632,7 @@ struct r600_context {
 	bool cmd_buf_is_compute;
 	struct pipe_resource *append_fence;
 	uint32_t append_fence_id;
+	uint16_t atomic_reused_at_draw_vbo;
 	bool cayman_dealloc_state;
 
 	/* Debug */

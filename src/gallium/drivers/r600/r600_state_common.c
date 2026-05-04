@@ -2749,6 +2749,10 @@ static void r600_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info 
 
 	/* Emit states. */
 	r600_need_cs_space(rctx, cs_space, true, global_atomic_count);
+
+	if (unlikely(global_atomic_count && global_atomic_count == rctx->atomic_reused_at_draw_vbo))
+		rctx->b.flags |= R600_CONTEXT_WAIT_3D_IDLE|R600_CONTEXT_INV_VERTEX_CACHE|R600_CONTEXT_INV_TEX_CACHE;
+
 	r600_flush_emit(rctx);
 
 	mask = rctx->dirty_atoms;
@@ -3031,6 +3035,7 @@ static void r600_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info 
 		r600_indirect_parameters_close(rctx,
 					       indirect,
 					       &indirect_parameters);
+		rctx->atomic_reused_at_draw_vbo = global_atomic_count;
 	}
 
 	if (rctx->trace_buf)
