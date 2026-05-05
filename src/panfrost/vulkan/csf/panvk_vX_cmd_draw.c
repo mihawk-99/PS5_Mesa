@@ -3455,23 +3455,21 @@ issue_fragment_jobs(struct panvk_cmd_buffer *cmdbuf)
       }
    }
 
-   struct cs_index sync_addr = cs_scratch_reg64(b, 0);
-   struct cs_index sb_update_scratch_regs = cs_scratch_reg_tuple(b, 2, 2);
-   struct cs_index add_val = cs_scratch_reg64(b, 4);
-   struct cs_index add_val_lo = cs_scratch_reg32(b, 4);
-   struct cs_index ringbuf_sync_addr = cs_scratch_reg64(b, 6);
-   struct cs_index release_sz = cs_scratch_reg32(b, 8);
+   struct cs_index sb_update_scratch_regs = cs_scratch_reg_tuple(b, 0, 2);
+   struct cs_index add_val = cs_scratch_reg32(b, 2);
+   struct cs_index release_sz = cs_scratch_reg32(b, 3);
+   struct cs_index ringbuf_sync_addr = cs_scratch_reg64(b, 4);
 
-   struct cs_index completed = cs_scratch_reg_tuple(b, 10, 4);
-   struct cs_index completed_top = cs_scratch_reg64(b, 10);
-   struct cs_index completed_bottom = cs_scratch_reg64(b, 12);
+   struct cs_index completed = cs_scratch_reg_tuple(b, 6, 4);
+   struct cs_index completed_top = cs_scratch_reg64(b, 6);
+   struct cs_index completed_bottom = cs_scratch_reg64(b, 8);
    struct cs_index cur_tiler = cs_reg64(b, 38);
    struct cs_index tiler_count = cs_reg32(b, 47);
-   struct cs_index oq_chain = cs_scratch_reg64(b, 10);
-   struct cs_index oq_chain_lo = cs_scratch_reg32(b, 10);
-   struct cs_index oq_syncobj = cs_scratch_reg64(b, 12);
+   struct cs_index oq_chain = cs_scratch_reg64(b, 6);
+   struct cs_index oq_chain_lo = cs_scratch_reg32(b, 6);
+   struct cs_index oq_syncobj = cs_scratch_reg64(b, 8);
 
-   cs_move64_to(b, add_val, 1);
+   cs_move32_to(b, add_val, 1);
 
    if (free_render_descs) {
       cs_move32_to(b, release_sz, calc_render_descs_size(cmdbuf));
@@ -3481,11 +3479,6 @@ issue_fragment_jobs(struct panvk_cmd_buffer *cmdbuf)
    }
 
    cs_move32_to(b, tiler_count, td_count);
-
-   cs_load64_to(b, sync_addr, cs_subqueue_ctx_reg(b),
-                offsetof(struct panvk_cs_subqueue_context, syncobjs));
-   cs_add64(b, sync_addr, sync_addr,
-            PANVK_SUBQUEUE_FRAGMENT * sizeof(struct panvk_cs_sync64));
 
    cs_iter_sb_update(cmdbuf, PANVK_SUBQUEUE_FRAGMENT, sb_update_scratch_regs,
                      sb_upd_ctx) {
@@ -3569,13 +3562,11 @@ issue_fragment_jobs(struct panvk_cmd_buffer *cmdbuf)
                                            struct panvk_cs_occlusion_query, node) {
             cs_load64_to(b, oq_syncobj, oq_chain,
                          offsetof(struct panvk_cs_occlusion_query, syncobj));
-            cs_sync32_set(b, true, MALI_CS_SYNC_SCOPE_CSG, add_val_lo, oq_syncobj,
-                          cs_defer(SB_MASK(DEFERRED_FLUSH), SB_ID(DEFERRED_SYNC)));
+            cs_sync32_set(
+               b, true, MALI_CS_SYNC_SCOPE_CSG, add_val, oq_syncobj,
+               cs_defer(SB_MASK(DEFERRED_FLUSH), SB_ID(DEFERRED_SYNC)));
          }
       }
-
-      panvk_instr_sync64_add(cmdbuf, PANVK_SUBQUEUE_FRAGMENT, true,
-                             MALI_CS_SYNC_SCOPE_CSG, add_val, sync_addr, async);
    }
 
    /* Update the ring buffer position. */
@@ -3583,10 +3574,6 @@ issue_fragment_jobs(struct panvk_cmd_buffer *cmdbuf)
       cs_render_desc_ringbuf_move_ptr(b, calc_render_descs_size(cmdbuf),
                                       !tracing_ctx->enabled);
    }
-
-   /* Update the frag seqno. */
-   ++cmdbuf->state.cs[PANVK_SUBQUEUE_FRAGMENT].relative_sync_point;
-
 
    return VK_SUCCESS;
 }
