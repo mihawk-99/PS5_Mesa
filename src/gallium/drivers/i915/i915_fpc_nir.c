@@ -364,14 +364,97 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
    case nir_op_vec3:
    case nir_op_vec4: {
       unsigned n = nir_op_infos[alu->op].num_inputs;
+      uint32_t srcs[4] = { 0 };
+      for (unsigned i = 0; i < n; i++)
+         srcs[i] = alu_src_ureg(c, &alu->src[i]);
+
+      bool same_reg = true;
+      for (unsigned i = 1; i < n; i++) {
+         if ((srcs[i] & UREG_TYPE_NR_MASK) != (srcs[0] & UREG_TYPE_NR_MASK)) {
+            same_reg = false;
+            break;
+         }
+      }
+
+      if (same_reg) {
+         uint32_t base = UREG(GET_UREG_TYPE(srcs[0]), GET_UREG_NR(srcs[0]));
+         uint32_t ch[4] = { X, Y, Z, W };
+         int ng[4] = { 0, 0, 0, 0 };
+         for (unsigned i = 0; i < n; i++) {
+            ch[i] = (srcs[i] >> UREG_CHANNEL_X_SHIFT) & 0x7;
+            ng[i] = (srcs[i] >> UREG_CHANNEL_X_NEGATE_SHIFT) & 0x1;
+         }
+         c->is_temp[def->index] = false;
+         i915_release_temp(p, GET_UREG_NR(dest));
+         set_ureg(c, def, negate(swizzle(base, ch[0], ch[1], ch[2], ch[3]),
+                                 ng[0], ng[1], ng[2], ng[3]));
+         return;
+      }
+
       static const uint32_t chan_mask[] = {
          A0_DEST_CHANNEL_X, A0_DEST_CHANNEL_Y,
          A0_DEST_CHANNEL_Z, A0_DEST_CHANNEL_W,
       };
+      bool emitted[4] = { false };
+      uint32_t ch_sel[4];
+      int neg_sel[4] = { 0, 0, 0, 0 };
       for (unsigned i = 0; i < n; i++) {
-         uint32_t s = alu_src_ureg(c, &alu->src[i]);
-         i915_emit_arith(p, A0_MOV, dest, chan_mask[i] & mask, 0,
-                         swizzle(s, X, X, X, X), 0, 0);
+         ch_sel[i] = (srcs[i] >> UREG_CHANNEL_X_SHIFT) & 0x7;
+         neg_sel[i] = (srcs[i] >> UREG_CHANNEL_X_NEGATE_SHIFT) & 0x1;
+      }
+
+      /* Process real-register sources first, folding in any ZERO/ONE
+       * const-swizzle sources that can piggyback on the same MOV.
+       * Use the unswizzled base register since swizzle() composes.
+       */
+      for (unsigned i = 0; i < n; i++) {
+         if (emitted[i] || ch_sel[i] >= SRC_ZERO)
+            continue;
+         uint32_t base = UREG(GET_UREG_TYPE(srcs[i]), GET_UREG_NR(srcs[i]));
+         uint32_t group_mask = chan_mask[i];
+         uint32_t ch[4] = { X, Y, Z, W };
+         int ng[4] = { 0, 0, 0, 0 };
+         ch[i] = ch_sel[i];
+         ng[i] = neg_sel[i];
+         for (unsigned j = i + 1; j < n; j++) {
+            if (!emitted[j] &&
+                (ch_sel[j] >= SRC_ZERO ||
+                 (srcs[j] & UREG_TYPE_NR_MASK) ==
+                 (srcs[i] & UREG_TYPE_NR_MASK))) {
+               group_mask |= chan_mask[j];
+               ch[j] = ch_sel[j];
+               ng[j] = neg_sel[j];
+               emitted[j] = true;
+            }
+         }
+         i915_emit_arith(p, A0_MOV, dest, group_mask & mask, 0,
+                         negate(swizzle(base, ch[0], ch[1], ch[2], ch[3]),
+                                ng[0], ng[1], ng[2], ng[3]),
+                         0, 0);
+         emitted[i] = true;
+      }
+      /* Any remaining const-swizzle-only sources */
+      for (unsigned i = 0; i < n; i++) {
+         if (emitted[i])
+            continue;
+         uint32_t group_mask = chan_mask[i];
+         uint32_t ch[4] = { X, Y, Z, W };
+         int ng[4] = { 0, 0, 0, 0 };
+         ch[i] = ch_sel[i];
+         ng[i] = neg_sel[i];
+         for (unsigned j = i + 1; j < n; j++) {
+            if (!emitted[j]) {
+               group_mask |= chan_mask[j];
+               ch[j] = ch_sel[j];
+               ng[j] = neg_sel[j];
+               emitted[j] = true;
+            }
+         }
+         i915_emit_arith(p, A0_MOV, dest, group_mask & mask, 0,
+                         negate(swizzle(srcs[i], ch[0], ch[1], ch[2], ch[3]),
+                                ng[0], ng[1], ng[2], ng[3]),
+                         0, 0);
+         emitted[i] = true;
       }
       break;
    }
