@@ -54,55 +54,9 @@
  * Simple pass-through fragment shader to use when we don't have
  * a real shader (or it fails to compile for some reason).
  */
-static unsigned passthrough_program[] = {
-   _3DSTATE_PIXEL_SHADER_PROGRAM | ((1 * 3) - 1),
-   /* move to output color:
-    */
-   (A0_MOV | (REG_TYPE_OC << A0_DEST_TYPE_SHIFT) | A0_DEST_CHANNEL_ALL |
-    (REG_TYPE_R << A0_SRC0_TYPE_SHIFT) | (0 << A0_SRC0_NR_SHIFT)),
-   ((SRC_ONE << A1_SRC0_CHANNEL_X_SHIFT) |
-    (SRC_ZERO << A1_SRC0_CHANNEL_Y_SHIFT) |
-    (SRC_ZERO << A1_SRC0_CHANNEL_Z_SHIFT) |
-    (SRC_ONE << A1_SRC0_CHANNEL_W_SHIFT)),
-   0};
-
 /**
  * component-wise negation of ureg
  */
-static inline int
-negate(int reg, int x, int y, int z, int w)
-{
-   /* Another neat thing about the UREG representation */
-   return reg ^ (((x & 1) << UREG_CHANNEL_X_NEGATE_SHIFT) |
-                 ((y & 1) << UREG_CHANNEL_Y_NEGATE_SHIFT) |
-                 ((z & 1) << UREG_CHANNEL_Z_NEGATE_SHIFT) |
-                 ((w & 1) << UREG_CHANNEL_W_NEGATE_SHIFT));
-}
-
-/**
- * In the event of a translation failure, we'll generate a simple color
- * pass-through program.
- */
-static void
-i915_use_passthrough_shader(struct i915_fragment_shader *fs)
-{
-   fs->program = (uint32_t *)MALLOC(sizeof(passthrough_program));
-   if (fs->program) {
-      memcpy(fs->program, passthrough_program, sizeof(passthrough_program));
-      fs->program_len = ARRAY_SIZE(passthrough_program);
-   }
-   fs->num_constants = 0;
-}
-
-void
-i915_program_error(struct i915_fp_compile *p, const char *msg, ...)
-{
-   va_list args;
-   va_start(args, msg);
-   ralloc_vasprintf_append(&p->error, msg, args);
-   va_end(args);
-}
-
 static uint32_t
 get_mapping(struct i915_fragment_shader *fs, enum tgsi_semantic semantic,
             int index)
@@ -1024,6 +978,10 @@ i915_fini_compile(struct i915_context *i915, struct i915_fp_compile *p)
       assert(!ifs->program);
 
       ifs->program_len = decl_size + program_size;
+      ifs->nr_alu_insn = p->nr_alu_insn;
+      ifs->nr_tex_insn = p->nr_tex_insn;
+      ifs->nr_tex_indirect = p->nr_tex_indirect;
+      ifs->nr_temps = util_bitcount(p->temp_flag);
       ifs->program = (uint32_t *)MALLOC(ifs->program_len * sizeof(uint32_t));
       memcpy(ifs->program, p->declarations, decl_size * sizeof(uint32_t));
       memcpy(&ifs->program[decl_size], p->program,
@@ -1035,10 +993,9 @@ i915_fini_compile(struct i915_context *i915, struct i915_fp_compile *p)
             "%s shader: %d instructions, %d alu, %d tex, %d tex_indirect, "
             "%d temps, %d const",
             _mesa_shader_stage_to_abbrev(MESA_SHADER_FRAGMENT),
-            p->nr_alu_insn + p->nr_tex_insn,
-            p->nr_alu_insn, p->nr_tex_insn, p->nr_tex_indirect,
-            p->shader->info.file_max[TGSI_FILE_TEMPORARY] + 1,
-            ifs->num_constants);
+            ifs->nr_alu_insn + ifs->nr_tex_insn,
+            ifs->nr_alu_insn, ifs->nr_tex_insn, ifs->nr_tex_indirect,
+            ifs->nr_temps, ifs->num_constants);
       }
    }
 

@@ -332,28 +332,33 @@ emit_constants(struct i915_context *i915)
       OUT_BATCH((1 << nr) - 1);
 
       for (i = 0; i < nr; i++) {
-         const uint32_t *c;
-         if (i915->fs->constant_flags[i] == I915_CONSTFLAG_USER) {
-            /* grab user-defined constant */
-            c = (uint32_t *)i915_buffer(i915->constants[MESA_SHADER_FRAGMENT])
-                   ->data;
+         uint8_t flags = i915->fs->constant_flags[i];
+         uint8_t user_mask = flags >> 4;
+
+         if (!user_mask) {
+            const uint32_t *c = (uint32_t *)i915->fs->constants[i];
+            OUT_BATCH(c[0]);
+            OUT_BATCH(c[1]);
+            OUT_BATCH(c[2]);
+            OUT_BATCH(c[3]);
+         } else if (user_mask == 0xf) {
+            const uint32_t *c =
+               (uint32_t *)i915_buffer(i915->constants[MESA_SHADER_FRAGMENT])
+                  ->data;
             c += 4 * i;
+            OUT_BATCH(c[0]);
+            OUT_BATCH(c[1]);
+            OUT_BATCH(c[2]);
+            OUT_BATCH(c[3]);
          } else {
-            /* emit program constant */
-            c = (uint32_t *)i915->fs->constants[i];
+            const uint32_t *user =
+               (uint32_t *)i915_buffer(i915->constants[MESA_SHADER_FRAGMENT])
+                  ->data;
+            user += 4 * i;
+            const uint32_t *imm = (uint32_t *)i915->fs->constants[i];
+            for (unsigned ch = 0; ch < 4; ch++)
+               OUT_BATCH((user_mask & (1 << ch)) ? user[ch] : imm[ch]);
          }
-#if 0 /* debug */
-         {
-            float *f = (float *) c;
-            printf("Const %2d: %f %f %f %f %s\n", i, f[0], f[1], f[2], f[3],
-                   (i915->fs->constant_flags[i] == I915_CONSTFLAG_USER
-                    ? "user" : "immediate"));
-         }
-#endif
-         OUT_BATCH(*c++);
-         OUT_BATCH(*c++);
-         OUT_BATCH(*c++);
-         OUT_BATCH(*c++);
       }
    }
 }

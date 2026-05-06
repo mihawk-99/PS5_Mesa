@@ -88,8 +88,15 @@ struct i915_winsys_batchbuffer;
 
 #define I915_MAX_CONSTANT 32
 
-/** See constant_flags[] below */
-#define I915_CONSTFLAG_USER 0x1f
+/**
+ * Per-channel flags for constant_flags[].
+ * Bits 0-3: channel has a compiler immediate.
+ * Bits 4-7: channel has a user (UBO) value uploaded at draw time.
+ * A channel is available when neither bit is set.
+ */
+#define I915_CONSTFLAG_IMM(ch)     (1 << (ch))
+#define I915_CONSTFLAG_USER_CH(ch) (1 << ((ch) + 4))
+#define I915_CONSTFLAG_USER        0xf0
 
 /**
  * Subclass of pipe_shader_state
@@ -103,6 +110,10 @@ struct i915_fragment_shader {
 
    uint32_t *program;
    uint32_t program_len;
+   uint32_t nr_alu_insn;
+   uint32_t nr_tex_insn;
+   uint32_t nr_tex_indirect;
+   uint32_t nr_temps;
 
    /**
     * constants introduced during translation.
@@ -134,12 +145,15 @@ struct i915_fragment_shader {
    } texcoords[I915_TEX_UNITS];
 
    bool reads_pntc;
+   bool writes_z;
 
-   /* Set if the shader is an internal (blit, etc.) shader that shouldn't debug
-    * log by default. */
+   unsigned num_inputs;
+   uint8_t input_semantic_name[PIPE_MAX_SHADER_INPUTS];
+   uint8_t input_semantic_index[PIPE_MAX_SHADER_INPUTS];
+
    bool internal;
 
-   char *error; /* Any error message from compiling this shader (or NULL) */
+   char *error;
 };
 
 struct i915_cache_context;
