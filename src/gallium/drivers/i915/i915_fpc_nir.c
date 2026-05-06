@@ -397,21 +397,51 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
       i915_emit_arith(p, A0_SGE, dest, mask, 0, src0, src1, 0);
       break;
    case nir_op_seq: {
-      /* seq(a,b) = sge(a,b) * sge(b,a) */
-      uint32_t tmp = i915_get_utemp(p);
-      i915_emit_arith(p, A0_SGE, tmp, A0_DEST_CHANNEL_ALL, 0,
-                      src0, src1, 0);
-      i915_emit_arith(p, A0_SGE, dest, mask, 0, src1, src0, 0);
-      i915_emit_arith(p, A0_MUL, dest, mask, 0, dest, tmp, 0);
+      const uint32_t zero =
+         swizzle(UREG(REG_TYPE_R, 0), ZERO, ZERO, ZERO, ZERO);
+      if ((c->opts.flags & CORM_SEQ_SNE_OPT) &&
+          ((src0 & UREG_XYZW_CHANNEL_MASK) == (zero & UREG_XYZW_CHANNEL_MASK) ||
+           (src1 & UREG_XYZW_CHANNEL_MASK) == (zero & UREG_XYZW_CHANNEL_MASK))) {
+         if ((src0 & UREG_XYZW_CHANNEL_MASK) == (zero & UREG_XYZW_CHANNEL_MASK))
+            src0 = src1;
+         /* x == 0  <->  -abs(x) >= 0: 2 insns instead of 3 */
+         uint32_t tmp = i915_get_utemp(p);
+         i915_emit_arith(p, A0_MAX, tmp, A0_DEST_CHANNEL_ALL, 0,
+                         src0, negate(src0, 1, 1, 1, 1), 0);
+         i915_emit_arith(p, A0_SGE, dest, mask, 0,
+                         negate(tmp, 1, 1, 1, 1), zero, 0);
+      } else {
+         /* seq(a,b) = sge(a,b) * sge(b,a) */
+         uint32_t tmp = i915_get_utemp(p);
+         i915_emit_arith(p, A0_SGE, tmp, A0_DEST_CHANNEL_ALL, 0,
+                         src0, src1, 0);
+         i915_emit_arith(p, A0_SGE, dest, mask, 0, src1, src0, 0);
+         i915_emit_arith(p, A0_MUL, dest, mask, 0, dest, tmp, 0);
+      }
       break;
    }
    case nir_op_sne: {
-      /* sne(a,b) = slt(a,b) + slt(b,a) */
-      uint32_t tmp = i915_get_utemp(p);
-      i915_emit_arith(p, A0_SLT, tmp, A0_DEST_CHANNEL_ALL, 0,
-                      src0, src1, 0);
-      i915_emit_arith(p, A0_SLT, dest, mask, 0, src1, src0, 0);
-      i915_emit_arith(p, A0_ADD, dest, mask, 0, dest, tmp, 0);
+      const uint32_t zero =
+         swizzle(UREG(REG_TYPE_R, 0), ZERO, ZERO, ZERO, ZERO);
+      if ((c->opts.flags & CORM_SEQ_SNE_OPT) &&
+          ((src0 & UREG_XYZW_CHANNEL_MASK) == (zero & UREG_XYZW_CHANNEL_MASK) ||
+           (src1 & UREG_XYZW_CHANNEL_MASK) == (zero & UREG_XYZW_CHANNEL_MASK))) {
+         if ((src0 & UREG_XYZW_CHANNEL_MASK) == (zero & UREG_XYZW_CHANNEL_MASK))
+            src0 = src1;
+         /* x != 0  <->  -abs(x) < 0: 2 insns instead of 3 */
+         uint32_t tmp = i915_get_utemp(p);
+         i915_emit_arith(p, A0_MAX, tmp, A0_DEST_CHANNEL_ALL, 0,
+                         src0, negate(src0, 1, 1, 1, 1), 0);
+         i915_emit_arith(p, A0_SLT, dest, mask, 0,
+                         negate(tmp, 1, 1, 1, 1), zero, 0);
+      } else {
+         /* sne(a,b) = slt(a,b) + slt(b,a) */
+         uint32_t tmp = i915_get_utemp(p);
+         i915_emit_arith(p, A0_SLT, tmp, A0_DEST_CHANNEL_ALL, 0,
+                         src0, src1, 0);
+         i915_emit_arith(p, A0_SLT, dest, mask, 0, src1, src0, 0);
+         i915_emit_arith(p, A0_ADD, dest, mask, 0, dest, tmp, 0);
+      }
       break;
    }
    case nir_op_fpow: {
