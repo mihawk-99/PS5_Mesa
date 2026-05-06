@@ -22,6 +22,7 @@ struct nir_to_i915 {
 
    uint32_t *ureg_map;
    uint32_t **def_csr;
+   float *deferred_const;
    unsigned ureg_map_size;
 
    int *last_use;
@@ -76,10 +77,28 @@ set_ureg(struct nir_to_i915 *c, nir_def *def, uint32_t ureg)
    c->ureg_map[def->index] = ureg;
 }
 
+static bool
+is_deferred(struct nir_to_i915 *c, unsigned ssa_index)
+{
+   return c->ureg_map[ssa_index] == UREG_BAD;
+}
+
+static uint32_t
+resolve_const(struct nir_to_i915 *c, unsigned ssa_index, int preferred_reg)
+{
+   uint32_t ureg = i915_emit_const1f_prefer(c->p,
+                                            c->deferred_const[ssa_index],
+                                            preferred_reg);
+   c->ureg_map[ssa_index] = ureg;
+   return ureg;
+}
+
 static uint32_t
 src_ureg(struct nir_to_i915 *c, nir_src *src)
 {
    assert(src->ssa->index < c->ureg_map_size);
+   if (c->ureg_map[src->ssa->index] == UREG_BAD)
+      resolve_const(c, src->ssa->index, -1);
    return c->ureg_map[src->ssa->index];
 }
 
@@ -180,9 +199,17 @@ emit_load_const(struct nir_to_i915 *c, nir_load_const_instr *load)
    struct i915_fp_compile *p = c->p;
 
    switch (load->def.num_components) {
-   case 1:
-      set_ureg(c, &load->def, i915_emit_const1f(p, load->value[0].f32));
+   case 1: {
+      float val = load->value[0].f32;
+      if ((c->opts.flags & CORM_DEFERRED_CONST) &&
+          val != 0.0f && val != 1.0f && val != -1.0f) {
+         c->deferred_const[load->def.index] = val;
+         set_ureg(c, &load->def, UREG_BAD);
+      } else {
+         set_ureg(c, &load->def, i915_emit_const1f(p, val));
+      }
       break;
+   }
    case 2:
       set_ureg(c, &load->def,
                i915_emit_const2f(p, load->value[0].f32,
@@ -207,6 +234,35 @@ emit_load_const(struct nir_to_i915 *c, nir_load_const_instr *load)
 }
 
 static void
+coalesce_constants(struct nir_to_i915 *c, nir_alu_instr *alu)
+{
+   unsigned n = nir_op_infos[alu->op].num_inputs;
+   unsigned deferred[3];
+   unsigned nr_deferred = 0;
+   int preferred = -1;
+
+   for (unsigned i = 0; i < n; i++) {
+      unsigned idx = alu->src[i].src.ssa->index;
+      if (is_deferred(c, idx)) {
+         deferred[nr_deferred++] = idx;
+      } else {
+         uint32_t ureg = c->ureg_map[idx];
+         if (GET_UREG_TYPE(ureg) == REG_TYPE_CONST && preferred < 0)
+            preferred = GET_UREG_NR(ureg);
+      }
+   }
+
+   if (nr_deferred == 0)
+      return;
+
+   for (unsigned i = 0; i < nr_deferred; i++) {
+      uint32_t ureg = resolve_const(c, deferred[i], preferred);
+      if (preferred < 0 && GET_UREG_TYPE(ureg) == REG_TYPE_CONST)
+         preferred = GET_UREG_NR(ureg);
+   }
+}
+
+static void
 emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
 {
    struct i915_fp_compile *p = c->p;
@@ -215,6 +271,8 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
    uint32_t dest = UREG(REG_TYPE_R, i915_get_temp(p));
    set_ureg(c, def, dest);
    c->is_temp[def->index] = true;
+
+   coalesce_constants(c, alu);
 
    uint32_t src0 = 0, src1 = 0, src2 = 0;
    if (nir_op_infos[alu->op].num_inputs >= 1)
@@ -761,7 +819,7 @@ emit_intrinsic(struct nir_to_i915 *c, nir_intrinsic_instr *intr)
       }
 
       for (unsigned i = 0; i < intr->def.num_components; i++)
-         ifs->constant_flags[slot] |= I915_CONSTFLAG_USER;
+         ifs->constant_flags[slot] |= I915_CONSTFLAG_USER_CH(comp + i);
       ifs->num_constants = MAX2(ifs->num_constants, slot + 1);
 
       uint32_t reg = UREG(REG_TYPE_CONST, slot);
@@ -796,7 +854,7 @@ emit_intrinsic(struct nir_to_i915 *c, nir_intrinsic_instr *intr)
       }
 
       for (unsigned i = 0; i < intr->def.num_components; i++)
-         ifs->constant_flags[slot] |= I915_CONSTFLAG_USER;
+         ifs->constant_flags[slot] |= I915_CONSTFLAG_USER_CH(comp + i);
       ifs->num_constants = MAX2(ifs->num_constants, slot + 1);
 
       uint32_t reg = UREG(REG_TYPE_CONST, slot);
@@ -966,6 +1024,7 @@ i915_translate_fragment_program_nir(struct i915_context *i915,
       .ureg_map_size = impl->ssa_alloc,
       .ureg_map = CALLOC(impl->ssa_alloc, sizeof(uint32_t)),
       .def_csr = CALLOC(impl->ssa_alloc, sizeof(uint32_t *)),
+      .deferred_const = CALLOC(impl->ssa_alloc, sizeof(float)),
       .last_use = CALLOC(impl->ssa_alloc, sizeof(int)),
       .is_temp = CALLOC(impl->ssa_alloc, sizeof(bool)),
    };
@@ -1048,6 +1107,7 @@ cleanup:
 
    FREE(c.last_use);
    FREE(c.is_temp);
+   FREE(c.deferred_const);
    FREE(c.def_csr);
    FREE(c.ureg_map);
    FREE(p);
