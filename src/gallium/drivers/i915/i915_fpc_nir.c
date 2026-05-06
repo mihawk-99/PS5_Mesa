@@ -22,7 +22,51 @@ struct nir_to_i915 {
 
    uint32_t *ureg_map;
    unsigned ureg_map_size;
+
+   int *last_use;
+   bool *is_temp;
+   int ip;
 };
+
+static bool
+mark_last_use_cb(nir_src *src, void *state)
+{
+   struct nir_to_i915 *c = state;
+   if (src->ssa->index < c->ureg_map_size)
+      c->last_use[src->ssa->index] = c->ip;
+   return true;
+}
+
+static void
+compute_last_use(struct nir_to_i915 *c, nir_function_impl *impl)
+{
+   c->ip = 0;
+   nir_foreach_block(block, impl) {
+      nir_foreach_instr(instr, block) {
+         nir_foreach_src(instr, mark_last_use_cb, c);
+         c->ip++;
+      }
+   }
+}
+
+static bool
+release_if_last_use_cb(nir_src *src, void *state)
+{
+   struct nir_to_i915 *c = state;
+   unsigned idx = src->ssa->index;
+   if (idx < c->ureg_map_size && c->last_use[idx] == c->ip &&
+       c->is_temp[idx]) {
+      uint32_t ureg = c->ureg_map[idx];
+      i915_release_temp(c->p, GET_UREG_NR(ureg));
+   }
+   return true;
+}
+
+static void
+release_dead_temps(struct nir_to_i915 *c, nir_instr *instr)
+{
+   nir_foreach_src(instr, release_if_last_use_cb, c);
+}
 
 static void
 set_ureg(struct nir_to_i915 *c, nir_def *def, uint32_t ureg)
@@ -169,6 +213,7 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
    uint32_t mask = def_mask(def);
    uint32_t dest = UREG(REG_TYPE_R, i915_get_temp(p));
    set_ureg(c, def, dest);
+   c->is_temp[def->index] = true;
 
    uint32_t src0 = 0, src1 = 0, src2 = 0;
    if (nir_op_infos[alu->op].num_inputs >= 1)
@@ -182,9 +227,13 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
    case nir_op_mov:
    case nir_op_fcanonicalize:
    case nir_op_fneg: {
+      c->is_temp[def->index] = false;
       i915_release_temp(p, GET_UREG_NR(dest));
       set_ureg(c, def, alu->op == nir_op_fneg ? negate(src0, 1, 1, 1, 1)
                                          : src0);
+      unsigned src_idx = alu->src[0].src.ssa->index;
+      if (c->last_use[src_idx] == c->ip)
+         c->last_use[src_idx] = c->last_use[def->index];
       return;
    }
    case nir_op_fabs:
@@ -408,6 +457,7 @@ emit_tex(struct nir_to_i915 *c, nir_tex_instr *tex)
    nir_def *def = &tex->def;
    uint32_t dest = UREG(REG_TYPE_R, i915_get_temp(p));
    set_ureg(c, def, dest);
+   c->is_temp[def->index] = true;
 
    uint32_t hw_tex = translate_tex_type(p, tex->sampler_dim);
    uint32_t sampler = i915_emit_decl(p, REG_TYPE_S, tex->sampler_index, hw_tex);
@@ -751,13 +801,21 @@ i915_translate_fragment_program_nir(struct i915_context *i915,
       .opts = *opts,
       .ureg_map_size = impl->ssa_alloc,
       .ureg_map = CALLOC(impl->ssa_alloc, sizeof(uint32_t)),
+      .last_use = CALLOC(impl->ssa_alloc, sizeof(int)),
+      .is_temp = CALLOC(impl->ssa_alloc, sizeof(bool)),
    };
 
+   memset(c.last_use, -1, impl->ssa_alloc * sizeof(int));
+   compute_last_use(&c, impl);
+
+   c.ip = 0;
    nir_foreach_block(block, impl) {
       nir_foreach_instr(instr, block) {
          emit_instr(&c, instr);
          if (p->error[0])
             break;
+         release_dead_temps(&c, instr);
+         c.ip++;
       }
       if (p->error[0])
          break;
@@ -823,6 +881,8 @@ cleanup:
    else
       ralloc_free(p->error);
 
+   FREE(c.last_use);
+   FREE(c.is_temp);
    FREE(c.ureg_map);
    FREE(p);
 
