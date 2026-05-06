@@ -21,6 +21,7 @@ struct nir_to_i915 {
    struct i915_fragment_shader *ifs;
 
    uint32_t *ureg_map;
+   uint32_t **def_csr;
    unsigned ureg_map_size;
 
    int *last_use;
@@ -223,6 +224,8 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
    if (nir_op_infos[alu->op].num_inputs >= 3)
       src2 = alu_src_ureg(c, &alu->src[2]);
 
+   uint32_t *pre_csr = p->csr;
+
    switch (alu->op) {
    case nir_op_mov:
    case nir_op_fcanonicalize:
@@ -240,9 +243,22 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
       i915_emit_arith(p, A0_MAX, dest, mask, 0,
                       src0, negate(src0, 1, 1, 1, 1), 0);
       break;
-   case nir_op_fsat:
+   case nir_op_fsat: {
+      nir_def *src_def = alu->src[0].src.ssa;
+      uint32_t *prev = c->def_csr[src_def->index];
+      if (prev && list_is_singular(&src_def->uses)) {
+         prev[0] |= A0_DEST_SATURATE;
+         i915_release_temp(p, GET_UREG_NR(dest));
+         set_ureg(c, def, src_ureg(c, &alu->src[0].src));
+         c->def_csr[def->index] = prev;
+         unsigned src_idx = alu->src[0].src.ssa->index;
+         if (c->last_use[src_idx] == c->ip)
+            c->last_use[src_idx] = c->last_use[def->index];
+         return;
+      }
       i915_emit_arith(p, A0_MOV, dest, mask, A0_DEST_SATURATE, src0, 0, 0);
       break;
+   }
    case nir_op_fadd:
       i915_emit_arith(p, A0_ADD, dest, mask, 0, src0, src1, 0);
       break;
@@ -403,6 +419,29 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
          neg_sel[i] = (srcs[i] >> UREG_CHANNEL_X_NEGATE_SHIFT) & 0x1;
       }
 
+      /* Single-component ALU dest folding: if a vec source is a single-use
+       * scalar ALU result in a temp, patch that instruction to write directly
+       * into our dest with the right channel mask.
+       */
+      for (unsigned i = 0; i < n; i++) {
+         nir_def *src_def = alu->src[i].src.ssa;
+         uint32_t *prev_csr = c->def_csr[src_def->index];
+         if (!prev_csr || !list_is_singular(&src_def->uses))
+            continue;
+         if (GET_UREG_TYPE(srcs[i]) != REG_TYPE_R)
+            continue;
+         if (src_def->num_components != 1)
+            continue;
+
+         prev_csr[0] = (prev_csr[0] & ~(A0_DEST_CHANNEL_ALL |
+                               (0x1ff << A0_DEST_NR_SHIFT))) |
+                   A0_DEST(dest) | chan_mask[i];
+
+         i915_release_temp(p, GET_UREG_NR(srcs[i]));
+         c->ureg_map[src_def->index] = dest;
+         emitted[i] = true;
+      }
+
       /* Process real-register sources first, folding in any ZERO/ONE
        * const-swizzle sources that can piggyback on the same MOV.
        * Use the unswizzled base register since swizzle() composes.
@@ -474,6 +513,9 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
                          nir_op_infos[alu->op].name);
       break;
    }
+
+   if (p->csr == pre_csr + 3)
+      c->def_csr[def->index] = pre_csr;
 
    i915_release_utemps(p);
 }
@@ -643,6 +685,45 @@ emit_intrinsic(struct nir_to_i915 *c, nir_intrinsic_instr *intr)
          dest = UREG(REG_TYPE_OD, 0);
       } else {
          dest = UREG(REG_TYPE_OC, 0);
+      }
+
+      nir_def *src_def = intr->src[0].ssa;
+      uint32_t *prev = c->def_csr[src_def->index];
+
+      /* Look through identity vec (same_reg case emits no instructions).
+       * Check that all uses of the underlying def come from this vec.
+       */
+      bool looked_through_vec = false;
+      if (!prev) {
+         nir_instr *def_instr = nir_def_instr_nonconst(src_def);
+         if (def_instr->type == nir_instr_type_alu) {
+            nir_alu_instr *vec = nir_instr_as_alu(def_instr);
+            if ((vec->op == nir_op_vec4 || vec->op == nir_op_vec3 ||
+                 vec->op == nir_op_vec2) &&
+                list_is_singular(&src_def->uses)) {
+               nir_def *inner = vec->src[0].src.ssa;
+               bool all_from_vec = true;
+               nir_foreach_use(use, inner) {
+                  if (nir_src_use_instr(use) != def_instr) {
+                     all_from_vec = false;
+                     break;
+                  }
+               }
+               if (all_from_vec) {
+                  src_def = inner;
+                  prev = c->def_csr[src_def->index];
+                  looked_through_vec = true;
+               }
+            }
+         }
+      }
+
+      if (prev && comp == 0 &&
+          (looked_through_vec || list_is_singular(&src_def->uses))) {
+         prev[0] = (prev[0] & ~(A0_DEST_CHANNEL_ALL |
+                                (0x1ff << A0_DEST_NR_SHIFT))) |
+                   A0_DEST(dest) | writemask_to_mask(wm);
+         break;
       }
 
       if (comp > 0) {
@@ -884,6 +965,7 @@ i915_translate_fragment_program_nir(struct i915_context *i915,
       .opts = *opts,
       .ureg_map_size = impl->ssa_alloc,
       .ureg_map = CALLOC(impl->ssa_alloc, sizeof(uint32_t)),
+      .def_csr = CALLOC(impl->ssa_alloc, sizeof(uint32_t *)),
       .last_use = CALLOC(impl->ssa_alloc, sizeof(int)),
       .is_temp = CALLOC(impl->ssa_alloc, sizeof(bool)),
    };
@@ -966,6 +1048,7 @@ cleanup:
 
    FREE(c.last_use);
    FREE(c.is_temp);
+   FREE(c.def_csr);
    FREE(c.ureg_map);
    FREE(p);
 
