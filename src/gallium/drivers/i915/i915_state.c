@@ -31,7 +31,9 @@
 #include "compiler/nir/nir_builder.h"
 #include "draw/draw_context.h"
 #include "nir/nir_to_tgsi.h"
+#include "tgsi/tgsi_from_mesa.h"
 #include "tgsi/tgsi_parse.h"
+#include "tgsi/tgsi_scan.h"
 #include "util/u_helpers.h"
 #include "util/u_inlines.h"
 #include "util/u_math.h"
@@ -542,6 +544,23 @@ static const struct nir_to_tgsi_options ntt_options = {
    .lower_fabs = true,
 };
 
+static int
+type_size(const struct glsl_type *type, bool bindless)
+{
+   return glsl_count_attribute_slots(type, false);
+}
+
+static bool
+scalarize_vector_bools(const nir_instr *instr, const void *data)
+{
+   if (instr->type != nir_instr_type_alu)
+      return false;
+   nir_alu_instr *alu = nir_instr_as_alu(instr);
+   return alu->op == nir_op_bcsel ||
+          alu->op == nir_op_fcsel_ge ||
+          alu->op == nir_op_fcsel_gt;
+}
+
 static char *
 i915_check_control_flow(nir_shader *s)
 {
@@ -565,6 +584,94 @@ i915_check_control_flow(nir_shader *s)
    return NULL;
 }
 
+enum i915_fs_mode {
+   I915_FS_TGSI,
+   I915_FS_NIR,
+   I915_FS_BOTH,
+};
+
+static enum i915_fs_mode
+i915_get_fs_mode(void)
+{
+   const char *env = debug_get_option("I915_FS", "both");
+   if (!strcmp(env, "tgsi"))
+      return I915_FS_TGSI;
+   if (!strcmp(env, "nir"))
+      return I915_FS_NIR;
+   return I915_FS_BOTH;
+}
+
+static void
+i915_populate_fs_metadata(struct i915_fragment_shader *ifs, nir_shader *s)
+{
+   ifs->num_inputs = 0;
+   ifs->writes_z = s->info.outputs_written & BITFIELD64_BIT(FRAG_RESULT_DEPTH);
+
+   nir_foreach_shader_in_variable(var, s) {
+      unsigned sem_name, sem_index;
+      tgsi_get_gl_varying_semantic((gl_varying_slot)var->data.location, true,
+                                   &sem_name, &sem_index);
+      unsigned idx = ifs->num_inputs++;
+      ifs->input_semantic_name[idx] = sem_name;
+      ifs->input_semantic_index[idx] = sem_index;
+   }
+}
+
+static void
+i915_compile_tgsi(struct i915_context *i915,
+                  struct i915_fragment_shader *ifs,
+                  struct pipe_screen *screen,
+                  nir_shader *nir_clone)
+{
+   ifs->state.tokens = nir_to_tgsi_options(nir_clone, screen, &ntt_options);
+   ifs->state.type = PIPE_SHADER_IR_TGSI;
+   tgsi_scan_shader(ifs->state.tokens, &ifs->info);
+   i915_translate_fragment_program(i915, ifs);
+}
+
+static bool
+corm_fs_better(const struct i915_fragment_shader *a,
+               const struct i915_fragment_shader *b)
+{
+   if (a->nr_tex_indirect != b->nr_tex_indirect)
+      return a->nr_tex_indirect < b->nr_tex_indirect;
+   if (a->nr_alu_insn != b->nr_alu_insn)
+      return a->nr_alu_insn < b->nr_alu_insn;
+   if (a->nr_temps != b->nr_temps)
+      return a->nr_temps < b->nr_temps;
+   return a->num_constants < b->num_constants;
+}
+
+static const char *
+corm_win_reason(const struct i915_fragment_shader *winner,
+                const struct i915_fragment_shader *loser,
+                char *buf, size_t len)
+{
+   if (!loser) {
+      snprintf(buf, len, "only");
+      return buf;
+   }
+   int da = (int)winner->nr_alu_insn - (int)loser->nr_alu_insn;
+   int dp = (int)winner->nr_tex_indirect - (int)loser->nr_tex_indirect;
+   int dt = (int)winner->nr_temps - (int)loser->nr_temps;
+   if (dp != 0)
+      snprintf(buf, len, "%+d phase", dp);
+   else if (da != 0)
+      snprintf(buf, len, "%+d alu", da);
+   else if (dt != 0)
+      snprintf(buf, len, "%+d temps", dt);
+   else if ((int)winner->num_constants != (int)loser->num_constants)
+      snprintf(buf, len, "%+d const",
+               (int)winner->num_constants - (int)loser->num_constants);
+   else if (winner->program_len == loser->program_len &&
+            !memcmp(winner->program, loser->program,
+                    winner->program_len * sizeof(uint32_t)))
+      snprintf(buf, len, "identical");
+   else
+      snprintf(buf, len, "tied");
+   return buf;
+}
+
 static void *
 i915_create_fs_state(struct pipe_context *pipe,
                      const struct pipe_shader_state *templ)
@@ -576,39 +683,200 @@ i915_create_fs_state(struct pipe_context *pipe,
 
    ifs->draw_data = draw_create_fragment_shader(i915->draw, templ);
 
-   if (templ->type == PIPE_SHADER_IR_NIR) {
-      nir_shader *s = templ->ir.nir;
-      ifs->internal = s->info.internal;
-
-      char *msg = i915_check_control_flow(s);
-      if (msg) {
-         if (I915_DBG_ON(DBG_FS) &&
-             (!s->info.internal || NIR_DEBUG(PRINT_INTERNAL))) {
-            mesa_logi("failing shader:");
-            nir_log_shaderi(s);
-         }
-         if (templ->report_compile_error) {
-            ((struct pipe_shader_state *)templ)->error_message = strdup(msg);
-            ralloc_free(s);
-            i915_delete_fs_state(NULL, ifs);
-            return NULL;
-         }
-      }
-
-      ifs->state.tokens = nir_to_tgsi_options(s, pipe->screen, &ntt_options);
-   } else {
-      assert(templ->type == PIPE_SHADER_IR_TGSI);
-      /* we need to keep a local copy of the tokens */
+   if (templ->type == PIPE_SHADER_IR_TGSI) {
       ifs->state.tokens = tgsi_dup_tokens(templ->tokens);
+      ifs->state.type = PIPE_SHADER_IR_TGSI;
       ifs->internal = i915->no_log_program_errors;
+      tgsi_scan_shader(ifs->state.tokens, &ifs->info);
+      i915_translate_fragment_program(i915, ifs);
+      return ifs;
    }
 
-   ifs->state.type = PIPE_SHADER_IR_TGSI;
+   assert(templ->type == PIPE_SHADER_IR_NIR);
+   nir_shader *s = templ->ir.nir;
+   ifs->internal = s->info.internal;
 
-   tgsi_scan_shader(ifs->state.tokens, &ifs->info);
+   bool debug = I915_DBG_ON(DBG_FS) &&
+                (!s->info.internal || NIR_DEBUG(PRINT_INTERNAL));
 
-   /* The shader's compiled to i915 instructions here */
-   i915_translate_fragment_program(i915, ifs);
+   char *msg = i915_check_control_flow(s);
+   if (msg) {
+      if (debug) {
+         mesa_logi("failing shader:");
+         nir_log_shaderi(s);
+      }
+      if (templ->report_compile_error) {
+         ((struct pipe_shader_state *)templ)->error_message = strdup(msg);
+         ralloc_free(s);
+         i915_delete_fs_state(NULL, ifs);
+         return NULL;
+      }
+   }
+
+   static enum i915_fs_mode fs_mode = -1;
+   if (fs_mode == (enum i915_fs_mode)-1)
+      fs_mode = i915_get_fs_mode();
+
+   bool try_nir = (fs_mode == I915_FS_NIR || fs_mode == I915_FS_BOTH);
+   bool try_tgsi = (fs_mode == I915_FS_TGSI || fs_mode == I915_FS_BOTH);
+
+   struct i915_fragment_shader tgsi_fs = {0};
+
+   unsigned num_corm_variants = 1u << CORM_NUM_FLAGS;
+   struct i915_fragment_shader nir_results[1u << CORM_NUM_FLAGS];
+   int best_nir = -1;
+
+   if (try_nir) {
+      nir_shader *nir_s = nir_shader_clone(NULL, s);
+      NIR_PASS(_, nir_s, nir_lower_io, nir_var_shader_in | nir_var_shader_out,
+               type_size, (nir_lower_io_options)0);
+      NIR_PASS(_, nir_s, nir_lower_alu_to_scalar, scalarize_vector_bools, NULL);
+      NIR_PASS(_, nir_s, nir_opt_vectorize, NULL, NULL);
+      NIR_PASS(_, nir_s, nir_lower_bool_to_float, false);
+      NIR_PASS(_, nir_s, nir_opt_algebraic);
+      NIR_PASS(_, nir_s, nir_opt_algebraic_late);
+      NIR_PASS(_, nir_s, nir_opt_dce);
+      nir_index_ssa_defs(nir_shader_get_entrypoint(nir_s));
+
+      for (unsigned v = 0; v < num_corm_variants; v++) {
+         struct corm_compile_opts opts = { .flags = v };
+         nir_shader *variant_nir = (v == num_corm_variants - 1)
+            ? nir_s : nir_shader_clone(NULL, nir_s);
+         memset(&nir_results[v], 0, sizeof(nir_results[v]));
+         i915_populate_fs_metadata(&nir_results[v], variant_nir);
+         i915_translate_fragment_program_nir(i915, &nir_results[v],
+                                            variant_nir, &opts);
+         if (v < num_corm_variants - 1)
+            ralloc_free(variant_nir);
+
+         bool ok = !nir_results[v].error || !nir_results[v].error[0];
+         if (ok && (best_nir < 0 ||
+                    corm_fs_better(&nir_results[v], &nir_results[best_nir])))
+            best_nir = v;
+      }
+
+      if (try_tgsi)
+         ralloc_free(nir_s);
+   }
+
+   if (try_tgsi) {
+      i915_compile_tgsi(i915, &tgsi_fs, pipe->screen, s);
+   } else {
+      ralloc_free(s);
+   }
+
+   bool nir_ok = best_nir >= 0;
+   bool tgsi_ok = try_tgsi && (!tgsi_fs.error || !tgsi_fs.error[0]);
+   struct i915_fragment_shader *best_nir_fs = nir_ok ? &nir_results[best_nir] : NULL;
+
+   bool use_nir;
+   if (nir_ok && tgsi_ok)
+      use_nir = !corm_fs_better(&tgsi_fs, best_nir_fs);
+   else
+      use_nir = nir_ok;
+
+   if (debug && try_nir && try_tgsi) {
+      for (unsigned v = 0; v < num_corm_variants; v++) {
+         bool ok = !nir_results[v].error || !nir_results[v].error[0];
+         mesa_logi("  NIR[%02x]: %s (%d ALU, %d phase, %d temps)%s",
+                   v,
+                   ok ? "ok" : "FAIL",
+                   nir_results[v].nr_alu_insn,
+                   nir_results[v].nr_tex_indirect,
+                   nir_results[v].nr_temps,
+                   (int)v == best_nir ? " *" : "");
+      }
+      mesa_logi("  TGSI: %s (%d ALU, %d phase, %d temps)",
+                tgsi_ok ? "ok" : "FAIL",
+                tgsi_ok ? tgsi_fs.nr_alu_insn : 0,
+                tgsi_ok ? tgsi_fs.nr_tex_indirect : 0,
+                tgsi_ok ? tgsi_fs.nr_temps : 0);
+      mesa_logi("  -> %s%s", use_nir ? "NIR" : "TGSI",
+                use_nir ? (corm_fs_better(best_nir_fs, &tgsi_fs)
+                           ? " (better)" : " (tied)") : "");
+   }
+
+   /* Free non-winning NIR variants */
+   if (try_nir) {
+      for (unsigned v = 0; v < num_corm_variants; v++) {
+         if ((int)v != best_nir) {
+            FREE(nir_results[v].program);
+            ralloc_free(nir_results[v].error);
+         }
+      }
+   }
+
+   struct i915_fragment_shader *winner, *loser = NULL;
+   struct i915_fragment_shader nir_loser_copy = {0};
+   if (use_nir) {
+      winner = best_nir_fs;
+      loser = tgsi_ok ? &tgsi_fs : NULL;
+   } else {
+      winner = &tgsi_fs;
+      if (best_nir_fs) {
+         nir_loser_copy = *best_nir_fs;
+         nir_loser_copy.program = NULL;
+         loser = &nir_loser_copy;
+         FREE(best_nir_fs->program);
+         ralloc_free(best_nir_fs->error);
+      }
+   }
+
+   if (i915 && !ifs->internal) {
+      bool neither = (winner->nr_alu_insn + winner->nr_tex_insn) == 0;
+      char reason[32];
+      if (neither)
+         snprintf(reason, sizeof(reason), "neither");
+      else
+         corm_win_reason(winner, loser, reason, sizeof(reason));
+      util_debug_message(
+         &i915->debug, SHADER_INFO,
+         "%s shader [%s, %s]: %d instructions, %d alu, %d tex, "
+         "%d tex_indirect, %d temps, %d const",
+         _mesa_shader_stage_to_abbrev(MESA_SHADER_FRAGMENT),
+         neither ? "FAIL" : use_nir ? "NIR" : "TGSI", reason,
+         winner->nr_alu_insn + winner->nr_tex_insn,
+         winner->nr_alu_insn, winner->nr_tex_insn, winner->nr_tex_indirect,
+         winner->nr_temps, winner->num_constants);
+   }
+
+   ifs->program = winner->program;
+   ifs->program_len = winner->program_len;
+   ifs->nr_alu_insn = winner->nr_alu_insn;
+   ifs->nr_tex_insn = winner->nr_tex_insn;
+   ifs->nr_tex_indirect = winner->nr_tex_indirect;
+   ifs->nr_temps = winner->nr_temps;
+   ifs->num_constants = winner->num_constants;
+   memcpy(ifs->constants, winner->constants, sizeof(ifs->constants));
+   memcpy(ifs->constant_flags, winner->constant_flags,
+          sizeof(ifs->constant_flags));
+   memcpy(ifs->texcoords, winner->texcoords, sizeof(ifs->texcoords));
+   ifs->reads_pntc = winner->reads_pntc;
+   ifs->writes_z = winner->writes_z;
+   ifs->num_inputs = winner->num_inputs;
+   memcpy(ifs->input_semantic_name, winner->input_semantic_name,
+          sizeof(ifs->input_semantic_name));
+   memcpy(ifs->input_semantic_index, winner->input_semantic_index,
+          sizeof(ifs->input_semantic_index));
+   if (winner->error)
+      ifs->error = winner->error;
+
+   /* The loser's info may be in use (TGSI path populates ifs->info) */
+   if (try_tgsi)
+      ifs->info = tgsi_fs.info;
+
+   if (loser) {
+      FREE(loser->program);
+      ralloc_free(loser->error);
+   }
+   if (!use_nir && try_tgsi) {
+      /* TGSI won — tokens are in tgsi_fs via i915_compile_tgsi.
+       * We need them for ifs->state for draw's FS pipeline. */
+      ifs->state = tgsi_fs.state;
+   } else if (try_tgsi) {
+      FREE((void *)tgsi_fs.state.tokens);
+   }
+
    if (ifs->error && templ->report_compile_error) {
       ((struct pipe_shader_state *)templ)->error_message = strdup(ifs->error);
       i915_delete_fs_state(NULL, ifs);

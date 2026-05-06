@@ -176,6 +176,8 @@ i915_optimize_nir(struct nir_shader *s)
 {
    bool progress;
 
+   NIR_PASS(_, s, nir_lower_int_to_float);
+
    do {
       progress = false;
 
@@ -211,6 +213,11 @@ i915_optimize_nir(struct nir_shader *s)
       NIR_PASS(progress, s, nir_opt_loop_unroll);
 
    } while (progress);
+
+   NIR_PASS(_, s, nir_lower_alu_to_scalar, NULL, NULL);
+   NIR_PASS(_, s, nir_lower_bool_to_float, false);
+   NIR_PASS(_, s, nir_opt_algebraic);
+   NIR_PASS(_, s, nir_opt_dce);
 
    NIR_PASS(progress, s, nir_remove_dead_variables, nir_var_function_temp,
             NULL);
