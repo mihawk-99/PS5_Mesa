@@ -775,6 +775,9 @@ i915_create_fs_state(struct pipe_context *pipe,
       NIR_PASS(_, nir_s, nir_opt_algebraic);
       NIR_PASS(_, nir_s, nir_opt_algebraic_late);
       NIR_PASS(_, nir_s, nir_opt_dce);
+      NIR_PASS(_, nir_s, nir_opt_shrink_vectors, false);
+      NIR_PASS(_, nir_s, nir_opt_copy_prop);
+      NIR_PASS(_, nir_s, nir_opt_dce);
       nir_index_ssa_defs(nir_shader_get_entrypoint(nir_s));
 
       for (unsigned v = 0; v < num_corm_variants; v++) {
