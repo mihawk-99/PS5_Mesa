@@ -405,6 +405,8 @@ i915_fpc_optimize_mov_before_tex(struct i915_optimize_context *ctx,
        target_is_texture2d(next->FullInstruction.Texture.Texture) &&
        same_src_dst_reg(&next->FullInstruction.Src[0],
                         &current->FullInstruction.Dst[0]) &&
+       (current->FullInstruction.Dst[0].Register.WriteMask &
+        i915_tex_mask(next)) == i915_tex_mask(next) &&
        is_unswizzled(&current->FullInstruction.Src[0], i915_tex_mask(next)) &&
        unused_from(ctx, &current->FullInstruction.Dst[0], index)) {
       memcpy(&next->FullInstruction.Src[0], &current->FullInstruction.Src[0],
