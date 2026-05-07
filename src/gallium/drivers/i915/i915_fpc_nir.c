@@ -293,6 +293,10 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
 {
    struct i915_fp_compile *p = c->p;
    nir_def *def = &alu->def;
+
+   if (def->index < c->ureg_map_size && c->ureg_map[def->index] != 0)
+      return;
+
    uint32_t mask = def_mask(def);
    uint32_t dest = UREG(REG_TYPE_R, i915_get_temp(p));
    set_ureg(c, def, dest);
@@ -596,6 +600,90 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
          c->ureg_map[src_def->index] = dest;
          for (unsigned j = 0; j < nc; j++)
             emitted[i + j] = true;
+      }
+
+      /* ALU consumer fusion: if this vec feeds a single binary ALU op
+       * and the other ALU source is a single register, emit the ALU op
+       * per-group with partial writemasks instead of MOV+ALU.
+       */
+      if (list_is_singular(&def->uses)) {
+         nir_src *use = list_first_entry(&def->uses, nir_src, use_link);
+         nir_instr *use_instr = nir_src_use_instr(use);
+         if (use_instr->type == nir_instr_type_alu) {
+            nir_alu_instr *consumer = nir_instr_as_alu(use_instr);
+            unsigned nargs = nir_op_infos[consumer->op].num_inputs;
+            int vec_arg = -1;
+            for (unsigned a = 0; a < nargs; a++) {
+               if (consumer->src[a].src.ssa == def) {
+                  vec_arg = a;
+                  break;
+               }
+            }
+            uint32_t hw_op = 0;
+            bool can_fuse = (vec_arg >= 0 && nargs == 2);
+            if (can_fuse) {
+               switch (consumer->op) {
+               case nir_op_fmul: hw_op = A0_MUL; break;
+               case nir_op_fadd: hw_op = A0_ADD; break;
+               case nir_op_fmin: case nir_op_imin: case nir_op_umin:
+                  hw_op = A0_MIN; break;
+               case nir_op_fmax: case nir_op_imax: case nir_op_umax:
+                  hw_op = A0_MAX; break;
+               default: can_fuse = false; break;
+               }
+            }
+            /* check the non-vec source is a single register */
+            if (can_fuse) {
+               int other_arg = 1 - vec_arg;
+               nir_def *other_def = consumer->src[other_arg].src.ssa;
+               if (other_def->index < c->ureg_map_size &&
+                   c->ureg_map[other_def->index] != UREG_BAD) {
+                  uint32_t other = alu_src_ureg(c, &consumer->src[other_arg]);
+                  nir_def *cdef = &consumer->def;
+                  uint32_t cdest = dest;
+                  uint32_t cmask = def_mask(cdef);
+
+                  for (unsigned i = 0; i < n; i++) {
+                     if (emitted[i])
+                        continue;
+                     uint32_t base = UREG(GET_UREG_TYPE(srcs[i]),
+                                          GET_UREG_NR(srcs[i]));
+                     uint32_t group_mask = chan_mask[i];
+                     uint32_t ch[4] = { X, Y, Z, W };
+                     int ng[4] = { 0, 0, 0, 0 };
+                     ch[i] = ch_sel[i];
+                     ng[i] = neg_sel[i];
+                     for (unsigned j = i + 1; j < n; j++) {
+                        if (!emitted[j] &&
+                            (ch_sel[j] >= SRC_ZERO ||
+                             (srcs[j] & UREG_TYPE_NR_MASK) ==
+                             (srcs[i] & UREG_TYPE_NR_MASK))) {
+                           group_mask |= chan_mask[j];
+                           ch[j] = ch_sel[j];
+                           ng[j] = neg_sel[j];
+                           emitted[j] = true;
+                        }
+                     }
+                     uint32_t fused_src = negate(
+                        swizzle(base, ch[0], ch[1], ch[2], ch[3]),
+                        ng[0], ng[1], ng[2], ng[3]);
+                     if (vec_arg == 0)
+                        i915_emit_arith(p, hw_op, cdest,
+                                        group_mask & cmask, 0,
+                                        fused_src, other, 0);
+                     else
+                        i915_emit_arith(p, hw_op, cdest,
+                                        group_mask & cmask, 0,
+                                        other, fused_src, 0);
+                     emitted[i] = true;
+                  }
+
+                  set_ureg(c, cdef, cdest);
+                  c->def_csr[cdef->index] = p->csr - 3;
+                  break;
+               }
+            }
+         }
       }
 
       /* Process real-register sources first, folding in any ZERO/ONE
