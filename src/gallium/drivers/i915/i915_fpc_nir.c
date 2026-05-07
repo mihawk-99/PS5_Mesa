@@ -527,6 +527,7 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
 
       /* If this vec's only consumer is a store_output, write directly
        * to the output register instead of going through a temp.
+       * If it's a tex instruction, use a utemp to avoid phase boundaries.
        */
       if (list_is_singular(&def->uses)) {
          nir_src *use = list_first_entry(&def->uses, nir_src, use_link);
@@ -543,6 +544,12 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
                dest = out;
                set_ureg(c, def, dest);
             }
+         } else if ((c->opts.flags & CORM_UTEMP_TEXCOORD) &&
+                    use_instr->type == nir_instr_type_tex) {
+            i915_release_temp(p, GET_UREG_NR(dest));
+            uint32_t utemp = i915_get_utemp(p);
+            dest = utemp;
+            set_ureg(c, def, dest);
          }
       }
 
@@ -761,7 +768,11 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
    if (p->csr == pre_csr + 3)
       c->def_csr[def->index] = pre_csr;
 
+   uint32_t save = 0;
+   if (GET_UREG_TYPE(dest) == REG_TYPE_U)
+      save = p->utemp_flag & (1 << GET_UREG_NR(dest));
    i915_release_utemps(p);
+   p->utemp_flag |= save;
 }
 
 static uint32_t
