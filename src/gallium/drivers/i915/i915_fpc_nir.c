@@ -533,27 +533,48 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
          neg_sel[i] = (srcs[i] >> UREG_CHANNEL_X_NEGATE_SHIFT) & 0x1;
       }
 
-      /* Single-component ALU dest folding: if a vec source is a single-use
-       * scalar ALU result in a temp, patch that instruction to write directly
-       * into our dest with the right channel mask.
+      /* ALU dest folding: if a vec source is a single-use ALU result in a
+       * temp with identity swizzle, patch that instruction to write
+       * directly into our dest with the right channel mask.
        */
       for (unsigned i = 0; i < n; i++) {
          nir_def *src_def = alu->src[i].src.ssa;
          uint32_t *prev_csr = c->def_csr[src_def->index];
-         if (!prev_csr || !list_is_singular(&src_def->uses))
+         if (!prev_csr)
             continue;
          if (GET_UREG_TYPE(srcs[i]) != REG_TYPE_R)
             continue;
-         if (src_def->num_components != 1)
+         unsigned nc = src_def->num_components;
+         if (i + nc > n)
             continue;
+         bool identity = true;
+         for (unsigned j = 0; j < nc && identity; j++)
+            identity = (j == 0 || alu->src[i + j].src.ssa == src_def) &&
+                       (alu->src[i + j].swizzle[0] == j);
+         if (!identity)
+            continue;
+         bool all_from_this_vec = true;
+         nir_foreach_use(use, src_def) {
+            if (nir_src_use_instr(use) != &alu->instr) {
+               all_from_this_vec = false;
+               break;
+            }
+         }
+         if (!all_from_this_vec)
+            continue;
+
+         uint32_t fold_mask = 0;
+         for (unsigned j = 0; j < nc; j++)
+            fold_mask |= chan_mask[i + j];
 
          prev_csr[0] = (prev_csr[0] & ~(A0_DEST_CHANNEL_ALL |
                                (0x1ff << A0_DEST_NR_SHIFT))) |
-                   A0_DEST(dest) | chan_mask[i];
+                   A0_DEST(dest) | fold_mask;
 
          i915_release_temp(p, GET_UREG_NR(srcs[i]));
          c->ureg_map[src_def->index] = dest;
-         emitted[i] = true;
+         for (unsigned j = 0; j < nc; j++)
+            emitted[i + j] = true;
       }
 
       /* Process real-register sources first, folding in any ZERO/ONE
