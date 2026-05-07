@@ -217,13 +217,39 @@ emit_load_const(struct nir_to_i915 *c, nir_load_const_instr *load)
       break;
    case 3:
    case 4: {
+      unsigned n = load->def.num_components;
       float v[4] = {
          load->value[0].f32,
-         load->def.num_components > 1 ? load->value[1].f32 : 0.0f,
-         load->def.num_components > 2 ? load->value[2].f32 : 0.0f,
-         load->def.num_components > 3 ? load->value[3].f32 : 0.0f,
+         n > 1 ? load->value[1].f32 : 0.0f,
+         n > 2 ? load->value[2].f32 : 0.0f,
+         n > 3 ? load->value[3].f32 : 0.0f,
       };
-      set_ureg(c, &load->def, i915_emit_const4fv(p, v));
+
+      uint32_t ch[4] = { X, Y, Z, W };
+      int ng[4] = { 0, 0, 0, 0 };
+      bool all_swizzle = true;
+      for (unsigned i = 0; i < n; i++) {
+         if (v[i] == 0.0f)
+            ch[i] = ZERO;
+         else if (v[i] == 1.0f)
+            ch[i] = ONE;
+         else if (v[i] == -1.0f) {
+            ch[i] = ONE;
+            ng[i] = 1;
+         } else {
+            all_swizzle = false;
+            break;
+         }
+      }
+
+      if (all_swizzle) {
+         set_ureg(c, &load->def,
+                  negate(swizzle(UREG(REG_TYPE_R, 0),
+                                 ch[0], ch[1], ch[2], ch[3]),
+                         ng[0], ng[1], ng[2], ng[3]));
+      } else {
+         set_ureg(c, &load->def, i915_emit_const4fv(p, v));
+      }
       break;
    }
    default:
