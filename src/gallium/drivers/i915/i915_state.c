@@ -779,14 +779,19 @@ i915_create_fs_state(struct pipe_context *pipe,
 
       for (unsigned v = 0; v < num_corm_variants; v++) {
          struct corm_compile_opts opts = { .flags = v };
-         nir_shader *variant_nir = (v == num_corm_variants - 1)
-            ? nir_s : nir_shader_clone(NULL, nir_s);
+         nir_shader *variant_nir = nir_shader_clone(NULL, nir_s);
+         if (v & CORM_LATE_SCALAR) {
+            NIR_PASS(_, variant_nir, nir_lower_alu_to_scalar, NULL, NULL);
+            NIR_PASS(_, variant_nir, nir_opt_copy_prop);
+            NIR_PASS(_, variant_nir, nir_opt_algebraic);
+            NIR_PASS(_, variant_nir, nir_opt_dce);
+            nir_index_ssa_defs(nir_shader_get_entrypoint(variant_nir));
+         }
          memset(&nir_results[v], 0, sizeof(nir_results[v]));
          i915_populate_fs_metadata(&nir_results[v], variant_nir);
          i915_translate_fragment_program_nir(i915, &nir_results[v],
                                             variant_nir, &opts);
-         if (v < num_corm_variants - 1)
-            ralloc_free(variant_nir);
+         ralloc_free(variant_nir);
 
          bool ok = !nir_results[v].error || !nir_results[v].error[0];
          if (ok && (best_nir < 0 ||
@@ -794,8 +799,7 @@ i915_create_fs_state(struct pipe_context *pipe,
             best_nir = v;
       }
 
-      if (try_tgsi)
-         ralloc_free(nir_s);
+      ralloc_free(nir_s);
    }
 
    if (try_tgsi) {

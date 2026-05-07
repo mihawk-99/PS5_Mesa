@@ -186,7 +186,8 @@ enum corm_variant_flags {
    CORM_DEFERRED_CONST  = 1 << 0,
    CORM_SEQ_SNE_OPT     = 1 << 1,
    CORM_UTEMP_TEXCOORD  = 1 << 2,
-   CORM_NUM_FLAGS        = 3,
+   CORM_LATE_SCALAR     = 1 << 3,
+   CORM_NUM_FLAGS        = 4,
 };
 
 struct corm_compile_opts {
