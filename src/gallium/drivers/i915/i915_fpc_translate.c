@@ -960,14 +960,10 @@ i915_fini_compile(struct i915_context *i915, struct i915_fp_compile *p)
                          p->nr_decl_insn, I915_MAX_DECL_INSN);
    }
 
-   /* hw doesn't seem to like empty frag programs (num_instructions == 1 is just
-    * TGSI_END), even when the depth write fixup gets emitted below - maybe that
-    * one is fishy, too?
-    */
-   if (ifs->info.num_instructions == 1)
-      i915_program_error(p, "Empty fragment shader");
-
-   if (strlen(p->error) != 0) {
+   if (ifs->info.num_instructions == 1) {
+      i915_use_passthrough_shader(ifs);
+      ifs->nr_alu_insn = 1;
+   } else if (strlen(p->error) != 0) {
       i915_use_passthrough_shader(ifs);
    } else {
       /* patch in the program length */
