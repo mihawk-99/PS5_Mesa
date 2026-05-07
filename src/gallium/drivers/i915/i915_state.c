@@ -561,6 +561,20 @@ scalarize_vector_bools(const nir_instr *instr, const void *data)
           alu->op == nir_op_fcsel_gt;
 }
 
+static bool
+lower_fsqrt_filter(const nir_instr *instr, UNUSED const void *data)
+{
+   return instr->type == nir_instr_type_alu &&
+          nir_instr_as_alu(instr)->op == nir_op_fsqrt;
+}
+
+static nir_def *
+lower_fsqrt_impl(nir_builder *b, nir_instr *instr, UNUSED void *data)
+{
+   nir_def *src = nir_instr_as_alu(instr)->src[0].src.ssa;
+   return nir_fmul(b, src, nir_frsq(b, src));
+}
+
 static char *
 i915_check_control_flow(nir_shader *s)
 {
@@ -733,6 +747,11 @@ i915_create_fs_state(struct pipe_context *pipe,
       NIR_PASS(_, nir_s, nir_lower_alu_to_scalar, scalarize_vector_bools, NULL);
       NIR_PASS(_, nir_s, nir_opt_vectorize, NULL, NULL);
       NIR_PASS(_, nir_s, nir_lower_bool_to_float, false);
+      NIR_PASS(_, nir_s, nir_shader_lower_instructions, lower_fsqrt_filter,
+               lower_fsqrt_impl, NULL);
+      NIR_PASS(_, nir_s, nir_opt_copy_prop);
+      NIR_PASS(_, nir_s, nir_opt_cse);
+      NIR_PASS(_, nir_s, nir_opt_dce);
       NIR_PASS(_, nir_s, nir_opt_algebraic);
       NIR_PASS(_, nir_s, nir_opt_algebraic_late);
       NIR_PASS(_, nir_s, nir_opt_dce);
