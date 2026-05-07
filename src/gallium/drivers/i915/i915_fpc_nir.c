@@ -521,6 +521,27 @@ emit_alu(struct nir_to_i915 *c, nir_alu_instr *alu)
          return;
       }
 
+      /* If this vec's only consumer is a store_output, write directly
+       * to the output register instead of going through a temp.
+       */
+      if (list_is_singular(&def->uses)) {
+         nir_src *use = list_first_entry(&def->uses, nir_src, use_link);
+         nir_instr *use_instr = nir_src_use_instr(use);
+         if (use_instr->type == nir_instr_type_intrinsic) {
+            nir_intrinsic_instr *store =
+               nir_instr_as_intrinsic(use_instr);
+            if (store->intrinsic == nir_intrinsic_store_output &&
+                nir_intrinsic_component(store) == 0) {
+               nir_io_semantics sem = nir_intrinsic_io_semantics(store);
+               uint32_t out = sem.location == FRAG_RESULT_DEPTH
+                  ? UREG(REG_TYPE_OD, 0) : UREG(REG_TYPE_OC, 0);
+               i915_release_temp(p, GET_UREG_NR(dest));
+               dest = out;
+               set_ureg(c, def, dest);
+            }
+         }
+      }
+
       static const uint32_t chan_mask[] = {
          A0_DEST_CHANNEL_X, A0_DEST_CHANNEL_Y,
          A0_DEST_CHANNEL_Z, A0_DEST_CHANNEL_W,
@@ -821,6 +842,11 @@ emit_intrinsic(struct nir_to_i915 *c, nir_intrinsic_instr *intr)
       } else {
          dest = UREG(REG_TYPE_OC, 0);
       }
+
+      /* Vec direct-output already wrote to oC/oD */
+      uint32_t val_type = GET_UREG_TYPE(val);
+      if (val_type == REG_TYPE_OC || val_type == REG_TYPE_OD)
+         break;
 
       nir_def *src_def = intr->src[0].ssa;
       uint32_t *prev = c->def_csr[src_def->index];
