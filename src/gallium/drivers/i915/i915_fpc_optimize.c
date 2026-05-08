@@ -83,7 +83,7 @@ static const struct {
 } op_table[TGSI_OPCODE_LAST] = {
    [TGSI_OPCODE_ADD] = {false, true, TGSI_SWIZZLE_ZERO, 1, 2},
    [TGSI_OPCODE_CEIL] = {false, false, 0, 1, 1},
-   [TGSI_OPCODE_CMP] = {false, false, 0, 1, 2},
+   [TGSI_OPCODE_CMP] = {false, false, 0, 1, 3},
    [TGSI_OPCODE_COS] = {false, false, 0, 1, 1},
    [TGSI_OPCODE_DDX] = {false, false, 0, 1, 0},
    [TGSI_OPCODE_DDY] = {false, false, 0, 1, 0},
@@ -264,8 +264,7 @@ liveness_mark_written(struct i915_optimize_context *ctx,
    if (dst_reg->Register.File == TGSI_FILE_TEMPORARY) {
       dst_reg_index = dst_reg->Register.Index;
       assert(dst_reg_index < TGSI_EXEC_NUM_TEMPS);
-      /* dead -> live transition */
-      if (ctx->first_write[dst_reg_index] != -1)
+      if (ctx->first_write[dst_reg_index] == -1)
          ctx->first_write[dst_reg_index] = pos;
    }
 }
@@ -278,8 +277,7 @@ liveness_mark_read(struct i915_optimize_context *ctx,
    if (src_reg->Register.File == TGSI_FILE_TEMPORARY) {
       src_reg_index = src_reg->Register.Index;
       assert(src_reg_index < TGSI_EXEC_NUM_TEMPS);
-      /* live -> dead transition */
-      if (ctx->last_read[src_reg_index] != -1)
+      if (ctx->last_read[src_reg_index] == -1)
          ctx->last_read[src_reg_index] = pos;
    }
 }
