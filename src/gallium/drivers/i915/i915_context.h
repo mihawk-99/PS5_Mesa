@@ -136,6 +136,14 @@ struct i915_fragment_shader {
    uint8_t constant_flags[I915_MAX_CONSTANT];
 
    /**
+    * For user-constant channels, the byte offset into the constant buffer.
+    * Allows packing uniforms from different cbuf slots into the same hw
+    * constant register to avoid dual-constant conflicts.
+    * 0xffff = not a remapped user channel (use identity mapping).
+    */
+   uint16_t const_user_remap[I915_MAX_CONSTANT][4];
+
+   /**
     * The mapping between TGSI inputs and hw texture coords.
     * We need to share this between the vertex and fragment stages.
     **/

@@ -1010,41 +1010,7 @@ emit_intrinsic(struct nir_to_i915 *c, nir_intrinsic_instr *intr)
       break;
    }
 
-   case nir_intrinsic_load_ubo: {
-      nir_src *offset_src = &intr->src[1];
-      if (!nir_src_is_const(*offset_src)) {
-         i915_program_error(p, "non-constant UBO offset");
-         set_ureg(c, &intr->def,
-                  swizzle(UREG(REG_TYPE_R, 0), ZERO, ZERO, ZERO, ZERO));
-         break;
-      }
-      unsigned byte_offset = (unsigned)nir_src_as_float(*offset_src);
-      unsigned slot = byte_offset / 16;
-      unsigned comp = (byte_offset % 16) / 4;
-
-      if (slot >= I915_MAX_CONSTANT) {
-         i915_program_error(p, "UBO offset %d exceeds max constants", slot);
-         set_ureg(c, &intr->def,
-                  swizzle(UREG(REG_TYPE_R, 0), ZERO, ZERO, ZERO, ZERO));
-         break;
-      }
-
-      for (unsigned i = 0; i < intr->def.num_components; i++)
-         ifs->constant_flags[slot] |= I915_CONSTFLAG_USER_CH(comp + i);
-      ifs->num_constants = MAX2(ifs->num_constants, slot + 1);
-
-      uint32_t reg = UREG(REG_TYPE_CONST, slot);
-      if (comp > 0) {
-         uint32_t s[4];
-         for (unsigned i = 0; i < 4; i++)
-            s[i] = MIN2(comp + i, 3);
-         reg = swizzle(reg, s[0], s[1], s[2], s[3]);
-      }
-
-      set_ureg(c, &intr->def, reg);
-      break;
-   }
-
+   case nir_intrinsic_load_ubo:
    case nir_intrinsic_load_ubo_vec4: {
       nir_src *offset_src = &intr->src[1];
       if (!nir_src_is_const(*offset_src)) {
@@ -1053,26 +1019,92 @@ emit_intrinsic(struct nir_to_i915 *c, nir_intrinsic_instr *intr)
                   swizzle(UREG(REG_TYPE_R, 0), ZERO, ZERO, ZERO, ZERO));
          break;
       }
-      unsigned slot = nir_intrinsic_base(intr) +
-                      (unsigned)nir_src_as_float(*offset_src);
-      unsigned comp = nir_intrinsic_component(intr);
 
-      if (slot >= I915_MAX_CONSTANT) {
-         i915_program_error(p, "UBO slot %d exceeds max constants", slot);
+      unsigned cbuf_slot, cbuf_comp;
+      if (intr->intrinsic == nir_intrinsic_load_ubo) {
+         unsigned byte_offset = (unsigned)nir_src_as_float(*offset_src);
+         cbuf_slot = byte_offset / 16;
+         cbuf_comp = (byte_offset % 16) / 4;
+      } else {
+         cbuf_slot = nir_intrinsic_base(intr) +
+                     (unsigned)nir_src_as_float(*offset_src);
+         cbuf_comp = nir_intrinsic_component(intr);
+      }
+
+      if (cbuf_slot >= I915_MAX_CONSTANT) {
+         i915_program_error(p, "UBO slot %d exceeds max constants", cbuf_slot);
          set_ureg(c, &intr->def,
                   swizzle(UREG(REG_TYPE_R, 0), ZERO, ZERO, ZERO, ZERO));
          break;
       }
 
-      for (unsigned i = 0; i < intr->def.num_components; i++)
-         ifs->constant_flags[slot] |= I915_CONSTFLAG_USER_CH(comp + i);
-      ifs->num_constants = MAX2(ifs->num_constants, slot + 1);
+      unsigned num_comp = intr->def.num_components;
+      unsigned hw_slot = I915_MAX_CONSTANT;
+      unsigned hw_comp = 0;
 
-      uint32_t reg = UREG(REG_TYPE_CONST, slot);
-      if (comp > 0) {
+      /* first check if this exact cbuf region is already mapped */
+      for (unsigned s = 0; s < I915_MAX_CONSTANT && hw_slot == I915_MAX_CONSTANT; s++) {
+         uint8_t user = (ifs->constant_flags[s] >> 4) & 0xf;
+         if (!user)
+            continue;
+         bool match = true;
+         for (unsigned i = 0; i < num_comp; i++) {
+            unsigned ch;
+            for (ch = 0; ch < 4; ch++) {
+               if ((user & (1 << ch)) &&
+                   ifs->const_user_remap[s][ch] ==
+                   (cbuf_slot * 16 + (cbuf_comp + i) * 4)) {
+                  if (i == 0) hw_comp = ch;
+                  if (ch != hw_comp + i) { match = false; break; }
+                  break;
+               }
+            }
+            if (ch == 4) { match = false; break; }
+         }
+         if (match && hw_slot == I915_MAX_CONSTANT)
+            hw_slot = s;
+      }
+
+      /* try to pack into an existing user constant slot */
+      if (hw_slot == I915_MAX_CONSTANT) {
+         for (unsigned s = 0; s < I915_MAX_CONSTANT && hw_slot == I915_MAX_CONSTANT; s++) {
+            uint8_t occupied = (ifs->constant_flags[s] & 0xf) |
+                               ((ifs->constant_flags[s] >> 4) & 0xf);
+            if (!occupied || occupied == 0xf)
+               continue;
+            /* find a run of num_comp free channels */
+            for (unsigned start = 0; start + num_comp <= 4; start++) {
+               bool fits = true;
+               for (unsigned i = 0; i < num_comp; i++) {
+                  if (occupied & (1 << (start + i))) { fits = false; break; }
+               }
+               if (fits) {
+                  hw_slot = s;
+                  hw_comp = start;
+                  break;
+               }
+            }
+         }
+      }
+
+      /* fall back to identity mapping (original cbuf slot) */
+      if (hw_slot == I915_MAX_CONSTANT) {
+         hw_slot = cbuf_slot;
+         hw_comp = cbuf_comp;
+      }
+
+      for (unsigned i = 0; i < num_comp; i++) {
+         ifs->constant_flags[hw_slot] |= I915_CONSTFLAG_USER_CH(hw_comp + i);
+         ifs->const_user_remap[hw_slot][hw_comp + i] =
+            cbuf_slot * 16 + (cbuf_comp + i) * 4;
+      }
+      ifs->num_constants = MAX2(ifs->num_constants, hw_slot + 1);
+
+      uint32_t reg = UREG(REG_TYPE_CONST, hw_slot);
+      if (hw_comp > 0) {
          uint32_t s[4];
          for (unsigned i = 0; i < 4; i++)
-            s[i] = MIN2(comp + i, 3);
+            s[i] = MIN2(hw_comp + i, 3);
          reg = swizzle(reg, s[0], s[1], s[2], s[3]);
       }
 
@@ -1186,6 +1218,7 @@ i915_translate_fragment_program_nir(struct i915_context *i915,
 
    ifs->num_constants = 0;
    memset(ifs->constant_flags, 0, sizeof(ifs->constant_flags));
+   memset(ifs->const_user_remap, 0xff, sizeof(ifs->const_user_remap));
    memset(p->register_phases, 0, sizeof(p->register_phases));
 
    nir_foreach_block(block, impl) {

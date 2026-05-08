@@ -341,23 +341,22 @@ emit_constants(struct i915_context *i915)
             OUT_BATCH(c[1]);
             OUT_BATCH(c[2]);
             OUT_BATCH(c[3]);
-         } else if (user_mask == 0xf) {
-            const uint32_t *c =
-               (uint32_t *)i915_buffer(i915->constants[MESA_SHADER_FRAGMENT])
-                  ->data;
-            c += 4 * i;
-            OUT_BATCH(c[0]);
-            OUT_BATCH(c[1]);
-            OUT_BATCH(c[2]);
-            OUT_BATCH(c[3]);
          } else {
-            const uint32_t *user =
+            const uint32_t *cbuf =
                (uint32_t *)i915_buffer(i915->constants[MESA_SHADER_FRAGMENT])
                   ->data;
-            user += 4 * i;
             const uint32_t *imm = (uint32_t *)i915->fs->constants[i];
-            for (unsigned ch = 0; ch < 4; ch++)
-               OUT_BATCH((user_mask & (1 << ch)) ? user[ch] : imm[ch]);
+            for (unsigned ch = 0; ch < 4; ch++) {
+               if (!(user_mask & (1 << ch))) {
+                  OUT_BATCH(imm[ch]);
+               } else {
+                  uint16_t remap = i915->fs->const_user_remap[i][ch];
+                  if (remap != 0xffff)
+                     OUT_BATCH(cbuf[remap / 4]);
+                  else
+                     OUT_BATCH(cbuf[i * 4 + ch]);
+               }
+            }
          }
       }
    }
