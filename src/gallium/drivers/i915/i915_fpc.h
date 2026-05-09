@@ -37,7 +37,7 @@
 
 struct nir_shader;
 
-#define I915_PROGRAM_SIZE 192
+#define I915_PROGRAM_SIZE ((I915_MAX_ALU_INSN + I915_MAX_TEX_INSN) * 3)
 
 /**
  * Program translation state
