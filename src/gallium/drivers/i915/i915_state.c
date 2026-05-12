@@ -571,8 +571,28 @@ lower_fsqrt_filter(const nir_instr *instr, UNUSED const void *data)
 static nir_def *
 lower_fsqrt_impl(nir_builder *b, nir_instr *instr, UNUSED void *data)
 {
-   nir_def *src = nir_instr_as_alu(instr)->src[0].src.ssa;
+   nir_alu_instr *alu = nir_instr_as_alu(instr);
+   nir_def *src = nir_mov_alu(b, alu->src[0], alu->def.num_components);
    return nir_fmul(b, src, nir_frsq(b, src));
+}
+
+static uint8_t
+i915_vectorize_filter(const nir_instr *instr, UNUSED const void *data)
+{
+   if (instr->type != nir_instr_type_alu)
+      return 0;
+
+   switch (nir_instr_as_alu(instr)->op) {
+   case nir_op_frcp:
+   case nir_op_frsq:
+   case nir_op_fsqrt:
+   case nir_op_fexp2:
+   case nir_op_flog2:
+   case nir_op_fpow:
+      return 1;
+   default:
+      return 4;
+   }
 }
 
 static char *
@@ -744,8 +764,8 @@ i915_create_fs_state(struct pipe_context *pipe,
       nir_shader *nir_s = nir_shader_clone(NULL, s);
       NIR_PASS(_, nir_s, nir_lower_io, nir_var_shader_in | nir_var_shader_out,
                type_size, (nir_lower_io_options)0);
-      NIR_PASS(_, nir_s, nir_lower_alu_to_scalar, scalarize_vector_bools, NULL);
-      NIR_PASS(_, nir_s, nir_opt_vectorize, NULL, NULL);
+      NIR_PASS(_, nir_s, nir_lower_alu_to_scalar, NULL, NULL);
+      NIR_PASS(_, nir_s, nir_opt_vectorize, i915_vectorize_filter, NULL);
       NIR_PASS(_, nir_s, nir_lower_bool_to_float, false);
       NIR_PASS(_, nir_s, nir_shader_lower_instructions, lower_fsqrt_filter,
                lower_fsqrt_impl, NULL);

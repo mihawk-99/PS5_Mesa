@@ -705,6 +705,30 @@ i915_translate_fragment_program_nir(struct i915_context *i915,
    memset(ifs->constant_flags, 0, sizeof(ifs->constant_flags));
    memset(p->register_phases, 0, sizeof(p->register_phases));
 
+   nir_foreach_block(block, impl) {
+      nir_foreach_instr(instr, block) {
+         if (instr->type != nir_instr_type_intrinsic)
+            continue;
+         nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
+         unsigned slot;
+         if (intr->intrinsic == nir_intrinsic_load_ubo &&
+             nir_src_is_const(intr->src[1])) {
+            unsigned byte_offset = (unsigned)nir_src_as_float(intr->src[1]);
+            slot = byte_offset / 16;
+         } else if (intr->intrinsic == nir_intrinsic_load_ubo_vec4 &&
+                    nir_src_is_const(intr->src[1])) {
+            slot = nir_intrinsic_base(intr) +
+                   (unsigned)nir_src_as_float(intr->src[1]);
+         } else {
+            continue;
+         }
+         if (slot < I915_MAX_CONSTANT) {
+            ifs->constant_flags[slot] |= I915_CONSTFLAG_USER;
+            ifs->num_constants = MAX2(ifs->num_constants, slot + 1);
+         }
+      }
+   }
+
    for (int i = 0; i < I915_TEX_UNITS; i++)
       ifs->texcoords[i].semantic = -1;
 
