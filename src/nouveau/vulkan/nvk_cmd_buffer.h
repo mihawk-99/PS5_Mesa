@@ -306,8 +306,6 @@ nvk_cmd_buffer_push_indirect(struct nvk_cmd_buffer *cmd,
 
 void nvk_cmd_buffer_begin_graphics(struct nvk_cmd_buffer *cmd,
                                    const VkCommandBufferBeginInfo *pBeginInfo);
-void nvk_cmd_buffer_begin_compute(struct nvk_cmd_buffer *cmd,
-                                  const VkCommandBufferBeginInfo *pBeginInfo);
 
 void nvk_cmd_invalidate_graphics_state(struct nvk_cmd_buffer *cmd);
 void nvk_cmd_invalidate_compute_state(struct nvk_cmd_buffer *cmd);
@@ -449,4 +447,22 @@ void nvk_linear_render_copy(struct nvk_cmd_buffer *cmd,
                             VkRect2D copy_rect,
                             bool copy_to_tiled_shadow);
 
+enum nvk_barrier {
+   NVK_BARRIER_WFI                        = 1 << 0,
+   NVK_BARRIER_FLUSH_SHADER_DATA          = 1 << 1,
+   NVK_BARRIER_INVALIDATE_SHADER_DATA     = 1 << 2,
+   NVK_BARRIER_INVALIDATE_TEX_DATA        = 1 << 3,
+   NVK_BARRIER_INVALIDATE_CONSTANT        = 1 << 4,
+   NVK_BARRIER_INVALIDATE_MME_DATA        = 1 << 5,
+   NVK_BARRIER_INVALIDATE_QMD_DATA        = 1 << 6,
+   NVK_BARRIER_INVALIDATE_RASTER_CACHE    = 1 << 7,
+   NVK_BARRIER_HOST_WFI_INVALIDATE_SYSMEM = 1 << 8,
+   NVK_BARRIER_HOST_WFI_FLUSH_SYSMEM      = 1 << 9,
+   NVK_BARRIER_INVALIDATE_TEX_HDR         = 1 << 10,
+   NVK_BARRIER_INVALIDATE_SAMPLER_DATA    = 1 << 11,
+};
+
+void
+nvk_cmd_barrier(struct nvk_cmd_buffer *cmd, enum nvk_barrier barriers,
+                bool wait);
 #endif
