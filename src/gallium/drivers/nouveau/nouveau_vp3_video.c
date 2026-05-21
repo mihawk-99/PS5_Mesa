@@ -98,6 +98,7 @@ nouveau_vp3_video_buffer_create(struct pipe_context *pipe,
    unsigned i, j, component;
    struct pipe_sampler_view sv_templ;
    struct pipe_surface surf_templ;
+   struct nouveau_screen *screen = nouveau_screen(pipe->screen);
 
    if (templat->buffer_format != PIPE_FORMAT_NV12)
       return vl_video_buffer_create(pipe, templat);
@@ -124,6 +125,12 @@ nouveau_vp3_video_buffer_create(struct pipe_context *pipe,
    templ.target = PIPE_TEXTURE_2D_ARRAY;
    templ.depth0 = 1;
    templ.bind = PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET;
+   if (screen->device->chipset == 0x106 || screen->device->chipset == 0xd6) {
+      if (templat->bind & PIPE_BIND_SHARED) {
+         templ.bind |= PIPE_BIND_SHARED;
+      }
+      flags |= PIPE_RESOURCE_FLAG_DONT_MAP_DIRECTLY;
+   }
    templ.format = PIPE_FORMAT_R8_UNORM;
    templ.width0 = buffer->base.width;
    templ.height0 = (buffer->base.height + 1)/2;
