@@ -834,6 +834,11 @@ static struct pipe_resource *virgl_resource_from_handle(struct pipe_screen *scre
    res->b.screen = &vs->base;
    pipe_reference_init(&res->b.reference, 1);
 
+   if (!vs->vws->resource_create_from_handle) {
+      FREE(res);
+      return NULL;
+   }
+
    plane = winsys_stride = plane_offset = modifier = 0;
    res->hw_res = vs->vws->resource_create_from_handle(vs->vws, whandle,
                                                       &res->b,
@@ -1103,6 +1108,9 @@ bool virgl_resource_get_handle(struct pipe_screen *screen,
       stride = res->metadata.gbm.layout.planes[0].stride;
    else
       stride = res->metadata.stride[0];
+
+   if (!vs->vws->resource_get_handle)
+      return false;
 
    return vs->vws->resource_get_handle(vs->vws, res->hw_res, stride, whandle);
 }
