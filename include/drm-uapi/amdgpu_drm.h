@@ -905,6 +905,8 @@ struct drm_amdgpu_gem_list_handles_entry {
 #define AMDGPU_VM_MTYPE_RW		(5 << 5)
 /* don't allocate MALL */
 #define AMDGPU_VM_PAGE_NOALLOC		(1 << 9)
+/* Bypass implicit synchronization for VM updates*/
+#define AMDGPU_VM_EXPLICIT_SYNC		(1 << 10)
 
 struct drm_amdgpu_gem_va {
 	/** GEM object handle */
