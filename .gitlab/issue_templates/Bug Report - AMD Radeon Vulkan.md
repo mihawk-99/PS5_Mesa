@@ -5,32 +5,54 @@
 - For any logs, backtraces, etc - use [code blocks](https://docs.gitlab.com/user/markdown/#code-spans-and-blocks), GitLab removes line breaks without this.
    - Do not paste long logs directly into the description. Use https://gitlab.freedesktop.org/-/snippets/new, attachments, or a pastebin with a long expiration instead.
 - As examples of good bug reports you may review one of these - #2598, #2615, #2608
+- If you are making use of an AI/ML based tool for issue reporting, ensure the technical correctness of its output. Do not use such tool solely because you assume it might be helpful. Any output will be treated as if you'd have written it yourself.
 
-
-Otherwise, fill the requested information below.
+Otherwise, please fill the requested information below.
 And please remove anything that doesn't apply to keep things readable :)
 
 
 The title should effectively distinguish this bug report from others and be specific to issue you encounter. When writing the title of the bug report, include a short description of the issue, the hardware/driver(s) affected and application(s) affected.
 
 
-### Description
+### System information
 
-Describe what you are doing, what you expect and what you're
-seeing instead. How frequent is the issue? Is it a one time occurrence? Does it appear multiple times but randomly? Can you easily reproduce it?
+Please post `inxi -GSC -xx` output ([fenced with triple backticks](https://docs.gitlab.com/user/markdown/#code-spans-and-blocks)) OR fill information below manually
+
+
+- OS: (`cat /etc/os-release | grep "NAME"`)
+- GPU: (`lspci -nn | grep VGA` or `lshw -C display -numeric`)
+- Kernel version: (run `uname -a`)
+- Mesa version: (`glxinfo -B | grep "OpenGL version string"`)
+- Desktop environment or compositor: (`env | grep XDG_CURRENT_DESKTOP`)
+
+#### If applicable
+- Xserver version: (`sudo X -version`)
+- DXVK version:
+- Wine/Proton version:
+
+### Describe the issue
+
+Please describe what you are doing, what you expect and what you're
+seeing instead.  How frequent is the issue? Is it a one time occurrence? Does it appear multiple times but randomly? Can you easily reproduce it?
 
 "It doesn't work" usually is not a helpful description of an issue.
 The more detail about how things are going wrong, the better.
 
-### Screenshots/video files
 
-For rendering errors, attach screenshots of the problem and (if possible) of how it should look. For freezes, it may be useful to provide a screenshot of the affected game scene. Prefer screenshots over videos.
+### Regression
+
+Did it used to work in a previous Mesa version? It can greatly help to know when the issue started.
+
 
 ### Log files (for system lockups / game freezes / crashes)
 
 - Backtrace (for crashes)
 - Output of `dmesg`
 - Hang reports: Follow the steps described [here](https://docs.mesa3d.org/drivers/amd/hang-debugging.html#radv-debug-hang) and attach the files created in `$HOME/radv_dumps_*/`.
+
+### Screenshots/video files
+
+For rendering errors, attach screenshots of the problem and (if possible) of how it should look. For freezes, it may be useful to provide a screenshot of the affected game scene. Prefer screenshots over videos.
 
 ### Steps to reproduce
 
@@ -42,33 +64,11 @@ Example:
 2. `Talk to the NPC called "Frank"`
 3. `Observe flickering on Frank's body`
 
-### System information
-
-Please post `inxi -GSC -xx` output ([fenced with triple backticks](https://docs.gitlab.com/user/markdown/#code-spans-and-blocks)) OR fill information below manually
-
-
-- OS: (`cat /etc/os-release | grep "NAME"`)
-- GPU: (`lspci -nn | grep VGA` or `lshw -C display -numeric`)
-- Kernel version: (`uname -a`)
-- Mesa version: (`glxinfo -B | grep "OpenGL version string"`)
-- Desktop environment: (`env | grep XDG_CURRENT_DESKTOP`)
-
-#### If applicable
-- Xserver version: (`sudo X -version`)
-- DXVK version:
-- Wine/Proton version:
-
-
-### Regression
-
-Did it used to work in a previous Mesa version? It can greatly help to know when the issue started.
-
-
 ### API captures (if applicable, optional)
 
 Consider recording a [GFXReconstruct](https://github.com/LunarG/gfxreconstruct/blob/dev/USAGE_desktop_Vulkan.md) (preferred), [RenderDoc](https://renderdoc.org/), or [apitrace](https://github.com/apitrace/apitrace/blob/master/docs/USAGE.markdown) capture of the issue with the RADV driver active. This can tremendously help when debugging issues, but you're still encouraged to report issues if you can't provide a capture file.
 
-### Further information (optional)
+### Any extra information would be greatly appreciated
 
 Does the issue reproduce with the LLVM backend (`RADV_DEBUG=llvm`) or on the AMDGPU-PRO drivers?
 
