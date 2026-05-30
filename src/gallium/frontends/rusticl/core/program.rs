@@ -192,6 +192,10 @@ impl ProgramBuild {
     pub fn has_successful_build(&self) -> bool {
         self.builds_by_device.values().any(|b| b.is_success())
     }
+
+    fn requires_uniform_workgroups(&self, dev: &Device) -> bool {
+        self.dev_build(dev).options.uniform_workgroups
+    }
 }
 
 #[derive(Default)]
@@ -1026,6 +1030,10 @@ impl Program {
     pub fn set_spec_constant(&self, spec_id: u32, data: &[u8]) {
         let mut lock = self.build_info();
         lock.spec_constants.insert(spec_id, data.to_owned());
+    }
+
+    pub fn requires_uniform_workgroups(&self, dev: &Device) -> bool {
+        self.build_info().requires_uniform_workgroups(dev)
     }
 }
 
