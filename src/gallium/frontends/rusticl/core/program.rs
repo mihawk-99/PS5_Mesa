@@ -292,6 +292,7 @@ struct ParsedCompileOptions {
     raw_string: CString,
     clc_target: Option<CLVersion>,
     create_lib: bool,
+    uniform_workgroups: bool,
 }
 
 impl ParsedCompileOptions {
@@ -361,19 +362,26 @@ impl CompileOptions {
                 }
                 "-cl-std=CL1.2" => {
                     parsed_options.clc_target = Some(CLVersion::Cl1_2);
+                    parsed_options.uniform_workgroups = true;
                     None
                 }
                 "-cl-std=CL1.1" => {
                     parsed_options.clc_target = Some(CLVersion::Cl1_1);
+                    parsed_options.uniform_workgroups = true;
                     None
                 }
                 "-cl-std=CL1.0" => {
                     parsed_options.clc_target = Some(CLVersion::Cl1_0);
+                    parsed_options.uniform_workgroups = true;
                     None
                 }
                 "-cl-denorms-are-zero" => Some("-fdenormal-fp-math=positive-zero"),
                 // We can ignore it as long as we don't support ifp
                 "-cl-no-subgroup-ifp" => None,
+                "-cl-uniform-work-group-size" => {
+                    parsed_options.uniform_workgroups = true;
+                    Some(a)
+                }
                 "-create-library" => {
                     parsed_options.create_lib = true;
                     Some(a)
