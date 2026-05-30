@@ -141,6 +141,9 @@ enum CompiledKernelArgType {
     WorkDim,
     WorkGroupOffsets,
     NumWorkgroups,
+    EnqueuedWorkgroupSize,
+    EnqueuedNumSubgroups,
+    MaxSubgroupSize,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone)]
@@ -292,6 +295,9 @@ impl CompiledKernelArg {
                         blob_write_uint8(blob, 10);
                         blob_write_uint32(blob, idx as u32)
                     }
+                    CompiledKernelArgType::EnqueuedWorkgroupSize => blob_write_uint8(blob, 11),
+                    CompiledKernelArgType::EnqueuedNumSubgroups => blob_write_uint8(blob, 12),
+                    CompiledKernelArgType::MaxSubgroupSize => blob_write_uint8(blob, 13),
                 };
             }
         }
@@ -326,6 +332,9 @@ impl CompiledKernelArg {
                         let idx = blob_read_uint32(blob) as usize;
                         CompiledKernelArgType::APIArg(idx)
                     }
+                    11 => CompiledKernelArgType::EnqueuedWorkgroupSize,
+                    12 => CompiledKernelArgType::EnqueuedNumSubgroups,
+                    13 => CompiledKernelArgType::MaxSubgroupSize,
                     _ => return None,
                 };
 
@@ -821,6 +830,7 @@ fn compile_nir_variant(
     variant: NirKernelVariant,
     args: &[KernelArg],
     name: &CStr,
+    options: &ParsedCompileOptions,
 ) {
     let mut lower_state = rusticl_lower_state::default();
     let compiled_args = &mut res.compiled_args;
@@ -861,6 +871,7 @@ fn compile_nir_variant(
     if variant != NirKernelVariant::Optimized {
         compute_options.set_has_base_global_invocation_id(true);
         compute_options.set_has_base_workgroup_id(true);
+        compute_options.set_non_uniform_workgroups(!options.uniform_workgroups);
     }
     nir_pass!(nir, nir_lower_compute_system_values, &compute_options);
     nir.gather_info();
@@ -923,6 +934,36 @@ fn compile_nir_variant(
             CompiledKernelArgType::NumWorkgroups,
             unsafe { glsl_vector_type(glsl_base_type::GLSL_TYPE_UINT, 3) },
             c"num_workgroups",
+        );
+    }
+
+    if nir.reads_sysval(gl_system_value::SYSTEM_VALUE_ENQUEUED_WORKGROUP_SIZE) {
+        add_var(
+            nir,
+            &mut lower_state.enqueued_workgroup_size_loc,
+            CompiledKernelArgType::EnqueuedWorkgroupSize,
+            unsafe { glsl_vector_type(glsl_base_type::GLSL_TYPE_UINT, 3) },
+            c"enqueued_workgroup_size",
+        );
+    }
+
+    if nir.reads_sysval(gl_system_value::SYSTEM_VALUE_ENQUEUED_NUM_SUBGROUPS) {
+        add_var(
+            nir,
+            &mut lower_state.enqueued_num_subgroups_loc,
+            CompiledKernelArgType::EnqueuedNumSubgroups,
+            unsafe { glsl_uint_type() },
+            c"enqueued_num_subgroups",
+        );
+    }
+
+    if nir.reads_sysval(gl_system_value::SYSTEM_VALUE_SUBGROUP_MAX_SIZE) {
+        add_var(
+            nir,
+            &mut lower_state.max_subgroup_size_loc,
+            CompiledKernelArgType::MaxSubgroupSize,
+            unsafe { glsl_uint_type() },
+            c"max_sub_group_size",
         );
     }
 
@@ -1069,6 +1110,13 @@ fn compile_nir_variant(
         nir.print();
     }
 
+    // For non-uniform workgroups we need to set the workgroup size variable even with a compiled in
+    // workgroup size, because that only impacts the enqueued workgroup size in that case.
+    // This prevents drivers from constant folding the size.
+    if !options.uniform_workgroups {
+        nir.set_workgroup_size_variable(true);
+    }
+
     #[allow(clippy::collapsible_if)]
     if dev.screen.finalize_nir(nir) {
         if Platform::dbg().nir {
@@ -1086,6 +1134,7 @@ fn compile_nir_remaining(
     mut nir: NirShader,
     args: &[KernelArg],
     name: &CStr,
+    options: &ParsedCompileOptions,
 ) -> (CompilationResult, Option<CompilationResult>) {
     // add all API kernel args
     let mut compiled_args: Vec<_> = (0..args.len())
@@ -1124,9 +1173,17 @@ fn compile_nir_remaining(
         NirKernelVariant::Default,
         args,
         name,
+        options,
     );
     if let Some(optimized) = &mut optimized {
-        compile_nir_variant(optimized, dev, NirKernelVariant::Optimized, args, name);
+        compile_nir_variant(
+            optimized,
+            dev,
+            NirKernelVariant::Optimized,
+            args,
+            name,
+            options,
+        );
     }
 
     (default_build, optimized)
@@ -1223,6 +1280,7 @@ pub(super) fn convert_spirv_to_nir(
     let cache = dev.screen().shader_cache();
     let key = build.hash_key(cache.as_ref(), name, spec_constants);
     let spirv_info = build.kernel_info(name).unwrap();
+    let options = &build.options;
 
     cache
         .as_ref()
@@ -1237,7 +1295,7 @@ pub(super) fn convert_spirv_to_nir(
             }
 
             let (mut args, nir) = compile_nir_to_args(dev, nir, args, &dev.lib_clc);
-            let (default_build, optimized) = compile_nir_remaining(dev, nir, &args, name);
+            let (default_build, optimized) = compile_nir_remaining(dev, nir, &args, name, options);
 
             for build in [Some(&default_build), optimized.as_ref()].into_iter() {
                 let Some(build) = build else {
@@ -1343,6 +1401,7 @@ impl<'a> KernelExecBuilder<'a> {
         work_dim: u32,
         block: [u32; 3],
         grid: [usize; 3],
+        grid_offset: [usize; 3],
         bdas: &[&PipeResourceOwned],
         variable_local_size: u64,
     ) -> CLResult<()> {
@@ -1350,7 +1409,11 @@ impl<'a> KernelExecBuilder<'a> {
         for z in 0..grid[2].div_ceil(hw_max_grid[2]) {
             for y in 0..grid[1].div_ceil(hw_max_grid[1]) {
                 for x in 0..grid[0].div_ceil(hw_max_grid[0]) {
-                    let this_offsets = [x * hw_max_grid[0], y * hw_max_grid[1], z * hw_max_grid[2]];
+                    let this_offsets = [
+                        x * hw_max_grid[0] + grid_offset[0],
+                        y * hw_max_grid[1] + grid_offset[1],
+                        z * hw_max_grid[2] + grid_offset[2],
+                    ];
 
                     // Each iteration we need to update the kernel side workgroup id offsets.
                     self.set_workgroup_id_offset(this_offsets);
@@ -1496,25 +1559,27 @@ impl Kernel {
 
         for i in 0..work_dim {
             let t = cmp::min(threads, dim_threads[i]);
-            let gcd = gcd(t, grid[i]);
+            let threads_pot = t.trailing_zeros();
+            let grid_pot = grid[i].trailing_zeros();
+            let pot = 1 << threads_pot.min(grid_pot);
 
-            block[i] = gcd;
-            grid[i] /= gcd;
+            block[i] = pot;
+            grid[i] /= pot;
 
             // update limits
             threads /= block[i];
         }
 
-        // if we didn't fill the subgroup we can do a bit better if we have threads remaining
+        // if we didn't fill the subgroup we can do better by using non uniform workgroups.
         let total_threads = block.iter().take(work_dim).product::<usize>();
         if threads != 1 && total_threads < subgroups {
             for i in 0..work_dim {
-                if grid[i] * total_threads < threads && grid[i] * block[i] <= dim_threads[i] {
-                    block[i] *= grid[i];
-                    grid[i] = 1;
-                    // can only do it once as nothing is cleanly divisible
-                    break;
-                }
+                let max_grid = 1 << grid[i].ilog2();
+
+                let factor = threads.min(dim_threads[i].min(max_grid as usize));
+                block[i] *= factor;
+                threads /= factor;
+                grid[i] /= factor;
             }
         }
     }
@@ -1598,14 +1663,23 @@ impl Kernel {
 
         self.optimize_local_size(q.device, work_dim, &mut grid, &mut block);
 
+        let block_usize = block.map(|v| v as usize);
+        let subgroup_size = self.subgroup_size_for_block(q.device, &block_usize) as u32;
+        let num_subgroups = self.subgroups_for_block(q.device, &block_usize) as u32;
+
         Ok(Box::new(move |cl_ctx, ctx| {
             let hw_max_grid = ctx.dev.max_grid_size();
+            let is_uniform = api_grid
+                .iter()
+                .zip(block.iter())
+                .all(|(&grid, &block)| grid % (block as usize) == 0);
 
             let variant = if offsets == [0; 3]
                 && grid[0] <= hw_max_grid[0]
                 && grid[1] <= hw_max_grid[1]
                 && grid[2] <= hw_max_grid[2]
                 && (work_group_size_hint == [0; 3] || block == work_group_size_hint)
+                && is_uniform
             {
                 NirKernelVariant::Optimized
             } else {
@@ -1805,9 +1879,25 @@ impl Kernel {
                         exec_builder.add_values(&[work_dim as u8; 1]);
                     }
                     CompiledKernelArgType::NumWorkgroups => {
-                        exec_builder.add_values(unsafe {
-                            as_byte_slice(&[grid[0] as u32, grid[1] as u32, grid[2] as u32])
-                        });
+                        // We need to recalculate it with div_ceil to support non-uniform
+                        // workgroups.
+                        let num_workgroups = [
+                            api_grid[0].div_ceil(block[0] as usize) as u32,
+                            api_grid[1].div_ceil(block[1] as usize) as u32,
+                            api_grid[2].div_ceil(block[2] as usize) as u32,
+                        ];
+                        exec_builder.add_values(unsafe { as_byte_slice(&num_workgroups) });
+                    }
+                    CompiledKernelArgType::EnqueuedWorkgroupSize => {
+                        exec_builder.add_values(unsafe { as_byte_slice(&block) });
+                    }
+                    CompiledKernelArgType::EnqueuedNumSubgroups => {
+                        exec_builder
+                            .add_values(unsafe { as_byte_slice(&num_subgroups.to_ne_bytes()) });
+                    }
+                    CompiledKernelArgType::MaxSubgroupSize => {
+                        exec_builder
+                            .add_values(unsafe { as_byte_slice(&subgroup_size.to_ne_bytes()) });
                     }
                 }
             }
@@ -1846,7 +1936,53 @@ impl Kernel {
             ctx.bind_shader_images(iviews);
             ctx.set_global_binding(resources, &mut globals);
 
-            exec_builder.do_launch(ctx, work_dim, block, grid, &bdas, variable_local_size)?;
+            let rest = [
+                (api_grid[0] % block[0] as usize) as u32,
+                (api_grid[1] % block[1] as usize) as u32,
+                (api_grid[2] % block[2] as usize) as u32,
+            ];
+
+            // Each bit represents a dimension, which allows us to easily turn this emulation into a
+            // loop.
+            for i in 0..=0x7 {
+                let x = i & 0x1 != 0;
+                let y = i & 0x2 != 0;
+                let z = i & 0x4 != 0;
+
+                // If we don't have a rest on all selected dimensions we have nothing to run.
+                if x && rest[0] == 0 || y && rest[1] == 0 || z && rest[2] == 0 {
+                    continue;
+                }
+
+                let non_uniform_block = [
+                    if x { rest[0] } else { block[0] },
+                    if y { rest[1] } else { block[1] },
+                    if z { rest[2] } else { block[2] },
+                ];
+
+                // We only run a single grid on the selected dimensions.
+                let non_uniform_grid = [
+                    if x { 1 } else { grid[0] },
+                    if y { 1 } else { grid[1] },
+                    if z { 1 } else { grid[2] },
+                ];
+
+                let grid_offset = [
+                    if i > 0 && x { grid[0] } else { 0 },
+                    if i > 0 && y { grid[1] } else { 0 },
+                    if i > 0 && z { grid[2] } else { 0 },
+                ];
+
+                exec_builder.do_launch(
+                    ctx,
+                    work_dim,
+                    non_uniform_block,
+                    non_uniform_grid,
+                    grid_offset,
+                    &bdas,
+                    variable_local_size,
+                )?;
+            }
 
             ctx.clear_global_binding(globals.len() as u32);
 

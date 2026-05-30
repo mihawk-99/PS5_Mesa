@@ -202,7 +202,7 @@ impl ProgramBuild {
 pub struct DeviceProgramBuild {
     spirv: Option<spirv::SPIRVBin>,
     status: cl_build_status,
-    options: ParsedCompileOptions,
+    pub options: ParsedCompileOptions,
     log: CString,
     bin_type: cl_program_binary_type,
     pub kernels: HashMap<CString, Arc<NirKernelBuilds>>,
@@ -292,11 +292,11 @@ pub struct HeaderProgram {
 }
 
 #[derive(Default, Clone)]
-struct ParsedCompileOptions {
+pub struct ParsedCompileOptions {
     raw_string: CString,
     clc_target: Option<CLVersion>,
     create_lib: bool,
-    uniform_workgroups: bool,
+    pub uniform_workgroups: bool,
 }
 
 impl ParsedCompileOptions {
@@ -310,7 +310,7 @@ impl ParsedCompileOptions {
 
 struct CompileOptions {
     clang_args: Vec<CString>,
-    parsed: ParsedCompileOptions,
+    pub parsed: ParsedCompileOptions,
 }
 
 impl CompileOptions {

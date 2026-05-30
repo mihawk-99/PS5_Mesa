@@ -85,6 +85,12 @@ rusticl_lower_intrinsics_instr(
         assert(nir_find_variable_with_location(b->shader, nir_var_uniform, state->work_dim_loc));
         return nir_u2uN(b, nir_load_var(b, nir_find_variable_with_location(b->shader, nir_var_uniform, state->work_dim_loc)),
                         intrins->def.bit_size);
+    case nir_intrinsic_load_enqueued_workgroup_size:
+        return nir_load_var(b, nir_find_variable_with_location(b->shader, nir_var_uniform, state->enqueued_workgroup_size_loc));
+    case nir_intrinsic_load_enqueued_num_subgroups:
+        return nir_load_var(b, nir_find_variable_with_location(b->shader, nir_var_uniform, state->enqueued_num_subgroups_loc));
+    case nir_intrinsic_load_subgroup_max_size:
+        return nir_load_var(b, nir_find_variable_with_location(b->shader, nir_var_uniform, state->max_subgroup_size_loc));
     default:
         return NULL;
     }
