@@ -1337,6 +1337,43 @@ impl<'a> KernelExecBuilder<'a> {
         }
     }
 
+    fn do_launch(
+        &mut self,
+        ctx: &QueueContextWithState,
+        work_dim: u32,
+        block: [u32; 3],
+        grid: [usize; 3],
+        bdas: &[&PipeResourceOwned],
+        variable_local_size: u64,
+    ) -> CLResult<()> {
+        let hw_max_grid = ctx.dev.max_grid_size();
+        for z in 0..grid[2].div_ceil(hw_max_grid[2]) {
+            for y in 0..grid[1].div_ceil(hw_max_grid[1]) {
+                for x in 0..grid[0].div_ceil(hw_max_grid[0]) {
+                    let this_offsets = [x * hw_max_grid[0], y * hw_max_grid[1], z * hw_max_grid[2]];
+
+                    // Each iteration we need to update the kernel side workgroup id offsets.
+                    self.set_workgroup_id_offset(this_offsets);
+
+                    let this_grid = [
+                        cmp::min(hw_max_grid[0], grid[0] - hw_max_grid[0] * x) as u32,
+                        cmp::min(hw_max_grid[1], grid[1] - hw_max_grid[1] * y) as u32,
+                        cmp::min(hw_max_grid[2], grid[2] - hw_max_grid[2] * z) as u32,
+                    ];
+
+                    ctx.update_cb0(self.input())?;
+                    ctx.launch_grid(work_dim, block, this_grid, variable_local_size as u32, bdas);
+
+                    if Platform::dbg().sync_every_event {
+                        ctx.flush().wait();
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// This returns a list of the tracked resources and their pointer into the managed kernel input
     /// buffer. Before using the input buffer the locations need to be filled with the gpu addresses
     /// of the resources.
@@ -1809,36 +1846,7 @@ impl Kernel {
             ctx.bind_shader_images(iviews);
             ctx.set_global_binding(resources, &mut globals);
 
-            for z in 0..grid[2].div_ceil(hw_max_grid[2]) {
-                for y in 0..grid[1].div_ceil(hw_max_grid[1]) {
-                    for x in 0..grid[0].div_ceil(hw_max_grid[0]) {
-                        let this_offsets =
-                            [x * hw_max_grid[0], y * hw_max_grid[1], z * hw_max_grid[2]];
-
-                        // Each iteration we need to update the kernel side workgroup id offsets.
-                        exec_builder.set_workgroup_id_offset(this_offsets);
-
-                        let this_grid = [
-                            cmp::min(hw_max_grid[0], grid[0] - hw_max_grid[0] * x) as u32,
-                            cmp::min(hw_max_grid[1], grid[1] - hw_max_grid[1] * y) as u32,
-                            cmp::min(hw_max_grid[2], grid[2] - hw_max_grid[2] * z) as u32,
-                        ];
-
-                        ctx.update_cb0(exec_builder.input())?;
-                        ctx.launch_grid(
-                            work_dim,
-                            block,
-                            this_grid,
-                            variable_local_size as u32,
-                            &bdas,
-                        );
-
-                        if Platform::dbg().sync_every_event {
-                            ctx.flush().wait();
-                        }
-                    }
-                }
-            }
+            exec_builder.do_launch(ctx, work_dim, block, grid, &bdas, variable_local_size)?;
 
             ctx.clear_global_binding(globals.len() as u32);
 
