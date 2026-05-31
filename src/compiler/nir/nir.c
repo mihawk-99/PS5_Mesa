@@ -2497,6 +2497,8 @@ nir_intrinsic_from_system_value(gl_system_value val)
       return nir_intrinsic_load_amplification_id_kk;
    case SYSTEM_VALUE_SUBGROUP_SIZE:
       return nir_intrinsic_load_subgroup_size;
+   case SYSTEM_VALUE_SUBGROUP_MAX_SIZE:
+      return nir_intrinsic_load_subgroup_max_size;
    case SYSTEM_VALUE_SUBGROUP_INVOCATION:
       return nir_intrinsic_load_subgroup_invocation;
    case SYSTEM_VALUE_SUBGROUP_EQ_MASK:
@@ -2511,10 +2513,14 @@ nir_intrinsic_from_system_value(gl_system_value val)
       return nir_intrinsic_load_subgroup_lt_mask;
    case SYSTEM_VALUE_NUM_SUBGROUPS:
       return nir_intrinsic_load_num_subgroups;
+   case SYSTEM_VALUE_ENQUEUED_NUM_SUBGROUPS:
+      return nir_intrinsic_load_enqueued_num_subgroups;
    case SYSTEM_VALUE_SUBGROUP_ID:
       return nir_intrinsic_load_subgroup_id;
    case SYSTEM_VALUE_WORKGROUP_SIZE:
       return nir_intrinsic_load_workgroup_size;
+   case SYSTEM_VALUE_ENQUEUED_WORKGROUP_SIZE:
+      return nir_intrinsic_load_enqueued_workgroup_size;
    case SYSTEM_VALUE_GLOBAL_INVOCATION_ID:
       return nir_intrinsic_load_global_invocation_id;
    case SYSTEM_VALUE_BASE_GLOBAL_INVOCATION_ID:
@@ -2687,6 +2693,8 @@ nir_system_value_from_intrinsic(nir_intrinsic_op intrin)
       return SYSTEM_VALUE_AMPLIFICATION_ID_KK;
    case nir_intrinsic_load_subgroup_size:
       return SYSTEM_VALUE_SUBGROUP_SIZE;
+   case nir_intrinsic_load_subgroup_max_size:
+      return SYSTEM_VALUE_SUBGROUP_MAX_SIZE;
    case nir_intrinsic_load_subgroup_invocation:
       return SYSTEM_VALUE_SUBGROUP_INVOCATION;
    case nir_intrinsic_load_subgroup_eq_mask:
@@ -2701,10 +2709,14 @@ nir_system_value_from_intrinsic(nir_intrinsic_op intrin)
       return SYSTEM_VALUE_SUBGROUP_LT_MASK;
    case nir_intrinsic_load_num_subgroups:
       return SYSTEM_VALUE_NUM_SUBGROUPS;
+   case nir_intrinsic_load_enqueued_num_subgroups:
+      return SYSTEM_VALUE_ENQUEUED_NUM_SUBGROUPS;
    case nir_intrinsic_load_subgroup_id:
       return SYSTEM_VALUE_SUBGROUP_ID;
    case nir_intrinsic_load_workgroup_size:
       return SYSTEM_VALUE_WORKGROUP_SIZE;
+   case nir_intrinsic_load_enqueued_workgroup_size:
+      return SYSTEM_VALUE_ENQUEUED_WORKGROUP_SIZE;
    case nir_intrinsic_load_global_invocation_id:
       return SYSTEM_VALUE_GLOBAL_INVOCATION_ID;
    case nir_intrinsic_load_base_global_invocation_id:

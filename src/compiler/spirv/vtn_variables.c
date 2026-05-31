@@ -1023,8 +1023,11 @@ vtn_get_builtin_location(struct vtn_builder *b,
       set_mode_system_value(b, mode);
       break;
    case SpvBuiltInWorkgroupSize:
-   case SpvBuiltInEnqueuedWorkgroupSize:
       *location = SYSTEM_VALUE_WORKGROUP_SIZE;
+      set_mode_system_value(b, mode);
+      break;
+   case SpvBuiltInEnqueuedWorkgroupSize:
+      *location = SYSTEM_VALUE_ENQUEUED_WORKGROUP_SIZE;
       set_mode_system_value(b, mode);
       break;
    case SpvBuiltInWorkgroupId:
@@ -1070,9 +1073,11 @@ vtn_get_builtin_location(struct vtn_builder *b,
       set_mode_system_value(b, mode);
       break;
    case SpvBuiltInSubgroupSize:
-   /* TODO once we support non uniform work groups we have to fix this */
-   case SpvBuiltInSubgroupMaxSize:
       *location = SYSTEM_VALUE_SUBGROUP_SIZE;
+      set_mode_system_value(b, mode);
+      break;
+   case SpvBuiltInSubgroupMaxSize:
+      *location = SYSTEM_VALUE_SUBGROUP_MAX_SIZE;
       set_mode_system_value(b, mode);
       break;
    case SpvBuiltInSubgroupId:
@@ -1084,9 +1089,11 @@ vtn_get_builtin_location(struct vtn_builder *b,
       set_mode_system_value(b, mode);
       break;
    case SpvBuiltInNumSubgroups:
-   /* TODO once we support non uniform work groups we have to fix this */
-   case SpvBuiltInNumEnqueuedSubgroups:
       *location = SYSTEM_VALUE_NUM_SUBGROUPS;
+      set_mode_system_value(b, mode);
+      break;
+   case SpvBuiltInNumEnqueuedSubgroups:
+      *location = SYSTEM_VALUE_ENQUEUED_NUM_SUBGROUPS;
       set_mode_system_value(b, mode);
       break;
    case SpvBuiltInDeviceIndex:
