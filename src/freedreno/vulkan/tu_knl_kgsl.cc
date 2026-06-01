@@ -298,6 +298,8 @@ kgsl_bo_init(struct tu_device *dev,
       .base = base,
    };
 
+   tu_dump_bo_init(dev, bo);
+
    VkResult result = VK_SUCCESS;
 
    if (lazy_vma) {
@@ -308,8 +310,6 @@ kgsl_bo_init(struct tu_device *dev,
 
    if (result != VK_SUCCESS)
       return result;
-
-   tu_dump_bo_init(dev, bo);
 
    *out_bo = bo;
 
