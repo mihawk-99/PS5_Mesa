@@ -1661,6 +1661,14 @@ impl Kernel {
 
         let api_grid = grid;
 
+        let mut dbg_string = String::new();
+        if Platform::dbg().kernel {
+            dbg_string.push_str(&format!(
+                "Running {:?} with global: {grid:?} and local: {block:?}\n",
+                self.name,
+            ));
+        }
+
         self.optimize_local_size(q.device, work_dim, &mut grid, &mut block);
 
         let block_usize = block.map(|v| v as usize);
@@ -1973,6 +1981,12 @@ impl Kernel {
                     if i > 0 && z { grid[2] } else { 0 },
                 ];
 
+                if Platform::dbg().kernel {
+                    dbg_string.push_str(&format!(
+                        "\tLaunching group {i} with grid: {non_uniform_grid:?}, block: {non_uniform_block:?} and grid_offset: {grid_offset:?}\n",
+                    ));
+                }
+
                 exec_builder.do_launch(
                     ctx,
                     work_dim,
@@ -1987,6 +2001,10 @@ impl Kernel {
             ctx.clear_global_binding(globals.len() as u32);
 
             ctx.memory_barrier(PIPE_BARRIER_GLOBAL_BUFFER);
+
+            if Platform::dbg().kernel {
+                eprintln!("{dbg_string}");
+            }
 
             if let Some(printf_buf) = &printf_buf {
                 let tx = ctx
