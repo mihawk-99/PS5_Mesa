@@ -177,6 +177,12 @@ struct tu_physical_device
    struct {
       int dma_fd;
       enum tu_kgsl_dma_type dma_type;
+
+      struct {
+         uint64_t range_base, range_end;
+         mtx_t vma_mutex;
+         struct util_vma_heap vma;
+      } svm;
    } kgsl;
 };
 VK_DEFINE_HANDLE_CASTS(tu_physical_device, vk.base, VkPhysicalDevice,

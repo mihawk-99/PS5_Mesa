@@ -164,6 +164,30 @@ bo_init_new_ion_legacy(struct tu_device *dev, struct tu_bo **out_bo, uint64_t si
 static VkResult
 kgsl_bo_user_map(struct tu_device *dev, struct tu_bo *bo, uint64_t client_iova)
 {
+   if (client_iova == 0) {
+      mtx_lock(&dev->physical_device->kgsl.svm.vma_mutex);
+      client_iova = util_vma_heap_alloc(&dev->physical_device->kgsl.svm.vma,
+         bo->size, (1 << 12));
+      mtx_unlock(&dev->physical_device->kgsl.svm.vma_mutex);
+
+      if (!client_iova) {
+         kgsl_bo_finish(dev, bo);
+         return vk_errorf(dev, VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS,
+                          "kernel could not allocate memory of the given size");
+      }
+   } else {
+      mtx_lock(&dev->physical_device->kgsl.svm.vma_mutex);
+      bool allocated = util_vma_heap_alloc_addr(&dev->physical_device->kgsl.svm.vma,
+         client_iova, bo->size);
+      mtx_unlock(&dev->physical_device->kgsl.svm.vma_mutex);
+
+      if (!allocated) {
+         kgsl_bo_finish(dev, bo);
+         return vk_errorf(dev, VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS,
+                          "kernel could not allocate specified opaque capture address");
+      }
+   }
+
    uint64_t offset = bo->gem_handle << 12;
    void *map = mmap((void *)client_iova, bo->size, PROT_READ | PROT_WRITE,
                     MAP_SHARED, dev->physical_device->local_fd, offset);
@@ -174,7 +198,7 @@ kgsl_bo_user_map(struct tu_device *dev, struct tu_bo *bo, uint64_t client_iova)
                        "mmap failed (%s)", strerror(errno));
    }
 
-   if (client_iova && (uint64_t)map != client_iova) {
+   if ((uint64_t)map != client_iova) {
       kgsl_bo_finish(dev, bo);
 
       return vk_errorf(dev, VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS,
@@ -430,6 +454,12 @@ kgsl_bo_finish(struct tu_device *dev, struct tu_bo *bo)
    tu_dump_bo_del(dev, bo);
 
    if (bo->map) {
+      if ((uint64_t)bo->map == bo->iova) {
+         mtx_lock(&dev->physical_device->kgsl.svm.vma_mutex);
+         util_vma_heap_free(&dev->physical_device->kgsl.svm.vma, bo->iova, bo->size);
+         mtx_unlock(&dev->physical_device->kgsl.svm.vma_mutex);
+      }
+
       TU_RMV(bo_unmap, dev, bo);
       munmap(bo->map, bo->size);
    }
@@ -1670,8 +1700,25 @@ fail_submit:
 }
 
 static void
+kgsl_init_svm_range(uint64_t *base, uint64_t *end)
+{
+   /* Default values */
+   *base = 0x1000000000;
+   *end  = 0x4000000000;
+
+   const char *svm_range_str = os_get_option("TU_KGSL_SVM_RANGE");
+   if (svm_range_str) {
+      sscanf(svm_range_str, "%lx,%lx", base, end);
+      mesa_logi("KGSL SVM range adjustment: [%lx,%lx)\n", *base, *end);
+   }
+}
+
+static void
 kgsl_physical_device_finish(struct tu_physical_device *dev)
 {
+   util_vma_heap_finish(&dev->kgsl.svm.vma);
+   mtx_destroy(&dev->kgsl.svm.vma_mutex);
+
    close(dev->local_fd);
    if (dev->kgsl.dma_fd != -1)
       close(dev->kgsl.dma_fd);
@@ -1883,6 +1930,11 @@ tu_knl_kgsl_load(struct tu_instance *instance, int fd)
     */
    device->va_start = 0x100000000;
 
+   kgsl_init_svm_range(&device->kgsl.svm.range_base, &device->kgsl.svm.range_end);
+   mtx_init(&device->kgsl.svm.vma_mutex, mtx_plain);
+   util_vma_heap_init(&device->kgsl.svm.vma,
+      device->kgsl.svm.range_base, device->kgsl.svm.range_end);
+   device->kgsl.svm.vma.alloc_high = false;
 
    /* preemption is always supported on kgsl */
    device->has_preemption = true;
