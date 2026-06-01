@@ -1810,30 +1810,21 @@ fail_free_name:
 }
 
 static void
-tu_physical_device_finish(struct tu_physical_device *device)
+tu_destroy_physical_device(struct vk_physical_device *_device)
 {
+   struct tu_physical_device *device = (struct tu_physical_device *) _device;
+
 #ifdef TU_USE_WSI_PLATFORM
    tu_wsi_finish(device);
 #endif
 
-   close(device->local_fd);
-   if (device->master_fd != -1)
-      close(device->master_fd);
-
-   if (device->kgsl_dma_fd != -1)
-      close(device->kgsl_dma_fd);
+   device->instance->knl->physical_device_finish(device);
 
    disk_cache_destroy(device->vk.disk_cache);
    vk_free(&device->instance->vk.alloc, (void *)device->name);
 
    vk_physical_device_finish(&device->vk);
-}
-
-static void
-tu_destroy_physical_device(struct vk_physical_device *device)
-{
-   tu_physical_device_finish((struct tu_physical_device *) device);
-   vk_free(&device->instance->alloc, device);
+   vk_free(&device->instance->vk.alloc, device);
 }
 
 static const driOptionDescription tu_dri_options[] = {

@@ -247,6 +247,17 @@ tu_drm_is_memory_type_supported(int fd, uint32_t flags)
    return true;
 }
 
+static void
+msm_physical_device_finish(struct tu_physical_device *dev)
+{
+   if (dev->local_fd != -1)
+      close(dev->local_fd);
+   if (dev->master_fd != -1)
+      close(dev->master_fd);
+
+   assert(dev->kgsl_dma_fd == -1);
+}
+
 static VkResult
 msm_device_init(struct tu_device *dev)
 {
@@ -1570,6 +1581,7 @@ fail_in_syncobjs:
 static const struct tu_knl msm_knl_funcs = {
       .name = "msm",
 
+      .physical_device_finish = msm_physical_device_finish,
       .device_init = msm_device_init,
       .device_finish = msm_device_finish,
       .device_get_gpu_timestamp = msm_device_get_gpu_timestamp,

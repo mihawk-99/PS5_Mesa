@@ -168,6 +168,16 @@ set_debuginfo(struct tu_device *dev)
    free(req);
 }
 
+static void
+virtio_physical_device_finish(struct tu_physical_device *dev)
+{
+   close(dev->local_fd);
+   if (dev->master_fd != -1)
+      close(dev->master_fd);
+
+   assert(dev->kgsl_dma_fd == -1);
+}
+
 static VkResult
 virtio_device_init(struct tu_device *dev)
 {
@@ -1195,6 +1205,7 @@ fail_in_syncobjs:
 static const struct tu_knl virtio_knl_funcs = {
       .name = "virtgpu",
 
+      .physical_device_finish = virtio_physical_device_finish,
       .device_init = virtio_device_init,
       .device_finish = virtio_device_finish,
       .device_get_gpu_timestamp = virtio_device_get_gpu_timestamp,

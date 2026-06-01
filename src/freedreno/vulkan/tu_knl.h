@@ -125,6 +125,7 @@ struct tu_sparse_vma {
 struct tu_knl {
    const char *name;
 
+   void (*physical_device_finish)(struct tu_physical_device *dev);
    VkResult (*device_init)(struct tu_device *dev);
    void (*device_finish)(struct tu_device *dev);
    int (*device_get_gpu_timestamp)(struct tu_device *dev, uint64_t *ts);

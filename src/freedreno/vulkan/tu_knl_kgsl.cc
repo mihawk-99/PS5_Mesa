@@ -1669,6 +1669,16 @@ fail_submit:
    return result;
 }
 
+static void
+kgsl_physical_device_finish(struct tu_physical_device *dev)
+{
+   close(dev->local_fd);
+   if (dev->kgsl_dma_fd != -1)
+      close(dev->kgsl_dma_fd);
+
+   assert(dev->master_fd == -1);
+}
+
 static VkResult
 kgsl_device_init(struct tu_device *dev)
 {
@@ -1725,6 +1735,7 @@ kgsl_device_check_status(struct tu_device *device)
 static const struct tu_knl kgsl_knl_funcs = {
       .name = "kgsl",
 
+      .physical_device_finish = kgsl_physical_device_finish,
       .device_init = kgsl_device_init,
       .device_finish = kgsl_device_finish,
       .device_get_gpu_timestamp = kgsl_device_get_gpu_timestamp,
