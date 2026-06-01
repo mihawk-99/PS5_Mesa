@@ -105,9 +105,6 @@ struct tu_physical_device
    int64_t master_major;
    int64_t master_minor;
 
-   int kgsl_dma_fd;
-   enum tu_kgsl_dma_type kgsl_dma_type;
-
    uint32_t gmem_size;
    uint64_t gmem_base;
 
@@ -176,6 +173,11 @@ struct tu_physical_device
    const struct vk_sync_type *sync_types[3];
 
    uint32_t device_count;
+
+   struct {
+      int dma_fd;
+      enum tu_kgsl_dma_type dma_type;
+   } kgsl;
 };
 VK_DEFINE_HANDLE_CASTS(tu_physical_device, vk.base, VkPhysicalDevice,
                        VK_OBJECT_TYPE_PHYSICAL_DEVICE)

@@ -175,7 +175,7 @@ virtio_physical_device_finish(struct tu_physical_device *dev)
    if (dev->master_fd != -1)
       close(dev->master_fd);
 
-   assert(dev->kgsl_dma_fd == -1);
+   assert(dev->kgsl.dma_fd == -1);
 }
 
 static VkResult
