@@ -89,10 +89,6 @@ x11 specific:
 11. libxxf86vm
 12. libxrandr
 
-for intel vulkan ray-tracing:
-
-1. python3-ply
-
 radeon specific:
 
 1. libelf
