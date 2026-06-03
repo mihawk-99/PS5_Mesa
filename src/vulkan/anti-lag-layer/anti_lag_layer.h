@@ -10,7 +10,7 @@
 #include "util/simple_mtx.h"
 #include "vulkan/vk_layer.h"
 #include "vulkan/vulkan_core.h"
-#include "ringbuffer.h"
+#include "util/ringbuffer.h"
 
 #define MAX_FRAMES  8
 #define MAX_QUERIES 256

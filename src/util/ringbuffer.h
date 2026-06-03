@@ -8,6 +8,7 @@
 #define RINGBUFFER_H
 
 #include "util/macros.h"
+#include "util/simple_mtx.h"
 
 #define RINGBUFFER_DECLARE(name, type, N)                                                          \
    struct {                                                                                        \

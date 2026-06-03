@@ -9,7 +9,7 @@
 #include "util/simple_mtx.h"
 #include "util/u_atomic.h"
 #include "vulkan/vulkan_core.h"
-#include "ringbuffer.h"
+#include "util/ringbuffer.h"
 #include "vk_alloc.h"
 #include "vk_util.h"
 
