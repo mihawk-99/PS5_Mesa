@@ -270,7 +270,8 @@ vk_device_init(struct vk_device *device,
    }
 
    if (device->enabled_extensions.KHR_calibrated_timestamps ||
-       device->enabled_extensions.EXT_calibrated_timestamps) {
+       device->enabled_extensions.EXT_calibrated_timestamps ||
+       device->enabled_extensions.AMD_anti_lag) {
       /* sorted by preference */
       const VkTimeDomainKHR calibrate_domains[] = {
          VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_KHR,

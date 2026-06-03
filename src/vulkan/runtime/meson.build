@@ -25,6 +25,7 @@ vulkan_lite_runtime_files = files(
   'vk_device_memory.c',
   'vk_fence.c',
   'vk_framebuffer.c',
+  'vk_frame_pacer.c',
   'vk_graphics_state.c',
   'vk_image.c',
   'vk_log.c',

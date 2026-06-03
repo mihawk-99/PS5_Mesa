@@ -42,6 +42,7 @@ extern "C" {
 struct vk_acceleration_structure_build_ops;
 struct vk_command_buffer_ops;
 struct vk_device_shader_ops;
+struct vk_frame_pacer;
 struct vk_sync_signal;
 struct vk_sync_wait;
 
@@ -311,6 +312,8 @@ struct vk_device {
    struct hash_table *swapchain_private;
    mtx_t swapchain_name_mtx;
    struct hash_table *swapchain_name;
+
+   struct vk_frame_pacer *frame_pacer;
 
    /* For VK_KHR_pipeline_binary */
    bool disable_internal_cache;
