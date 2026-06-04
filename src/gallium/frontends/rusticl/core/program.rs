@@ -406,6 +406,13 @@ impl CompileOptions {
             ver => args.push(c"-cl-std=CL".concat(ver.api_cstr())),
         }
 
+        // We set this define ourselves, so that we don't rely on clang to set it properly as 3.1
+        // is still quite new and we can't rely on users having a clang that supports this.
+        args.push(c"-D__OPENCL_C_VERSION__=".concat(clc_ver.clc_str()));
+        if clc_ver == CLVersion::Cl3_1 {
+            args.push(c"-DCL_VERSION_3_1=310".to_owned());
+        }
+
         args
     }
 }
