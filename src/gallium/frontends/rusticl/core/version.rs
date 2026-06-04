@@ -52,6 +52,19 @@ pub const fn mk_cl_version(major: u32, minor: u32, patch: u32) -> u32 {
 }
 
 impl CLVersion {
+    pub fn api_cstr(&self) -> &'static CStr {
+        match self {
+            CLVersion::Cl1_0 => c"1.0",
+            CLVersion::Cl1_1 => c"1.1",
+            CLVersion::Cl1_2 => c"1.2",
+            CLVersion::Cl2_0 => c"2.0",
+            CLVersion::Cl2_1 => c"2.1",
+            CLVersion::Cl2_2 => c"2.2",
+            CLVersion::Cl3_0 => c"3.0",
+            CLVersion::Cl3_1 => c"3.1",
+        }
+    }
+
     pub fn api_str(&self) -> &'static str {
         match self {
             CLVersion::Cl1_0 => "1.0",

@@ -7,6 +7,7 @@ use crate::core::context::*;
 use crate::core::device::*;
 use crate::core::kernel::*;
 use crate::core::platform::Platform;
+use crate::core::version::CLVersion;
 use crate::impl_cl_type_trait;
 
 use mesa_rust::compiler::clc::spirv::SPIRVBin;
@@ -289,12 +290,14 @@ pub struct HeaderProgram {
 #[derive(Default)]
 struct ParsedCompileOptions {
     raw_string: String,
+    clc_target: Option<CLVersion>,
 }
 
 impl ParsedCompileOptions {
     fn from_option_str(options: &str) -> Self {
         Self {
             raw_string: options.to_owned(),
+            ..Default::default()
         }
     }
 }
@@ -305,14 +308,16 @@ struct CompileOptions {
 }
 
 impl CompileOptions {
-    fn new(options: &str, dev: &Device) -> Self {
-        let parsed_options = ParsedCompileOptions::from_option_str(options);
-        let mut options = options.to_owned();
-        if !options.contains("-cl-std=") {
-            options.push_str(" -cl-std=CL");
-            options.push_str(dev.clc_version.api_str());
+    fn new(options: &str) -> Self {
+        let mut parsed_options = ParsedCompileOptions::from_option_str(options);
+        if options.is_empty() {
+            return CompileOptions {
+                parsed: parsed_options,
+                clang_args: Vec::new(),
+            };
         }
 
+        let options = options.to_owned();
         let mut res = Vec::new();
 
         // we seperate on a ' ' unless we hit a "
@@ -341,9 +346,30 @@ impl CompileOptions {
         let strings = res
             .iter()
             .filter_map(|&a| match a {
-                // CL3.1 doesn't add anything that's not already supported in clang, so just replace
-                // the argument with 3.0 so we'll be fine with an older version of clang.
-                "-cl-std=CL3.1" => Some("-cl-std=CL3.0"),
+                "-cl-std=CL3.1" => {
+                    parsed_options.clc_target = Some(CLVersion::Cl3_1);
+                    None
+                }
+                "-cl-std=CL3.0" => {
+                    parsed_options.clc_target = Some(CLVersion::Cl3_0);
+                    None
+                }
+                "-cl-std=CL2.0" => {
+                    parsed_options.clc_target = Some(CLVersion::Cl2_0);
+                    None
+                }
+                "-cl-std=CL1.2" => {
+                    parsed_options.clc_target = Some(CLVersion::Cl1_2);
+                    None
+                }
+                "-cl-std=CL1.1" => {
+                    parsed_options.clc_target = Some(CLVersion::Cl1_1);
+                    None
+                }
+                "-cl-std=CL1.0" => {
+                    parsed_options.clc_target = Some(CLVersion::Cl1_0);
+                    None
+                }
                 "-cl-denorms-are-zero" => Some("-fdenormal-fp-math=positive-zero"),
                 // We can ignore it as long as we don't support ifp
                 "-cl-no-subgroup-ifp" => None,
@@ -353,6 +379,7 @@ impl CompileOptions {
                 "-cl-intel-greater-than-4GB-buffer-required" => None,
                 // Some applications use this when they detect QC hardware
                 "-qcom-accelerate-16-bit" => None,
+                "" => None,
                 _ => Some(a),
             })
             .map(CString::new)
@@ -368,6 +395,17 @@ impl CompileOptions {
     fn get_clang_args(&self, dev: &Device) -> Vec<CString> {
         let mut args = self.clang_args.clone();
         args.push(c"-D__OPENCL_VERSION__=".concat(dev.cl_version.clc_str()));
+
+        let clc_ver = self.parsed.clc_target.unwrap_or(dev.clc_version);
+        match clc_ver {
+            CLVersion::Cl3_1 => {
+                // CL3.1 doesn't add anything that's not already supported in clang, so just replace
+                // the argument with 3.0 so we'll be fine with an older version of clang.
+                args.push(c"-cl-std=CL3.0".to_owned());
+            }
+            ver => args.push(c"-cl-std=CL".concat(ver.api_cstr())),
+        }
+
         args
     }
 }
@@ -674,7 +712,7 @@ impl Program {
         headers: &[HeaderProgram],
         build_info: &mut MutexGuard<ProgramBuild>,
     ) -> bool {
-        let options = CompileOptions::new(options, device);
+        let options = CompileOptions::new(options);
         let device_build = build_info.dev_build_mut(device);
 
         let val_options = clc_validator_options(device);
