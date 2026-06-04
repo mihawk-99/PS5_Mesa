@@ -365,6 +365,10 @@ impl CompileOptions {
             clang_args: strings,
         }
     }
+
+    fn get_clang_args(&self, _dev: &Device) -> Vec<CString> {
+        self.clang_args.clone()
+    }
 }
 
 impl Program {
@@ -682,7 +686,7 @@ impl Program {
                 }
             }
             ProgramSourceType::Src(src) => {
-                let clang_args = &options.clang_args;
+                let clang_args = options.get_clang_args(device);
                 let headers: Vec<_> = headers
                     .iter()
                     .map(|header| {
@@ -712,7 +716,7 @@ impl Program {
 
                 let (spirv, msgs) = spirv::SPIRVBin::from_clc(
                     src,
-                    clang_args,
+                    &clang_args,
                     &headers,
                     get_disk_cache(),
                     device.cl_features(),
