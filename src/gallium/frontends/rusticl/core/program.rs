@@ -289,13 +289,13 @@ pub struct HeaderProgram {
 
 #[derive(Default, Clone)]
 struct ParsedCompileOptions {
-    raw_string: String,
+    raw_string: CString,
     clc_target: Option<CLVersion>,
     create_lib: bool,
 }
 
 impl ParsedCompileOptions {
-    fn from_option_str(options: &str) -> Self {
+    fn from_option_str(options: &CStr) -> Self {
         Self {
             raw_string: options.to_owned(),
             ..Default::default()
@@ -309,7 +309,7 @@ struct CompileOptions {
 }
 
 impl CompileOptions {
-    fn new(options: &str) -> Self {
+    fn new(options: &CStr) -> Self {
         let mut parsed_options = ParsedCompileOptions::from_option_str(options);
         if options.is_empty() {
             return CompileOptions {
@@ -318,7 +318,7 @@ impl CompileOptions {
             };
         }
 
-        let options = options.to_owned();
+        let options = options.to_str().unwrap();
         let mut res = Vec::new();
 
         // we seperate on a ' ' unless we hit a "
@@ -596,7 +596,7 @@ impl Program {
         self.build_info().dev_build(dev).bin_type
     }
 
-    pub fn options(&self, dev: &Device) -> String {
+    pub fn options(&self, dev: &Device) -> CString {
         self.build_info().dev_build(dev).options.raw_string.clone()
     }
 
@@ -681,7 +681,7 @@ impl Program {
     pub fn build(
         self: Arc<Self>,
         devices: Vec<&'static Device>,
-        options: String,
+        options: &CStr,
         callback: Option<ProgramCB>,
     ) -> CLResult<()> {
         self.set_builds_in_progress(&devices)?;
@@ -808,7 +808,7 @@ impl Program {
     pub fn compile(
         self: Arc<Self>,
         devices: Vec<&'static Device>,
-        options: String,
+        options: &CStr,
         headers: Vec<HeaderProgram>,
         callback: Option<ProgramCB>,
     ) -> CLResult<()> {
@@ -1040,10 +1040,10 @@ fn debug_logging(p: &Program, devs: &[&Device]) {
 fn create_build_closure(
     program: Arc<Program>,
     devices: Vec<&'static Device>,
-    options: String,
+    options: &CStr,
     mut callback: Option<ProgramCB>,
-) -> impl FnMut() + Send + Sync + 'static {
-    let options = CompileOptions::new(&options);
+) -> impl FnMut() + Send + Sync + 'static + use<> {
+    let options = CompileOptions::new(options);
     move || {
         let is_lib = options.parsed.create_lib;
         let mut build_info = program.build_info();
@@ -1092,11 +1092,11 @@ fn create_build_closure(
 fn create_compile_closure(
     program: Arc<Program>,
     devices: Vec<&'static Device>,
-    options: String,
+    options: &CStr,
     headers: Vec<HeaderProgram>,
     mut callback: Option<ProgramCB>,
-) -> impl FnMut() + Send + Sync + 'static {
-    let options = CompileOptions::new(&options);
+) -> impl FnMut() + Send + Sync + 'static + use<> {
+    let options = CompileOptions::new(options);
     move || {
         let mut build_info = program.build_info();
 
