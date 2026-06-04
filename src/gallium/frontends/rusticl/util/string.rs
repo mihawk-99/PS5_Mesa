@@ -30,10 +30,22 @@ pub unsafe fn char_arr_to_cstr(c_str: &[c_char]) -> &CStr {
 }
 
 pub trait CStrExt: ToOwned {
+    /// # Safety
+    ///
+    /// The same as CStr::from_ptr except that ptr can be a NULL pointer.
+    unsafe fn from_ptr_or_empty<'a>(ptr: *const c_char) -> &'a Self;
     fn concat(&self, other: impl AsRef<Self>) -> Self::Owned;
 }
 
 impl CStrExt for CStr {
+    unsafe fn from_ptr_or_empty<'a>(ptr: *const c_char) -> &'a Self {
+        if ptr.is_null() {
+            return c"";
+        }
+        // SAFETY: Callers responsibility
+        unsafe { CStr::from_ptr(ptr) }
+    }
+
     fn concat(&self, other: impl AsRef<Self>) -> Self::Owned {
         let other = other.as_ref();
         let size = self.count_bytes() + other.count_bytes() + 1;
@@ -45,6 +57,16 @@ impl CStrExt for CStr {
         // SAFETY: The only 0 byte in buffer is at the end
         unsafe { CString::from_vec_with_nul_unchecked(buffer) }
     }
+}
+
+#[test]
+fn test_from_ptr_or_empty() {
+    assert_eq!(unsafe { CStr::from_ptr_or_empty(std::ptr::null()) }, c"");
+    let some_str = c"SomeStr";
+    assert_eq!(
+        unsafe { CStr::from_ptr_or_empty(some_str.as_ptr()) },
+        some_str
+    );
 }
 
 #[test]
