@@ -3549,7 +3549,7 @@ zink_shader_spirv_compile(struct zink_screen *screen, struct zink_shader *zs, st
       VkSpecializationInfo sinfo = {0};
       VkSpecializationMapEntry me[3];
       uint32_t size[3] = {1,1,1};
-      if (!zs->info.workgroup_size[0]) {
+      if (zs->info.workgroup_size_variable) {
          sinfo.mapEntryCount = 3;
          sinfo.pMapEntries = &me[0];
          sinfo.dataSize = sizeof(uint32_t) * 3;

@@ -1734,9 +1734,7 @@ create_compute_program(struct zink_context *ctx, nir_shader *nir)
    comp->nir = nir;
    comp->num_inlinable_uniforms = nir->info.num_inlinable_uniforms;
 
-   comp->use_local_size = !(nir->info.workgroup_size[0] ||
-                            nir->info.workgroup_size[1] ||
-                            nir->info.workgroup_size[2]);
+   comp->use_local_size = nir->info.workgroup_size_variable;
    comp->has_variable_shared_mem = nir->info.cs.has_variable_shared_mem;
    comp->base.can_precompile = !comp->use_local_size &&
                                (screen->info.have_EXT_non_seamless_cube_map || !zink_shader_has_cubes(nir)) &&
