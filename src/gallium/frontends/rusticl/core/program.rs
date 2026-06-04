@@ -287,7 +287,7 @@ pub struct HeaderProgram {
     pub program: Arc<Program>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ParsedCompileOptions {
     raw_string: String,
     clc_target: Option<CLVersion>,
@@ -720,11 +720,10 @@ impl Program {
     fn do_compile(
         &self,
         device: &Device,
-        options: &str,
+        options: &CompileOptions,
         headers: &[HeaderProgram],
         build_info: &mut MutexGuard<ProgramBuild>,
     ) -> bool {
-        let options = CompileOptions::new(options);
         let device_build = build_info.dev_build_mut(device);
 
         let val_options = clc_validator_options(device);
@@ -794,7 +793,7 @@ impl Program {
 
         device_build.spirv = spirv;
         device_build.log = log;
-        device_build.options = options.parsed;
+        device_build.options = options.parsed.clone();
 
         if device_build.spirv.is_some() {
             device_build.status = CL_BUILD_SUCCESS as cl_build_status;
@@ -1044,8 +1043,9 @@ fn create_build_closure(
     options: String,
     mut callback: Option<ProgramCB>,
 ) -> impl FnMut() + Send + Sync + 'static {
+    let options = CompileOptions::new(&options);
     move || {
-        let is_lib = options.contains("-create-library");
+        let is_lib = options.parsed.create_lib;
         let mut build_info = program.build_info();
 
         for &device in &devices {
@@ -1096,6 +1096,7 @@ fn create_compile_closure(
     headers: Vec<HeaderProgram>,
     mut callback: Option<ProgramCB>,
 ) -> impl FnMut() + Send + Sync + 'static {
+    let options = CompileOptions::new(&options);
     move || {
         let mut build_info = program.build_info();
 
