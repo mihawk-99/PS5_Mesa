@@ -14,6 +14,7 @@ use mesa_rust::compiler::clc::*;
 use mesa_rust::compiler::nir::*;
 use mesa_rust::util::disk_cache::*;
 use mesa_rust_gen::*;
+use mesa_rust_util::string::CStrExt;
 use mesa_rust_util::string::CStringExt;
 use mesa_rust_util::string::Join;
 use rusticl_llvm_gen::*;
@@ -311,8 +312,6 @@ impl CompileOptions {
             options.push_str(" -cl-std=CL");
             options.push_str(dev.clc_version.api_str());
         }
-        options.push_str(" -D__OPENCL_VERSION__=");
-        options.push_str(dev.cl_version.clc_str());
 
         let mut res = Vec::new();
 
@@ -366,8 +365,10 @@ impl CompileOptions {
         }
     }
 
-    fn get_clang_args(&self, _dev: &Device) -> Vec<CString> {
-        self.clang_args.clone()
+    fn get_clang_args(&self, dev: &Device) -> Vec<CString> {
+        let mut args = self.clang_args.clone();
+        args.push(c"-D__OPENCL_VERSION__=".concat(dev.cl_version.clc_str()));
+        args
     }
 }
 
