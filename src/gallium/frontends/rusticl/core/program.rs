@@ -291,6 +291,7 @@ pub struct HeaderProgram {
 struct ParsedCompileOptions {
     raw_string: String,
     clc_target: Option<CLVersion>,
+    create_lib: bool,
 }
 
 impl ParsedCompileOptions {
@@ -373,6 +374,10 @@ impl CompileOptions {
                 "-cl-denorms-are-zero" => Some("-fdenormal-fp-math=positive-zero"),
                 // We can ignore it as long as we don't support ifp
                 "-cl-no-subgroup-ifp" => None,
+                "-create-library" => {
+                    parsed_options.create_lib = true;
+                    Some(a)
+                }
                 // This indicates how many registers per thread should be used, we just ignore it.
                 "-cl-intel-256-GRF-per-thread" => None,
                 // Some applications use this argument when they detect Intel hardware.
