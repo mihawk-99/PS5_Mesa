@@ -319,7 +319,7 @@ option(
   type : 'array',
   value : [],
   choices : [
-    'device-select', 'intel-nullhw', 'overlay', 'screenshot', 'anti-lag',
+    'device-select', 'intel-nullhw', 'overlay', 'screenshot',
     'vram-report-limit',
   ],
   description : 'List of vulkan layers to build'
