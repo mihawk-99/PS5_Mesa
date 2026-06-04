@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "radv_device.h"
 #include <fcntl.h>
 #include <stdbool.h>
 #include <string.h>
@@ -1363,6 +1364,7 @@ static void
 radv_destroy_device(struct radv_device *device, const VkAllocationCallbacks *pAllocator)
 {
    radv_device_finish_utrace(device);
+   radv_device_finish_anti_lag(device);
    radv_device_finish_perf_counter(device);
 
    if (device->zero_bo) {
@@ -1704,6 +1706,12 @@ radv_CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pCr
 
    if (device->vk.enabled_features.performanceCounterQueryPools) {
       result = radv_device_init_perf_counter(device);
+      if (result != VK_SUCCESS)
+         goto fail;
+   }
+
+   if (device->vk.enabled_features.antiLag) {
+      result = radv_device_init_anti_lag(device);
       if (result != VK_SUCCESS)
          goto fail;
    }

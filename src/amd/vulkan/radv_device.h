@@ -378,4 +378,8 @@ VkResult radv_device_init_utrace(struct radv_device *device);
 
 void radv_device_finish_utrace(struct radv_device *device);
 
+VkResult radv_device_init_anti_lag(struct radv_device *device);
+
+void radv_device_finish_anti_lag(struct radv_device *device);
+
 #endif /* RADV_DEVICE_H */

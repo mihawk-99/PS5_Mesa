@@ -141,6 +141,7 @@ libradv_files = files(
   'radv_acceleration_structure.c',
   'radv_android.c',
   'radv_android.h',
+  'radv_anti_lag.c',
   'radv_buffer.c',
   'radv_buffer.h',
   'radv_buffer_view.c',
