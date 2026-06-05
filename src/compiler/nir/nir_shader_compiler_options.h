@@ -673,14 +673,20 @@ typedef struct nir_shader_compiler_options {
    /** Backend supports bfdot2_bfadd opcode. */
    bool has_bfdot2_bfadd;
 
-   /** Backend supports fmulz (and ffmaz if lower_ffma32=false) */
+   /** Backend supports fmulz (and fmadz if has_fmad) */
    bool has_fmulz;
 
    /**
-    * Backend supports fmulz (and ffmaz if lower_ffma32=false) but only if
+    * Backend supports fmulz (and fmadz if has_fmad) but only if
     * FLOAT_CONTROLS_DENORM_PRESERVE_FP32 is not set
     */
    bool has_fmulz_no_denorms;
+
+   /**
+    * Backend supports ffmaz but only if
+    * FLOAT_CONTROLS_DENORM_PRESERVE_FP32 is not set
+    */
+   bool has_ffmaz_no_denorms;
 
    /** Backend supports fcanonicalize, if not set fcanonicalize will be lowered
     * to fmul(a, 1.0)

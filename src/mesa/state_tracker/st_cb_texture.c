@@ -497,7 +497,7 @@ st_astc_format_fallback(const struct st_context *st, mesa_format format)
    if (!_mesa_is_format_astc_2d(format))
       return false;
 
-   if (st->astc_void_extents_need_denorm_flush && !util_format_is_srgb(format))
+   if (st->screen->caps.astc_void_extents_need_denorm_flush && !util_format_is_srgb(format))
       return true;
 
    if (format == MESA_FORMAT_RGBA_ASTC_5x5 ||
@@ -758,7 +758,7 @@ st_UnmapTextureImage(struct gl_context *ctx,
          assert(z == transfer->box.z);
 
          if (_mesa_is_format_astc_2d(texImage->pt->format)) {
-            assert(st->astc_void_extents_need_denorm_flush);
+            assert(st->screen->caps.astc_void_extents_need_denorm_flush);
             upload_astc_slice_with_flushed_void_extents(map, transfer->stride,
                                                         itransfer->temp_data,
                                                         itransfer->temp_stride,

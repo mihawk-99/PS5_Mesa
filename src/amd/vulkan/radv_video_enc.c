@@ -25,9 +25,9 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+#include "tools/radv_debug.h"
 #include "radv_buffer.h"
 #include "radv_cs.h"
-#include "radv_debug.h"
 #include "radv_device_memory.h"
 #include "radv_entrypoints.h"
 #include "radv_image_view.h"
@@ -35,6 +35,7 @@
 #include "radv_query.h"
 #include "radv_video.h"
 
+#include "ac_cmdbuf_video.h"
 #include "ac_vcn_enc.h"
 #include "ac_vcn_enc_av1_default_cdf.h"
 
@@ -3092,7 +3093,8 @@ radv_vcn_encode_video(struct radv_cmd_buffer *cmd_buffer, const VkVideoEncodeInf
       radv_vcn_sq_tail(cs, &cmd_buffer->video.sq);
       if (feedback_query_va &&
           pdev->info.video_caps.queue[AMD_IP_VCN_ENC].write_memory == AC_VIDEO_WRITE_MEMORY_SUPPORT_FULL)
-         radv_vcn_write_memory(cmd_buffer, feedback_query_va + RADV_ENC_FEEDBACK_STATUS_IDX * sizeof(uint32_t), 1);
+         ac_emit_video_write_memory(cs->b, &pdev->info, cs->hw_ip,
+                                    feedback_query_va + RADV_ENC_FEEDBACK_STATUS_IDX * sizeof(uint32_t), 1);
    }
 }
 

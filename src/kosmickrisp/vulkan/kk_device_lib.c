@@ -20,7 +20,6 @@
 static VkResult
 build_precompiled_shaders(struct kk_device *dev)
 {
-   VkResult result = VK_SUCCESS;
    uint32_t i = 0u;
    for (; i < LIBKK_NUM_PROGRAMS; ++i) {
       const uint32_t *bin = libkk_AppleSilicon[i];
@@ -50,12 +49,12 @@ build_precompiled_shaders(struct kk_device *dev)
       memcpy(&shader->info, info, sizeof(*info));
    }
 
-   return result;
+   return VK_SUCCESS;
 
 fail:
    for (uint32_t j = 0u; j < i; ++j)
       mtl_release(dev->precompiled_cache.shaders[j].pipeline);
-   return vk_error(dev, result);
+   return vk_error(dev, VK_ERROR_INVALID_SHADER_NV);
 }
 
 VkResult

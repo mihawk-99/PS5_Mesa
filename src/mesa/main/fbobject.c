@@ -1508,7 +1508,7 @@ _mesa_test_framebuffer_completeness(struct gl_context *ctx,
          if (baseFormat == GL_RGB)
             fb->_IsRGB |= (1 << i);
 
-         if (ctx->st->has_indep_blend_func &&
+         if (ctx->st->screen->caps.indep_blend_func &&
              ((baseFormat == GL_RGB) ||
               (baseFormat == GL_LUMINANCE && !util_format_is_luminance(attFormat)) ||
               (baseFormat == GL_INTENSITY && !util_format_is_intensity(attFormat))))

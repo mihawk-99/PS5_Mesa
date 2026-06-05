@@ -1194,7 +1194,7 @@ _mesa_set_enable(struct gl_context *ctx, GLenum cap, GLboolean state)
          if (ctx->VertexProgram.TwoSideEnabled == state)
             return;
          FLUSH_VERTICES(ctx, 0, GL_ENABLE_BIT);
-         if (ctx->st->lower_two_sided_color) {
+         if (!ctx->st->screen->caps.two_sided_color) {
             /* TODO: this could be smaller, but most drivers don't get here */
             ST_SET_STATE3(ctx->NewDriverState, ST_NEW_VS_STATE,
                           ST_NEW_TES_STATE, ST_NEW_GS_STATE);

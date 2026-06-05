@@ -3628,6 +3628,7 @@ nvir_nir_shader_compiler_options(int chipset, uint8_t shader_type)
    op.has_rotate32 = (chipset >= NVISA_GV100_CHIPSET);
    op.has_imul24 = false;
    op.has_fmulz = (chipset > NVISA_G80_CHIPSET);
+   op.has_ffmaz_no_denorms = (chipset >= NVISA_GF100_CHIPSET);
    op.intel_vec4 = false;
    op.lower_uniforms_to_ubo = true;
    op.force_indirect_unrolling = (nir_variable_mode) (

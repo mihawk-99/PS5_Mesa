@@ -25,6 +25,8 @@
 #include "nir_shader_compiler_options.h"
 
 #include "vk_physical_device.h"
+#include "vk_sync.h"
+#include "vk_sync_timeline.h"
 
 #ifndef _WIN32
 #include <xf86drm.h>
@@ -79,8 +81,7 @@ struct radv_physical_device {
 
    struct ac_addrlib *addrlib;
 
-   int local_fd;
-   int master_fd;
+   int wsi_master_fd;
    struct wsi_device wsi_device;
 
    /* Whether DCC should be enabled for MSAA textures. */
@@ -153,6 +154,9 @@ struct radv_physical_device {
    enum radv_queue_family vk_queue_to_radv[RADV_MAX_QUEUE_FAMILIES];
    uint32_t num_queues;
 
+   /* Mask of supported global queue priorities. */
+   uint32_t global_priority_mask;
+
    uint32_t gs_table_depth;
 
    struct ac_task_info task_info;
@@ -165,13 +169,6 @@ struct radv_physical_device {
    uint32_t num_perfcounters;
    struct radv_perfcounter_desc *perfcounters;
 
-   struct {
-      unsigned data0;
-      unsigned data1;
-      unsigned data2;
-      unsigned cmd;
-      unsigned cntl;
-   } vid_dec_reg;
    enum amd_ip_type vid_decode_ip;
    rvcn_enc_cmd_t vcn_enc_cmds;
    enum radv_video_enc_hw_ver enc_hw_ver;
@@ -190,6 +187,10 @@ struct radv_physical_device {
 
       uint32_t max_array_layers;
    } image_props;
+
+   struct vk_sync_type syncobj_sync_type;
+   struct vk_sync_timeline_type emulated_timeline_sync_type;
+   const struct vk_sync_type *sync_types[3];
 };
 
 VK_DEFINE_HANDLE_CASTS(radv_physical_device, vk.base, VkPhysicalDevice, VK_OBJECT_TYPE_PHYSICAL_DEVICE)
@@ -255,10 +256,6 @@ bool radv_is_dcc_disabled(const struct radv_physical_device *pdev);
 bool radv_are_dcc_stores_disabled(const struct radv_physical_device *pdev);
 
 bool radv_are_dcc_mips_disabled(const struct radv_physical_device *pdev);
-
-uint32_t radv_find_memory_index(const struct radv_physical_device *pdev, VkMemoryPropertyFlags flags);
-
-VkResult create_null_physical_device(struct vk_instance *vk_instance);
 
 VkResult create_drm_physical_device(struct vk_instance *vk_instance, struct _drmDevice *device,
                                     struct vk_physical_device **out);

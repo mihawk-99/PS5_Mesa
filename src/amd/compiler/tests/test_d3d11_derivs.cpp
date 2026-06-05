@@ -145,10 +145,12 @@ BEGIN_TEST(d3d11_derivs.bias)
    PipelineBuilder pbld(get_vk_device(GFX10_3));
    pbld.add_vsfs(vs, fs);
 
-   //>> s2: %_:s[0-1], s1: %_:s[2], s1: %_:s[3], s1: %_:s[4], v2: %_:v[0-1], v1: %bias:v[2] = p_startpgm
+   //>> s2: %_:s[0-1], s1: %_:s[2], s1: %_:s[3], s1: %_:s[4], v2: %_:v[0-1], v1: %bias1:v[2] = p_startpgm
    //>> lv3: %wqm = p_start_linear_vgpr v1: undef, (kill)%_, (kill)%_
+   //>> v1: %bias2 = v_cvt_f32_u32 (kill)%bias1 dst_sel:dword src0_sel:uword0
+   //>> v1: %bias3 = v_add_f32 0.5, (kill)%bias2
    //>> BB1
-   //>> v4: %_ = image_sample_b (kill)%_, (kill)%_, v1: undef, %wqm, (kill)%bias 2d
+   //>> v4: %_ = image_sample_b (kill)%_, (kill)%_, v1: undef, %wqm, (kill)%bias3 2d
    //>> BB2
    //>> BB6
    //>> p_end_linear_vgpr (kill)%wqm
@@ -279,11 +281,13 @@ BEGIN_TEST(d3d11_derivs.bias_array)
    PipelineBuilder pbld(get_vk_device(GFX10_3));
    pbld.add_vsfs(vs, fs);
 
-   //>> s2: %_:s[0-1], s1: %_:s[2], s1: %_:s[3], s1: %_:s[4], v2: %_:v[0-1], v1: %bias:v[2] = p_startpgm
+   //>> s2: %_:s[0-1], s1: %_:s[2], s1: %_:s[3], s1: %_:s[4], v2: %_:v[0-1], v1: %bias1:v[2] = p_startpgm
    //>> v1: %layer = v_rndne_f32 (kill)%_
    //>> lv4: %wqm = p_start_linear_vgpr v1: undef, (kill)%_, (kill)%_, (kill)%layer
+   //>> v1: %bias2 = v_cvt_f32_u32 (kill)%bias1 dst_sel:dword src0_sel:uword0
+   //>> v1: %bias3 = v_add_f32 0.5, (kill)%bias2
    //>> BB1
-   //>> v4: %_ = image_sample_b (kill)%_, (kill)%_, v1: undef, %wqm, (kill)%bias 2darray da
+   //>> v4: %_ = image_sample_b (kill)%_, (kill)%_, v1: undef, %wqm, (kill)%bias3 2darray da
    //>> BB2
    //>> BB6
    //>> p_end_linear_vgpr (kill)%wqm

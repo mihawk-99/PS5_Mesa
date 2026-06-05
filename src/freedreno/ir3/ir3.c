@@ -202,6 +202,8 @@ ir3_should_double_threadsize(struct ir3_shader_variant *v, unsigned regs_count)
       return false;
    if (v->shader_options.real_wavesize == IR3_DOUBLE_ONLY)
       return true;
+   if (ir3_shader_debug & IR3_DBG_THREAD64)
+      return false;
 
    /* We can't support more than compiler->max_branchstack diverging threads
     * in a wave. Thus, doubling the threadsize is only possible if we don't

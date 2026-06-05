@@ -18,6 +18,7 @@
 
 #include "util/disk_cache.h"
 #include "util/ralloc.h"
+#include "util/os_misc.h"
 
 #include "vk_util.h"
 #include "vk_log.h"
@@ -143,7 +144,7 @@ static void pvr_physical_device_get_supported_extensions(
       .KHR_incremental_present = PVR_USE_WSI_PLATFORM,
       .KHR_image_format_list = true,
       .KHR_imageless_framebuffer = true,
-      .KHR_index_type_uint8 = false,
+      .KHR_index_type_uint8 = true,
       .KHR_line_rasterization = true,
       .KHR_maintenance1 = true,
       .KHR_maintenance2 = true,
@@ -179,6 +180,7 @@ static void pvr_physical_device_get_supported_extensions(
       .EXT_border_color_swizzle = true,
       .EXT_color_write_enable = true,
       .EXT_custom_border_color = true,
+      .EXT_debug_marker = true,
       .EXT_depth_clamp_zero_one = true,
       .EXT_depth_clip_enable = true,
       .EXT_image_drm_format_modifier = true,
@@ -188,7 +190,7 @@ static void pvr_physical_device_get_supported_extensions(
       .EXT_external_memory_dma_buf = true,
       .EXT_host_query_reset = true,
       .EXT_image_2d_view_of_3d = true,
-      .EXT_index_type_uint8 = false,
+      .EXT_index_type_uint8 = true,
       .EXT_line_rasterization = true,
       .EXT_map_memory_placed = true,
       .EXT_non_seamless_cube_map = true,
@@ -591,11 +593,11 @@ static bool pvr_physical_device_get_properties(
       .maxBoundDescriptorSets = 4U,
       .maxPerStageDescriptorSamplers = 16,
       .maxPerStageDescriptorUniformBuffers = 12,
-      .maxPerStageDescriptorStorageBuffers = 8,
+      .maxPerStageDescriptorStorageBuffers = 16,
       .maxPerStageDescriptorSampledImages = 16,
       .maxPerStageDescriptorStorageImages = 4,
       .maxPerStageDescriptorInputAttachments = 4,
-      .maxPerStageResources = 48,
+      .maxPerStageResources = 56,
       .maxDescriptorSetSamplers = 3U * 16U,
       .maxDescriptorSetUniformBuffers = 3U * 12U,
       .maxDescriptorSetUniformBuffersDynamic = 8U,
@@ -778,9 +780,9 @@ static bool pvr_physical_device_get_properties(
       .driverInfo = "Mesa " PACKAGE_VERSION MESA_GIT_SHA1,
       .conformanceVersion = {
          .major = 1,
-         .minor = 3,
-         .subminor = 8,
-         .patch = 4,
+         .minor = 4,
+         .subminor = 3,
+         .patch = 3,
       },
 
       /* VK_EXT_extended_dynamic_state3 */
@@ -1005,30 +1007,13 @@ static bool pvr_device_is_conformant(const struct pvr_device_info *info)
    return false;
 }
 
-/* Minimum required by the Vulkan 1.1 spec (see Table 32. Required Limits) */
+/* Minimum required by the Vulkan spec Limits (maxMemoryAllocationSize) */
 #define PVR_MAX_MEMORY_ALLOCATION_SIZE (1ull << 30)
 
-static uint64_t pvr_compute_heap_size(void)
+static inline uint64_t pvr_compute_heap_size(struct pvr_instance *instance)
 {
-   /* Query the total ram from the system */
-   uint64_t total_ram;
-   if (!os_get_total_physical_memory(&total_ram))
-      return 0;
-
-   if (total_ram < PVR_MAX_MEMORY_ALLOCATION_SIZE) {
-      mesa_logw(
-         "Warning: The available RAM is below the minimum required by the Vulkan specification!");
-   }
-
-   /* We don't want to burn too much ram with the GPU. If the user has 4GiB
-    * or less, we use at most half. If they have more than 4GiB, we use 3/4.
-    */
-   uint64_t available_ram;
-   if (total_ram <= 4ULL * 1024ULL * 1024ULL * 1024ULL)
-      available_ram = total_ram / 2U;
-   else
-      available_ram = total_ram * 3U / 4U;
-
+   uint64_t available_ram =
+      os_get_gpu_heap_size(instance->heap_memory_percent, NULL);
    return MAX2(available_ram, PVR_MAX_MEMORY_ALLOCATION_SIZE);
 }
 
@@ -1122,7 +1107,7 @@ VkResult pvr_physical_device_init(struct pvr_physical_device *pdevice,
 
    /* Setup available memory heaps and types */
    pdevice->memory.memoryHeapCount = 1;
-   pdevice->memory.memoryHeaps[0].size = pvr_compute_heap_size();
+   pdevice->memory.memoryHeaps[0].size = pvr_compute_heap_size(instance);
    pdevice->memory.memoryHeaps[0].flags = VK_MEMORY_HEAP_DEVICE_LOCAL_BIT;
 
    pdevice->memory.memoryTypeCount = 1;

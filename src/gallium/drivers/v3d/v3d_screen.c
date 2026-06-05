@@ -22,8 +22,6 @@
  * IN THE SOFTWARE.
  */
 
-#include <sys/sysinfo.h>
-
 #include "common/v3d_device_info.h"
 #include "common/v3d_limits.h"
 #include "util/os_misc.h"
@@ -202,7 +200,7 @@ v3d_init_compute_caps(struct v3d_screen *screen)
          */
         caps->max_grid_size[0] =
         caps->max_grid_size[1] =
-        caps->max_grid_size[2] = 65535;
+        caps->max_grid_size[2] = V3D_MAX_CSD_WG_COUNT;
 
         /* GL_MAX_COMPUTE_WORK_GROUP_SIZE */
         caps->max_block_size[0] =
@@ -216,12 +214,12 @@ v3d_init_compute_caps(struct v3d_screen *screen)
         caps->max_variable_threads_per_block = V3D_MAX_CSD_WG_SIZE;
 
         /* GL_MAX_COMPUTE_SHARED_MEMORY_SIZE */
-        caps->max_local_size = 32768;
+        caps->max_local_size = V3D_MAX_COMPUTE_SHARED_MEMORY_SIZE;
 
-        struct sysinfo si;
-        sysinfo(&si);
-        caps->max_global_size = si.totalram;
-        caps->max_mem_alloc_size = MIN2(V3D_MAX_BUFFER_RANGE, si.totalram);
+        caps->max_global_size =
+                os_get_gpu_heap_size(screen->heap_memory_percent, NULL);
+        caps->max_mem_alloc_size =
+                MIN2(V3D_MAX_BUFFER_RANGE, caps->max_global_size);
 
         caps->max_compute_units = 1;
         caps->subgroup_sizes = 16;
@@ -338,9 +336,8 @@ v3d_init_screen_caps(struct v3d_screen *screen)
 
         caps->vendor_id = 0x14E4;
 
-        uint64_t system_memory;
-        caps->video_memory = os_get_total_physical_memory(&system_memory) ?
-                system_memory >> 20 : 0;
+        caps->video_memory =
+                os_get_gpu_heap_size(screen->heap_memory_percent, NULL) >> 20;
 
         caps->uma = true;
 
@@ -813,6 +810,11 @@ v3d_screen_create(int fd, const struct pipe_screen_config *config,
         screen->nonmsaa_texture_size_limit =
                 driCheckOption(config->options, nonmsaa_name, DRI_BOOL) &&
                 driQueryOptionb(config->options, nonmsaa_name);
+
+        screen->heap_memory_percent =
+                driQueryOptionf(config->options, "heap_memory_percent");
+        if (screen->heap_memory_percent == OS_GPU_HEAP_SIZE_HEURISTIC)
+                screen->heap_memory_percent = 1.0f;
 
         slab_create_parent(&screen->transfer_pool, sizeof(struct v3d_transfer), 16);
 

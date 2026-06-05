@@ -1217,9 +1217,9 @@ update_obj_info(struct zink_screen *screen, struct zink_resource_object *obj,
       obj->size = zink_bo_get_size(obj->bo);
    }
 
-   obj->coherent = screen->info.mem_props.memoryTypes[obj->bo->base.base.placement].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+   obj->coherent = screen->info.mem_props.memoryTypes[obj->bo->base.placement].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
    if (!(templ->flags & PIPE_RESOURCE_FLAG_SPARSE)) {
-      obj->host_visible = screen->info.mem_props.memoryTypes[obj->bo->base.base.placement].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+      obj->host_visible = screen->info.mem_props.memoryTypes[obj->bo->base.placement].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
    }
 }
 
@@ -2678,7 +2678,7 @@ zink_buffer_map(struct pipe_context *pctx,
 
    unsigned map_offset = box->x;
    /* ideally never ever read or write to non-cached mem */
-   bool is_cached_mem = (screen->info.mem_props.memoryTypes[res->obj->bo->base.base.placement].propertyFlags & VK_STAGING_RAM) == VK_STAGING_RAM;
+   bool is_cached_mem = (screen->info.mem_props.memoryTypes[res->obj->bo->base.placement].propertyFlags & VK_STAGING_RAM) == VK_STAGING_RAM;
    /* but this is only viable with a certain amount of vram since it may fully duplicate lots of large buffers */
    bool host_mem_type_check = res->obj->host_visible;
    if (screen->always_cached_upload)

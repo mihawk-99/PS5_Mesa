@@ -36,6 +36,7 @@
  * suffixes do not exist and 8 comes before 16.
  */
 static const struct spirv_capabilities implemented_capabilities = {
+   .AbortKHR = true,
    .Addresses = true,
    .AtomicFloat16AddEXT = true,
    .AtomicFloat32AddEXT = true,
@@ -6776,6 +6777,21 @@ vtn_handle_allocate_node_payloads(struct vtn_builder *b, SpvOp opcode,
    nir_initialize_node_payloads(&b->nb, payloads, payload_count, node_index, .execution_scope = scope);
 }
 
+static void
+vtn_handle_abort(struct vtn_builder *b, const uint32_t *w, unsigned count)
+{
+   struct vtn_type *msg_type = vtn_get_type(b, w[1]);
+   struct vtn_ssa_value *msg = vtn_ssa_value(b, w[2]);
+
+   nir_variable *var =
+      nir_local_variable_create(b->nb.impl, msg_type->type, "abort_message");
+   nir_deref_instr *deref = nir_build_deref_var(&b->nb, var);
+
+   vtn_local_store(b, msg, deref, 0);
+
+   nir_abort(&b->nb, &deref->def);
+}
+
 static bool
 vtn_handle_body_instruction(struct vtn_builder *b, SpvOp opcode,
                             const uint32_t *w, unsigned count)
@@ -7322,6 +7338,10 @@ vtn_handle_body_instruction(struct vtn_builder *b, SpvOp opcode,
    case SpvOpCooperativeMatrixReduceNV:
    case SpvOpCooperativeMatrixPerElementOpNV:
       vtn_handle_cooperative_instruction(b, opcode, w, count);
+      break;
+
+   case SpvOpAbortKHR:
+      vtn_handle_abort(b, w, count);
       break;
 
    default:

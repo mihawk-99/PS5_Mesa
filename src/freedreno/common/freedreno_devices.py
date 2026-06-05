@@ -822,6 +822,7 @@ a7xx_gen2 = GPUProps(
         has_hw_bin_scaling = True,
         has_image_processing = True,
         has_64b_image_atomics = True,
+        has_implicit_fragface_fragcoord_ij_linear = True,
     )
 
 a7xx_gen3 = GPUProps(
@@ -852,6 +853,7 @@ a7xx_gen3 = GPUProps(
         has_image_processing = True,
         max_draw_states = 64,
         has_64b_image_atomics = True,
+        has_implicit_fragface_fragcoord_ij_linear = True,
     )
 
 a730_magic_regs = dict(
@@ -873,7 +875,7 @@ a730_raw_magic_regs = [
         [A6XXRegs.REG_A7XX_UCHE_UNKNOWN_0E11, 0x00000040],
         [A6XXRegs.REG_A7XX_SP_HLSQ_DBG_ECO_CNTL, 0x00008000],
         [A6XXRegs.REG_A6XX_SP_DBG_ECO_CNTL, 0x10000000],
-        [A6XXRegs.REG_A6XX_PC_MODE_CNTL,    0x0000003f],  # 0x00001f1f in some tests
+        [A6XXRegs.REG_A6XX_PC_MODE_CNTL,    0x1f1f],
         [A6XXRegs.REG_A6XX_PC_DBG_ECO_CNTL, 0x20080000],
         [A6XXRegs.REG_A7XX_PC_UNKNOWN_9E24, 0x21fc7f00],
         [A6XXRegs.REG_A7XX_VFD_DBG_ECO_CNTL, 0x00000000],
@@ -922,9 +924,7 @@ a740_raw_magic_regs = [
         [A6XXRegs.REG_A7XX_UCHE_UNKNOWN_0E11, 0x00000000],
         [A6XXRegs.REG_A7XX_SP_HLSQ_DBG_ECO_CNTL, 0x00000000],
         [A6XXRegs.REG_A6XX_SP_DBG_ECO_CNTL, 0x10000000],
-        # Blob uses 0x1f or 0x1f1f, however these values cause vertices
-        # corruption in some tests.
-        [A6XXRegs.REG_A6XX_PC_MODE_CNTL,    0x0000003f],
+        [A6XXRegs.REG_A6XX_PC_MODE_CNTL,    0x1f1f],
         [A6XXRegs.REG_A6XX_PC_DBG_ECO_CNTL, 0x00100000],
         [A6XXRegs.REG_A7XX_PC_UNKNOWN_9E24, 0x21585600],
         [A6XXRegs.REG_A7XX_VFD_DBG_ECO_CNTL, 0x00008000],
@@ -1028,7 +1028,7 @@ add_gpus([
             [A6XXRegs.REG_A7XX_UCHE_UNKNOWN_0E11, 0x00000000],
             [A6XXRegs.REG_A7XX_SP_HLSQ_DBG_ECO_CNTL, 0x00000000],
             [A6XXRegs.REG_A6XX_SP_DBG_ECO_CNTL, 0x10000000],
-            [A6XXRegs.REG_A6XX_PC_MODE_CNTL, 0x1f],
+            [A6XXRegs.REG_A6XX_PC_MODE_CNTL, 0x1f1f],
             [A6XXRegs.REG_A6XX_PC_DBG_ECO_CNTL, 0x00100000],
             [A6XXRegs.REG_A7XX_PC_UNKNOWN_9E24, 0x01585600],
             [A6XXRegs.REG_A7XX_VFD_DBG_ECO_CNTL, 0x00008000],
@@ -1111,9 +1111,7 @@ add_gpus([
             [A6XXRegs.REG_A7XX_UCHE_UNKNOWN_0E11, 0x00000080],
             [A6XXRegs.REG_A7XX_SP_HLSQ_DBG_ECO_CNTL, 0x00000000],
             [A6XXRegs.REG_A6XX_SP_DBG_ECO_CNTL, 0x10000000],
-            # Blob uses 0x1f or 0x1f1f, however these values cause vertices
-            # corruption in some tests.
-            [A6XXRegs.REG_A6XX_PC_MODE_CNTL,    0x0000003f],
+            [A6XXRegs.REG_A6XX_PC_MODE_CNTL,    0x1f1f],
             [A6XXRegs.REG_A6XX_PC_DBG_ECO_CNTL, 0x00100000],
             [A6XXRegs.REG_A7XX_PC_UNKNOWN_9E24, 0x21585600],
             [A6XXRegs.REG_A7XX_VFD_DBG_ECO_CNTL, 0x00008000],

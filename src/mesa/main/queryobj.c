@@ -138,11 +138,11 @@ query_type_is_dummy(struct gl_context *ctx, unsigned type)
    case PIPE_QUERY_OCCLUSION_COUNTER:
    case PIPE_QUERY_OCCLUSION_PREDICATE:
    case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
-      return !st->has_occlusion_query;
+      return !st->screen->caps.occlusion_query;
    case PIPE_QUERY_PIPELINE_STATISTICS:
-      return !st->has_pipeline_stat;
+      return !st->screen->caps.query_pipeline_statistics;
    case PIPE_QUERY_PIPELINE_STATISTICS_SINGLE:
-      return !st->has_single_pipe_stat;
+      return !st->screen->caps.query_pipeline_statistics_single;
    default:
       break;
    }
@@ -183,7 +183,7 @@ begin_query(struct gl_context *ctx, struct gl_query_object *q)
       type = PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE;
       break;
    case GL_TIME_ELAPSED:
-      if (st->has_time_elapsed)
+      if (st->screen->caps.query_time_elapsed)
          type = PIPE_QUERY_TIME_ELAPSED;
       else
          type = PIPE_QUERY_TIMESTAMP;
@@ -202,7 +202,7 @@ begin_query(struct gl_context *ctx, struct gl_query_object *q)
    case GL_TASK_SHADER_INVOCATIONS_EXT:
    case GL_MESH_SHADER_INVOCATIONS_EXT:
    case GL_MESH_PRIMITIVES_GENERATED_EXT:
-      type = st->has_single_pipe_stat ? PIPE_QUERY_PIPELINE_STATISTICS_SINGLE
+      type = st->screen->caps.query_pipeline_statistics_single ? PIPE_QUERY_PIPELINE_STATISTICS_SINGLE
                                       : PIPE_QUERY_PIPELINE_STATISTICS;
       break;
    default:

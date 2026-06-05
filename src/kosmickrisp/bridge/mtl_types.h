@@ -220,6 +220,12 @@ enum mtl_depth_clip_mode {
    MTL_DEPTH_CLIP_MODE_CLAMP = 1,
 };
 
+enum mtl_barrier_scope {
+   MTL_BARRIER_SCOPE_BUFFERS = 1 << 0,
+   MTL_BARRIER_SCOPE_TEXTURES = 1 << 1,
+   MTL_BARRIER_SCOPE_RENDER_TARGETS = 1 << 2,
+};
+
 /** STRUCTURES */
 struct mtl_range {
    size_t offset;

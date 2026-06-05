@@ -251,6 +251,16 @@ v3dv_cmd_buffer_add_private_obj(struct v3dv_cmd_buffer *cmd_buffer,
    list_addtail(&pobj->list_link, &cmd_buffer->private_objs);
 }
 
+void
+v3dv_cmd_buffer_destroy_bo_cb(VkDevice _device,
+                              uint64_t pobj,
+                              VkAllocationCallbacks *alloc)
+{
+   V3DV_FROM_HANDLE(v3dv_device, device, _device);
+   struct v3dv_bo *bo = (struct v3dv_bo *)((uintptr_t) pobj);
+   v3dv_bo_free(device, bo);
+}
+
 static void
 cmd_buffer_destroy_private_obj(struct v3dv_cmd_buffer *cmd_buffer,
                                struct v3dv_cmd_buffer_private_obj *pobj)
@@ -3472,6 +3482,8 @@ v3dv_CmdBindVertexBuffers2(VkCommandBuffer commandBuffer,
 
    for (uint32_t i = 0; i < bindingCount; i++) {
       struct v3dv_buffer *buffer = v3dv_buffer_from_handle(pBuffers[i]);
+      assert(buffer || cmd_buffer->device->vk.enabled_features.nullDescriptor);
+
       if (vb[firstBinding + i].buffer != buffer) {
          vb[firstBinding + i].buffer = v3dv_buffer_from_handle(pBuffers[i]);
          vb_state_changed = true;
@@ -3481,14 +3493,19 @@ v3dv_CmdBindVertexBuffers2(VkCommandBuffer commandBuffer,
          vb[firstBinding + i].offset = pOffsets[i];
          vb_state_changed = true;
       }
-      assert(pOffsets[i] <= buffer->size);
 
       VkDeviceSize size;
-      if (!pSizes || pSizes[i] == VK_WHOLE_SIZE)
-         size = buffer->size - pOffsets[i];
-      else
-         size = pSizes[i];
-      assert(pOffsets[i] + size <= buffer->size);
+      if (!buffer) {
+         size = 0;
+      } else {
+         assert(pOffsets[i] <= buffer->size);
+
+         if (!pSizes || pSizes[i] == VK_WHOLE_SIZE)
+            size = buffer->size - pOffsets[i];
+         else
+            size = pSizes[i];
+         assert(pOffsets[i] + size <= buffer->size);
+      }
 
       if (vb[firstBinding + i].size != size) {
          vb[firstBinding + i].size = size;

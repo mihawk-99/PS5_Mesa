@@ -15,9 +15,10 @@
 #include "nir/radv_nir_rt_stage_functions.h"
 #include "nir/radv_nir_rt_stage_monolithic.h"
 #include "nir/radv_nir_rt_traversal_shader.h"
+#include "tools/radv_debug.h"
 #include "ac_nir.h"
-#include "radv_debug.h"
 #include "radv_descriptor_set.h"
+#include "radv_device.h"
 #include "radv_entrypoints.h"
 #include "radv_pipeline_binary.h"
 #include "radv_pipeline_cache.h"
@@ -25,8 +26,8 @@
 #include "radv_pipeline_rt.h"
 
 #include "nir/radv_nir_rt_stage_common.h"
+#include "tools/radv_rmv.h"
 #include "aco_interface.h"
-#include "radv_rmv.h"
 #include "radv_shader.h"
 
 struct rt_handle_hash_entry {
@@ -1165,7 +1166,7 @@ radv_rt_pipeline_compile(struct radv_device *device, const VkRayTracingPipelineC
                          const VkPipelineCreationFeedbackCreateInfo *creation_feedback)
 {
    bool skip_shaders_cache = radv_pipeline_skip_shaders_cache(device, &pipeline->base.base);
-   const bool emit_ray_history = !!device->rra_trace.ray_history_buffer;
+   const bool emit_ray_history = !!device->rra_trace.ray_history_addr;
    VkPipelineCreationFeedback pipeline_feedback = {
       .flags = VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT,
    };

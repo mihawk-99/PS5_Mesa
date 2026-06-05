@@ -43,6 +43,9 @@ has_fmulz = '(options->has_fmulz || \
               (options->has_fmulz_no_denorms && \
                !nir_is_denorm_preserve(info->float_controls_execution_mode, 32)))'
 
+has_ffmaz = '(options->has_ffmaz_no_denorms && \
+              !nir_is_denorm_preserve(info->float_controls_execution_mode, 32))'
+
 denorm_ftz_16 = 'nir_is_denorm_flush_to_zero(info->float_controls_execution_mode, 16)'
 denorm_ftz_32 = 'nir_is_denorm_flush_to_zero(info->float_controls_execution_mode, 32)'
 denorm_ftz_64 = 'nir_is_denorm_flush_to_zero(info->float_controls_execution_mode, 64)'
@@ -232,6 +235,7 @@ optimizations += [
    (('iabs', ('ineg', a)), ('iabs', a)),
    (('fadd(nsz)', a, 0.0), ('fcanonicalize', a)),
    (('fadd', a, -0.0), ('fcanonicalize', a)),
+   (('fadd', ('b2f', a), 0.0), ('b2f', a)),
    (('iadd', a, 0), a),
    (('iadd_sat', a, 0), a),
    (('isub_sat', a, 0), a),
@@ -388,13 +392,13 @@ optimizations += [
 
    # ffma(b==0.0 ? 0.0 : a, a==0.0 ? 0.0 : b, c) -> ffmaz(a, b, c)
    *add_fabs_fneg((('ffma@32(nsz)', ('bcsel', ('feq', b, 0.0), 0.0, 'ma'), ('bcsel', ('feq', a, 0.0), 0.0, 'mb'), c),
-    ('ffmaz', 'ma', 'mb', c), has_fmulz), {'ma' : a, 'mb' : b}),
+    ('ffmaz', 'ma', 'mb', c), has_ffmaz), {'ma' : a, 'mb' : b}),
    *add_fabs_fneg((('ffma@32(nsz)', 'ma', ('bcsel', ('feq', a, 0.0), 0.0, '#b(is_not_const_zero)'), c),
-    ('ffmaz', 'ma', b, c), has_fmulz), {'ma' : a}),
+    ('ffmaz', 'ma', b, c), has_ffmaz), {'ma' : a}),
    *add_fabs_fneg((('ffma@32(nsz)', ('b2f', ('iand', ('fneu', a, 0.0), b)), ('bcsel', b, 'ma', 0.0), c),
-    ('ffmaz', 'ma', ('b2f', b), c), has_fmulz), {'ma' : a}),
+    ('ffmaz', 'ma', ('b2f', b), c), has_ffmaz), {'ma' : a}),
    *add_fabs_fneg((('ffma@32(nsz)', ('b2f', ('inot', ('ior', ('feq', a, 0.0), b))), ('bcsel', b, 0.0, 'ma'), c),
-    ('ffmaz', 'ma', ('b2f', ('inot', b)), c), has_fmulz), {'ma' : a}),
+    ('ffmaz', 'ma', ('b2f', ('inot', b)), c), has_ffmaz), {'ma' : a}),
 
    # b == 0.0 ? 1.0 : fexp2(fmul(a, b)) -> fexp2(fmulz(a, b))
    *add_fabs_fneg((('bcsel(nsz,nnan,ninf)', ('feq', b, 0.0), 1.0, ('fexp2', ('fmul@32', a, 'mb'))),
@@ -529,9 +533,9 @@ optimizations.extend([
    (('ftrunc@64', a), ('bcsel', ('flt', a, 0.0), ('fneg', ('ffloor', ('fabs', a))), ('ffloor', ('fabs', a))),
     '(options->lower_ftrunc || (options->lower_doubles_options & nir_lower_dtrunc)) && (!(options->lower_doubles_options & nir_lower_dfloor) || !(options->lower_doubles_options & nir_lower_dfract))'),
 
-   (('ffloor@16', a), ('fsub', a, ('ffract', a)), 'options->lower_ffloor'),
-   (('ffloor@32', a), ('fsub', a, ('ffract', a)), 'options->lower_ffloor'),
-   (('ffloor@64', a), ('fsub', a, ('ffract', a)), '(options->lower_ffloor || (options->lower_doubles_options & nir_lower_dfloor)) && !(options->lower_doubles_options & nir_lower_dfract)'),
+   (('ffloor@16', a), ('fsub', a, ('!ffract', a)), 'options->lower_ffloor'),
+   (('ffloor@32', a), ('fsub', a, ('!ffract', a)), 'options->lower_ffloor'),
+   (('ffloor@64', a), ('fsub', a, ('!ffract', a)), '(options->lower_ffloor || (options->lower_doubles_options & nir_lower_dfloor)) && !(options->lower_doubles_options & nir_lower_dfract)'),
    (('fadd@16', a, ('fadd@16', b, ('fneg', ('ffract', a)))), ('fadd@16', b, ('ffloor', a)), '!options->lower_ffloor'),
    (('fadd@32', a, ('fadd@32', b, ('fneg', ('ffract', a)))), ('fadd@32', b, ('ffloor', a)), '!options->lower_ffloor'),
    (('fadd@64', a, ('fadd@64', b, ('fneg', ('ffract', a)))), ('fadd@64', b, ('ffloor', a)), '!options->lower_ffloor && !(options->lower_doubles_options & nir_lower_dfloor)'),
@@ -602,19 +606,24 @@ for s in [8, 16, 32, 64]:
    mask = s - 1
 
    ishl = "ishl@{}".format(s)
+   ishl_once = "ishl@{}(is_used_once)".format(s)
    ishr = "ishr@{}".format(s)
    ushr = "ushr@{}".format(s)
 
-   in_bounds = ('ult', ('iadd', ('iand', b, mask), ('iand', c, mask)), s)
+   in_bounds = lambda x, y: ('ult', ('iadd', ('iand', x, mask), ('iand', y, mask)), s)
 
    optimizations.extend([
-       ((ishl, (ishl, a, '#b'), '#c'), ('bcsel', in_bounds, (ishl, a, ('iadd', b, c)), 0)),
-       ((ushr, (ushr, a, '#b'), '#c'), ('bcsel', in_bounds, (ushr, a, ('iadd', b, c)), 0)),
+       ((ishl, (ishl, a, '#b'), '#c'), ('bcsel', in_bounds(b, c), (ishl, a, ('iadd', b, c)), 0)),
+       ((ushr, (ushr, a, '#b'), '#c'), ('bcsel', in_bounds(b, c), (ushr, a, ('iadd', b, c)), 0)),
 
        # To get get -1 for large shifts of negative values, ishr must instead
        # clamp the shift count to the maximum value.
        ((ishr, (ishr, a, '#b'), '#c'),
         (ishr, a, ('imin', ('iadd', ('iand', b, mask), ('iand', c, mask)), s - 1))),
+
+       ((ishl, ('iadd(is_used_once)', (ishl_once, a, '#b'), (ishl_once, c, '#d')), '#e'),
+        ('iadd', ('bcsel', in_bounds(b, e), ('ishl', a, ('iand', ('iadd', b, e), mask)), 0),
+                 ('bcsel', in_bounds(d, e), ('ishl', c, ('iand', ('iadd', d, e), mask)), 0))),
    ])
 
 # Optimize a pattern of address calculation created by DXVK where the offset is
@@ -713,6 +722,8 @@ optimizations.extend([
    (('ishl', ('iadd', a, '#b'), '#c'), ('iadd', ('ishl', a, c), ('ishl', b, c))),
    (('ishl', ('iadd(is_used_once)', ('iadd', a, '#b'), c), '#d'),
     ('iadd', ('ishl', ('iadd', a, c), d), ('ishl', b, d))),
+   (('ishl', ('iadd(is_used_once)', ('iadd(is_used_once)', ('iadd', a, '#b'), c), d), '#e'),
+    ('iadd', ('ishl', ('iadd', ('iadd', a, c), d), e), ('ishl', b, e))),
 
    # (a + #b) * #c => (a * #c) + (#b * #c)
    (('imul', ('iadd(is_used_once)', a, '#b'), '#c'), ('iadd', ('imul', a, c), ('imul', b, c))),
@@ -913,6 +924,31 @@ optimizations.extend([
    (('bcsel', a, ('b2f', 'b@1'), 1.0), ('b2f', ('bcsel', a, b, True))),
    (('bcsel', a, 0, ('b2f', 'b@1')), ('b2f', ('bcsel', a, False, b))),
    (('bcsel', a, 1.0, ('b2f', 'b@1')), ('b2f', ('bcsel', a, True, b))),
+
+   # These patterns can occur especially when continue statements are removed
+   # from loops like 'for (i = 0; i < x; i++)'.
+   (('bcsel', a, ('iadd', b, -1), b), ('iadd', b, ('ineg', ('b2i', a)))),
+   (('bcsel', a, ('iadd', b,  1), b), ('iadd', b,          ('b2i', a) )),
+   (('bcsel(is_only_used_as_float)',     a, ('fadd', b, -1.0), b), ('fadd', b, ('fneg', ('b2f', a)))),
+   (('bcsel(is_only_used_as_float_nsz)', a, ('fadd', b,  1.0), b), ('fadd', b,          ('b2f', a) )),
+
+   (('bcsel', a, b, ('iadd', b, -1)), ('iadd', b, ('ineg', ('b2i', ('inot', a))))),
+   (('bcsel', a, b, ('iadd', b,  1)), ('iadd', b,          ('b2i', ('inot', a)) )),
+   (('bcsel(is_only_used_as_float)',     a, b, ('fadd', b, -1.0)), ('fadd', b, ('fneg', ('b2f', ('inot', a))))),
+   (('bcsel(is_only_used_as_float_nsz)', a, b, ('fadd', b,  1.0)), ('fadd', b,          ('b2f', ('inot', a)) )),
+
+   # Since b2i(inot(a)) == 1 - b2i(a), 1 - b2i(inot(a)) == b2i(a).
+   (('iadd', '#a', ('ineg', ('b2i', ('inot', b)))), ('iadd', ('iadd', a, -1),          ('b2i', b) )),
+   (('iadd', '#a',          ('b2i', ('inot', b)) ), ('iadd', ('iadd', a,  1), ('ineg', ('b2i', b)))),
+   (('~fadd', '#a', ('fneg', ('b2f', ('inot', b)))), ('fadd', ('fadd', a, -1.0),          ('b2f', b) )),
+   (('~fadd', '#a',          ('b2f', ('inot', b)) ), ('fadd', ('fadd', a,  1.0), ('fneg', ('b2f', b)))),
+
+   # The preceeding patterns can create some messes that other patterns can't
+   # clean up.
+   (('fadd', ('fneg', ('b2f', b)), ('fneg', ('b2f', ('inot', b)))), -1.0),
+   (('fadd', ('b2f', b), ('b2f', ('inot', b))), 1.0),
+   (('fadd', ('fadd', a, ('fneg', ('b2f', b))), ('fneg', ('b2f', ('inot', b)))), ('fadd', a, -1.0)),
+   (('fadd', ('fadd', a, ('b2f', b)), ('b2f', ('inot', b))), ('fadd', a, 1.0)),
 
    # fmin(b2f(a), b)
    # bcsel(a, fmin(b2f(a), b), fmin(b2f(a), b))
@@ -1913,6 +1949,10 @@ optimizations.extend([
    (('f2u', ('ftrunc', 'a(is_not_negative)')), ('f2u', a)),
    (('f2i', ('ffloor', 'a(is_not_negative)')), ('f2i', a)),
    (('f2u', ('ffloor', a)), ('f2u', a)),
+   (('f2u(contract)', ('fadd', 'a(is_integral_not_negative)', 'b(is_a_number_gt_0_and_lt_1)')), ('f2u', a)),
+   (('f2i(contract)', ('fadd', 'a(is_integral_not_negative)', 'b(is_a_number_gt_0_and_lt_1)')), ('f2i', a)),
+   (('f2u32', ('u2f32', 'a@16')), ('u2u32', a)),
+   (('f2i32', ('u2f32', 'a@16')), ('u2u32', a)),
 
    # Section 3.3.11 (Conversion Instructions) of the SPIR-V 1.6 spec says:
    #
@@ -1960,18 +2000,18 @@ optimizations.extend([
    (('f2u32', ('f2fmp', 'a@32')), ('f2u32', a), 'true', TestStatus.UNSUPPORTED),
    (('i2f32', ('i2imp', 'a@32')), ('i2f32', a), 'true', TestStatus.UNSUPPORTED),
 
-   # f16 -> f2f32 -> fmul32 -> f2fmp when the second operand is a constant
-   # The optimization only works when the constant can be safely represented with 16 bits
-   (('f2fmp', ('fmul(is_used_once,contract)', ('f2f32', 'a@16'), '#b(is_representable_as_f16)')), ('fmul', a, ('f2fmp', b)), 'true', TestStatus.UNSUPPORTED),
-   (('f2fmp', ('fadd(is_used_once,contract)', ('f2f32', 'a@16'), '#b(is_representable_as_f16)')), ('fadd', a, ('f2fmp', b)), 'true', TestStatus.UNSUPPORTED),
-
    (('ffloor', 'a(is_integral)'), a),
    (('fceil', 'a(is_integral)'), a),
    (('ftrunc', 'a(is_integral)'), a),
    (('fround_even', 'a(is_integral)'), a),
 
+   (('ffract(nnan,contract)', ('fadd', a, 'b(is_integral)')), ('ffract', a)),
+   (('ffloor(nsz,contract)', ('fadd', 'a(is_a_number_gt_0_and_lt_1)', 'b(is_integral)')), b),
+   (('ftrunc(nsz,contract)', ('fadd', 'a(is_a_number_gt_0_and_lt_1)', 'b(is_integral_not_negative)')), b),
+
    # fract(x) = x - floor(x), so fract(NaN/Inf) = NaN
    (('ffract(nnan)', 'a(is_integral)'), 0.0),
+   (('ffract', 'a(is_a_number_gt_0_and_lt_1)'), a),
    (('ffract', ('ffract', a)), ('ffract', a)),
    (('fabs(nsz)', 'a(is_not_negative)'), ('fcanonicalize', a)),
    (('fabs', 'a(is_not_negative_or_negative_zero)'), ('fcanonicalize', a)),
@@ -2007,6 +2047,14 @@ optimizations.extend([
 
    (('ult', a, 0), False),
 ])
+
+# Doing a 32-bit fadd/fmul on 16-bit operands is equivalent to a 16-bit
+# fadd/fmul, contract is required for the double rounding.
+for op in ['fadd', 'fmul']:
+    optimizations += [
+        (('f2fmp', (f'{op}(is_used_once,contract)', ('f2f32', 'a@16'), '#b(is_representable_as_f16)')), (op, a, ('f2fmp', b)), 'true', TestStatus.UNSUPPORTED),
+        (('f2fmp', (f'{op}(is_used_once,contract)', ('f2f32', 'a@16'), ('f2f32', 'b@16'))), (op, a, b), 'true', TestStatus.UNSUPPORTED),
+    ]
 
 for bits in [16, 32, 64]:
     cond = '!(options->lower_doubles_options & nir_lower_fp64_full_software)' if bits == 64 else 'true'
@@ -3660,6 +3708,12 @@ late_optimizations = [
    # Drivers do not actually implement udiv_aligned_4, it is just used to
    # optimize scratch lowering.
    (('udiv_aligned_4', a), ('ushr', a, 2)),
+
+   # Since b2i(inot(a)) == 1 - b2i(a), 1 - b2i(inot(a)) == b2i(a).
+   (('iadd3', a,          ('b2i', ('inot', b)),  -1), ('iadd', a, ('ineg', ('b2i', b)))),
+   (('iadd3', a, ('ineg', ('b2i', ('inot', b))),  1), ('iadd', a,          ('b2i', b) )),
+   (('iadd', a, ('ineg', ('b2i', ('inot', b)))), ('iadd3', a,          ('b2i', b) , -1), 'options->has_iadd3'),
+   (('iadd', a,          ('b2i', ('inot', b)) ), ('iadd3', a, ('ineg', ('b2i', b)),  1), 'options->has_iadd3'),
 ]
 
 for int_sz in (8, 16, 32):
@@ -3724,6 +3778,9 @@ for sz, mulz in itertools.product([16, 32, 64], [False, True]):
 
     option_fmad = f'{option_fuse} && (!{option_has_ffma} ||  {option_prefer_split}) && {option_has_fmad}'
     option_ffma = f'{option_fuse} && (!{option_has_fmad} || !{option_prefer_split}) && {option_has_ffma}'
+
+    if mulz:
+        option_ffma += f' && {has_ffmaz}'
 
     for fmad in ['ffma', 'fmad']:
         option = option_fmad if fmad == 'fmad' else option_ffma
@@ -4069,7 +4126,9 @@ late_optimizations += [
    (('fmulz@32', a, b),
     ('bcsel', ('feq', ('fmin', ('fabs', a), ('fabs', b)), 0.0), 0.0, ('fmul', a, b)), 'options->lower_fmulz_with_abs_min'),
    (('ffmaz@32', a, b, c),
-    ('bcsel', ('feq', ('fmin', ('fabs', a), ('fabs', b)), 0.0), c, ('ffma@32', a, b, c)), 'options->lower_fmulz_with_abs_min')
+    ('bcsel', ('feq', ('fmin', ('fabs', a), ('fabs', b)), 0.0), c, ('ffma@32', a, b, c)), 'options->lower_fmulz_with_abs_min'),
+   (('fmadz@32', a, b, c),
+    ('bcsel', ('feq', ('fmin', ('fabs', a), ('fabs', b)), 0.0), c, ('fmad@32', a, b, c)), 'options->lower_fmulz_with_abs_min'),
 ]
 
 # mediump: If an opcode is surrounded by conversions, remove the conversions.

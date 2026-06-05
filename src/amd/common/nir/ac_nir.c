@@ -10,6 +10,10 @@
 #include "nir_builder.h"
 #include "nir_intrinsics.h"
 
+#if AMD_LLVM_AVAILABLE
+#include <llvm/Config/llvm-config.h>
+#endif
+
 /* Set NIR options shared by ACO, LLVM, RADV, and radeonsi. */
 void ac_nir_set_options(const struct ac_compiler_info *info, bool use_llvm,
                         nir_shader_compiler_options *options)
@@ -99,6 +103,7 @@ void ac_nir_set_options(const struct ac_compiler_info *info, bool use_llvm,
    options->has_pack_half_2x16_rtz = true;
    options->has_bit_test = !use_llvm;
    options->has_fmulz = true;
+   options->has_ffmaz_no_denorms = info->gfx_level >= GFX10_3;
    options->has_msad = true;
    options->has_shfr32 = true;
    options->has_mul24_relaxed = true;
@@ -143,6 +148,14 @@ void ac_nir_set_options(const struct ac_compiler_info *info, bool use_llvm,
    options->max_workgroup_count[1] = UINT16_MAX;
    options->max_workgroup_count[2] = UINT16_MAX;
    options->max_samples = 8;
+
+   /* Workaround for LLVM bug that crashes when using legacy fma on GFX12. */
+#if AMD_LLVM_AVAILABLE
+   if (info->gfx_level == GFX12 && use_llvm && LLVM_VERSION_MAJOR <= 21)
+      options->has_ffmaz_no_denorms = false;
+#else
+   assert(!use_llvm);
+#endif
 }
 
 /* Sleep for the given number of clock cycles. */
@@ -169,6 +182,8 @@ nir_def *
 ac_nir_load_arg_at_offset(nir_builder *b, const struct ac_shader_args *ac_args,
                           struct ac_arg arg, unsigned relative_index)
 {
+   assert(arg.used);
+
    unsigned arg_index = arg.arg_index + relative_index;
    unsigned num_components = ac_args->args[arg_index].size;
 

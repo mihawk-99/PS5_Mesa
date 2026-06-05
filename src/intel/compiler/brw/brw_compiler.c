@@ -367,7 +367,7 @@ brw_write_shader_relocs(const struct brw_isa_info *isa,
                *(uint32_t *)dst = value;
                break;
             case INTEL_SHADER_RELOC_TYPE_MOV_IMM:
-               brw_update_reloc_imm(isa, dst, value);
+               gen_update_reloc_imm(isa->devinfo, dst, value);
                break;
             default:
                UNREACHABLE("Invalid relocation type");

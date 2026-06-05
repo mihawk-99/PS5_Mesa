@@ -1107,7 +1107,7 @@ _mesa_get_fallback_texture(struct gl_context *ctx, gl_texture_index tex, bool is
                                        internalFormat, texFormat);
          }
          _mesa_update_texture_object_swizzle(ctx, texObj);
-         if (ctx->st->can_null_texture && is_depth) {
+         if (ctx->st->screen->caps.null_textures && is_depth) {
             texObj->NullTexture = GL_TRUE;
          } else {
             if (is_depth)
@@ -1129,7 +1129,7 @@ _mesa_get_fallback_texture(struct gl_context *ctx, gl_texture_index tex, bool is
 
       /* Complete the driver's operation in case another context will also
        * use the same fallback texture. */
-      if (!ctx->st->can_null_texture || !is_depth)
+      if (!ctx->st->screen->caps.null_textures || !is_depth)
          st_glFinish(ctx);
    }
    return ctx->Shared->FallbackTex[tex][is_depth];

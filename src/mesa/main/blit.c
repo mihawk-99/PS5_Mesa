@@ -505,7 +505,7 @@ do_blit_framebuffer(struct gl_context *ctx,
       st_window_rectangles_to_blit(ctx, &blit);
 
    blit.filter = pFilter;
-   blit.render_condition_enable = st->has_conditional_render;
+   blit.render_condition_enable = st->screen->caps.conditional_render;
    blit.alpha_blend = false;
 
    if (mask & GL_COLOR_BUFFER_BIT) {

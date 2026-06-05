@@ -150,7 +150,7 @@ rewrite_sel_to_csel(jay_inst *I)
     */
    jay_def flag = I->src[2];
    I->op = JAY_OPCODE_CSEL;
-   I->conditional_mod = flag.negate ? JAY_CONDITIONAL_EQ : JAY_CONDITIONAL_NE;
+   I->conditional_mod = flag.negate ? GEN_CONDITION_EQ : GEN_CONDITION_NE;
    I->src[2] = canonicalize_flag(flag);
    I->src[2].negate = false;
    return true;
@@ -233,7 +233,8 @@ assign_block(struct flag_ra *ra)
 
          bool in_flag =
             ra->flag_to_global[ra->vars[index].flag] == index &&
-            ((file == UFLAG) ? ra->vars[index].uflag : ra->vars[index].simd);
+            ((file == UFLAG) ? ra->vars[index].uflag : ra->vars[index].simd) &&
+            (!ballot || ra->vars[index].flag == 0);
 
          /* If we don't actually need the flag, we're done. */
          if (rewrite_without_flag(ra, I, s, in_flag)) {
@@ -249,7 +250,7 @@ assign_block(struct flag_ra *ra)
             b->cursor = jay_before_inst(I);
             jay_def d = I->src[s];
             d.negate = false;
-            jay_CMP(b, JAY_TYPE_U32, JAY_CONDITIONAL_NE, tmp,
+            jay_CMP(b, JAY_TYPE_U32, GEN_CONDITION_NE, tmp,
                     canonicalize_flag(d), 0);
          }
 

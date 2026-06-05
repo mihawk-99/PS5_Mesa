@@ -287,7 +287,7 @@ lower_ray_query_intrinsic(nir_builder *b,
 
       update_trace_ctrl_level(b, ctrl_level_deref,
                               NULL, NULL,
-                              nir_imm_int(b, GEN_RT_TRACE_RAY_INITAL),
+                              nir_imm_int(b, GEN_RT_TRACE_RAY_INITIAL),
                               nir_imm_int(b, BRW_RT_BVH_LEVEL_WORLD));
       break;
    }

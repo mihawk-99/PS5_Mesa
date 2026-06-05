@@ -70,10 +70,12 @@ static const struct {
    [VARYING_SLOT_CLIP_DIST1] = {"clip_1", .user = true, .scalarized = true},
    [VARYING_SLOT_CULL_DIST0] = {"cull_0", .user = true, .scalarized = true},
    [VARYING_SLOT_CULL_DIST1] = {"cull_1", .user = true, .scalarized = true},
-   [VARYING_SLOT_CULL_PRIMITIVE] = {"cull_primitive_0", .user = true, .scalarized = true},
+   [VARYING_SLOT_CULL_PRIMITIVE] = {"cull_primitive_0", .user = true,
+                                    .scalarized = true},
    /* Using cull primitive slots to emulate cull distances in fragment shader,
     * which may extend to one varying extra (which is otherwise unused) */
-   [VARYING_SLOT_CULL_PRIMITIVE + 1] = {"cull_primitive_1", .user = true, .scalarized = true},
+   [VARYING_SLOT_CULL_PRIMITIVE + 1] = {"cull_primitive_1", .user = true,
+                                        .scalarized = true},
    [VARYING_SLOT_VAR0] = {"vary_00", .user = true},
    [VARYING_SLOT_VAR1] = {"vary_01", .user = true},
    [VARYING_SLOT_VAR2] = {"vary_02", .user = true},
@@ -439,6 +441,7 @@ msl_emit_io_blocks(struct nir_to_msl_ctx *ctx, nir_shader *shader)
       fs_output_block(shader, ctx);
       break;
    case MESA_SHADER_COMPUTE:
+   case MESA_SHADER_TESS_CTRL:
       break;
    default:
       assert(0);

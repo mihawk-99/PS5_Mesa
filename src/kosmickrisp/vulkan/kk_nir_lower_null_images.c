@@ -11,8 +11,8 @@
 #include "compiler/nir/nir.h"
 #include "compiler/nir/nir_builder.h"
 
-static nir_def*
-tex_handle_to_resource_id(nir_builder *b, nir_def* handle)
+static nir_def *
+tex_handle_to_resource_id(nir_builder *b, nir_def *handle)
 {
    /* Work backwards from the handle to the descriptor address it was loaded
     * from, and load the plain resource ID */
@@ -21,7 +21,7 @@ tex_handle_to_resource_id(nir_builder *b, nir_def* handle)
    return nir_load_global_constant(b, 1, 64, intr->src[0].ssa);
 }
 
-static nir_def*
+static nir_def *
 get_is_null(nir_builder *b, nir_instr *instr, nir_def **def)
 {
    *def = NULL;
@@ -57,7 +57,7 @@ get_is_null(nir_builder *b, nir_instr *instr, nir_def **def)
    if (!handle)
       return NULL;
 
-   nir_def* resource_id = tex_handle_to_resource_id(b, handle);
+   nir_def *resource_id = tex_handle_to_resource_id(b, handle);
    return nir_ieq_imm(b, resource_id, 0);
 }
 
@@ -100,8 +100,8 @@ lower(nir_builder *b, nir_instr *instr, UNUSED void *data)
    return true;
 }
 
-bool kk_nir_lower_null_images(nir_shader *shader)
+bool
+kk_nir_lower_null_images(nir_shader *shader)
 {
-   return nir_shader_instructions_pass(shader, lower,
-                                       nir_metadata_none, NULL);
+   return nir_shader_instructions_pass(shader, lower, nir_metadata_none, NULL);
 }

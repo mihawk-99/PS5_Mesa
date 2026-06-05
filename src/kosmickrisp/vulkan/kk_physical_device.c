@@ -146,6 +146,7 @@ kk_get_device_extensions(const struct kk_instance *instance,
       .KHR_shader_maximal_reconvergence = true,
       .KHR_shader_relaxed_extended_instruction = true,
       .KHR_shader_subgroup_uniform_control_flow = true,
+      .KHR_shader_untyped_pointers = true,
 #ifdef KK_USE_WSI_PLATFORM
       .KHR_swapchain = true,
       .KHR_swapchain_mutable_format = true,
@@ -155,21 +156,30 @@ kk_get_device_extensions(const struct kk_instance *instance,
 
       .EXT_attachment_feedback_loop_layout = true,
       .EXT_attachment_feedback_loop_dynamic_state = true,
+      .EXT_blend_operation_advanced = true,
       .EXT_calibrated_timestamps = true,
+      .EXT_conditional_rendering = true,
+      .EXT_custom_resolve = true,
+      .EXT_debug_marker = true,
       .EXT_depth_clip_control = true,
       .EXT_extended_dynamic_state3 = true,
       .EXT_external_memory_metal = true,
+      .EXT_external_memory_host = true,
       .EXT_image_2d_view_of_3d = true,
       .EXT_load_store_op_none = true,
       .EXT_memory_budget = true,
       .EXT_multi_draw = true,
       .EXT_mutable_descriptor_type = true,
+      .EXT_nested_command_buffer = true,
       .EXT_post_depth_coverage = true,
+      .EXT_primitive_restart_index = true,
+      .EXT_primitive_topology_list_restart = true,
       .EXT_robustness2 = true,
       .EXT_shader_atomic_float = true,
       .EXT_shader_replicated_composites = true,
       .EXT_shader_subgroup_ballot = true,
       .EXT_shader_subgroup_vote = true,
+      .EXT_vertex_attribute_robustness = true,
 
       .GOOGLE_decorate_string = true,
       .GOOGLE_hlsl_functionality1 = true,
@@ -218,6 +228,7 @@ kk_get_device_features(
       .shaderStorageImageReadWithoutFormat = true,
       .shaderStorageImageWriteWithoutFormat = true,
       .shaderUniformBufferArrayDynamicIndexing = true,
+      .tessellationShader = true,
       .textureCompressionASTC_LDR = true,
       .textureCompressionBC = true,
       .textureCompressionETC2 = true,
@@ -287,7 +298,7 @@ kk_get_device_features(
       .extendedDynamicState = true,
       .extendedDynamicState2 = true,
       .extendedDynamicState2LogicOp = false,
-      .extendedDynamicState2PatchControlPoints = false,
+      .extendedDynamicState2PatchControlPoints = true,
       .inlineUniformBlock = true,
       .maintenance4 = true,
       .pipelineCreationCacheControl = true,
@@ -352,6 +363,9 @@ kk_get_device_features(
       /* VK_KHR_shader_relaxed_extended_instruction */
       .shaderRelaxedExtendedInstruction = true,
 
+      /* VK_KHR_shader_untyped_pointers */
+      .shaderUntypedPointers = true,
+
       /* VK_KHR_unified_image_layouts */
       .unifiedImageLayouts = true,
       .unifiedImageLayoutsVideo = false,
@@ -372,6 +386,16 @@ kk_get_device_features(
       /* VK_EXT_attachment_feedback_loop_dynamic_state */
       .attachmentFeedbackLoopDynamicState = true,
 
+      /* VK_EXT_blend_operation_advanced */
+      .advancedBlendCoherentOperations = true,
+
+      /* VK_EXT_conditional_rendering */
+      .conditionalRendering = true,
+      .inheritedConditionalRendering = true,
+
+      /* VK_EXT_custom_resolve */
+      .customResolve = true,
+
       /* VK_EXT_depth_clip_control */
       .depthClipControl = true,
 
@@ -379,6 +403,7 @@ kk_get_device_features(
       .extendedDynamicState3DepthClampEnable = true,
       .extendedDynamicState3DepthClipNegativeOneToOne = true,
       .extendedDynamicState3LineRasterizationMode = true,
+      .extendedDynamicState3TessellationDomainOrigin = true,
 
       /* EXT_image_2d_view_of_3d */
       .image2DViewOf3D = true,
@@ -386,6 +411,18 @@ kk_get_device_features(
 
       /* VK_EXT_multi_draw */
       .multiDraw = true,
+
+      /* VK_EXT_nested_command_buffer */
+      .nestedCommandBuffer = true,
+      .nestedCommandBufferRendering = true,
+      .nestedCommandBufferSimultaneousUse = true,
+
+      /* VK_EXT_primitive_restart_index */
+      .primitiveRestartIndex = true,
+
+      /* VK_EXT_primitive_topology_list_restart */
+      .primitiveTopologyListRestart = true,
+      .primitiveTopologyPatchListRestart = false,
 
       /* VK_EXT_shader_replicated_composites */
       .shaderReplicatedComposites = true,
@@ -398,6 +435,9 @@ kk_get_device_features(
       .shaderBufferFloat32AtomicAdd = true,
       .shaderSharedFloat32Atomics = true,
 
+      /* VK_EXT_vertex_attribute_robustness */
+      .vertexAttributeRobustness = true,
+
       /* EXT_ycbcr_2plane_444_formats */
       .ycbcr2plane444Formats = true,
    };
@@ -408,15 +448,7 @@ kk_get_device_properties(const struct kk_physical_device *pdev,
                          const struct kk_instance *instance,
                          struct vk_properties *properties)
 {
-   VkSampleCountFlagBits sample_counts = VK_SAMPLE_COUNT_1_BIT;
-   for (uint32_t sample_count = VK_SAMPLE_COUNT_2_BIT;
-      sample_count <= VK_SAMPLE_COUNT_8_BIT; sample_count <<= 1) {
-      if (mtl_device_supports_sample_count(pdev->mtl_dev_handle,
-                                           sample_count))
-         sample_counts |= sample_count;
-   }
-
-   assert(sample_counts <= (KK_MAX_SAMPLES << 1) - 1);
+   VkSampleCountFlags sample_counts = pdev->supported_sample_counts;
 
    uint64_t os_page_size = 4096;
    os_get_page_size(&os_page_size);
@@ -570,10 +602,11 @@ kk_get_device_properties(const struct kk_physical_device *pdev,
       /* Vulkan 1.2 properties */
       .supportedDepthResolveModes =
          VK_RESOLVE_MODE_SAMPLE_ZERO_BIT | VK_RESOLVE_MODE_AVERAGE_BIT |
-         VK_RESOLVE_MODE_MIN_BIT | VK_RESOLVE_MODE_MAX_BIT,
-      .supportedStencilResolveModes = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT |
-                                      VK_RESOLVE_MODE_MIN_BIT |
-                                      VK_RESOLVE_MODE_MAX_BIT,
+         VK_RESOLVE_MODE_MIN_BIT | VK_RESOLVE_MODE_MAX_BIT |
+         VK_RESOLVE_MODE_CUSTOM_BIT_EXT,
+      .supportedStencilResolveModes =
+         VK_RESOLVE_MODE_SAMPLE_ZERO_BIT | VK_RESOLVE_MODE_MIN_BIT |
+         VK_RESOLVE_MODE_MAX_BIT | VK_RESOLVE_MODE_CUSTOM_BIT_EXT,
       .independentResolveNone = true,
       .independentResolve = true,
       .driverID = VK_DRIVER_ID_MESA_KOSMICKRISP,
@@ -649,11 +682,22 @@ kk_get_device_properties(const struct kk_physical_device *pdev,
       /* VK_KHR_push_descriptor */
       .maxPushDescriptors = KK_MAX_PUSH_DESCRIPTORS,
 
+      /* VK_EXT_blend_operation_advanced */
+      .advancedBlendMaxColorAttachments = KK_MAX_RTS,
+      .advancedBlendIndependentBlend = true,
+      .advancedBlendNonPremultipliedSrcColor = true,
+      .advancedBlendNonPremultipliedDstColor = true,
+      .advancedBlendCorrelatedOverlap = true,
+      .advancedBlendAllOperations = true,
+
       /* VK_EXT_custom_border_color */
       .maxCustomBorderColorSamplers = 4000,
 
       /* VK_EXT_extended_dynamic_state3 */
       .dynamicPrimitiveTopologyUnrestricted = false,
+
+      /* VK_EXT_external_memory_metal */
+      .minImportedHostPointerAlignment = os_page_size,
 
       /* VK_EXT_graphics_pipeline_library */
       .graphicsPipelineLibraryFastLinking = true,
@@ -909,8 +953,8 @@ kk_get_sysmem_heap_budget(struct kk_physical_device *pdev)
    uint64_t sysmem_used_B = sysmem_size_B - sysmem_available_B;
    uint64_t sysmem_budget_B =
       mtl_device_recommended_max_working_set_size(pdev->mtl_dev_handle);
-   uint64_t remaining_budget_B = sysmem_budget_B > sysmem_used_B ?
-                                 sysmem_budget_B - sysmem_used_B : 0u;
+   uint64_t remaining_budget_B =
+      sysmem_budget_B > sysmem_used_B ? sysmem_budget_B - sysmem_used_B : 0u;
    return remaining_budget_B +
           mtl_device_current_allocated_size(pdev->mtl_dev_handle);
 }
@@ -951,6 +995,14 @@ get_metal_limits(struct kk_physical_device *pdev)
       mtl_device_max_threadgroup_memory_length(pdev->mtl_dev_handle);
    pdev->info.max_buffer_size =
       mtl_device_max_buffer_length(pdev->mtl_dev_handle);
+
+   pdev->supported_sample_counts = VK_SAMPLE_COUNT_1_BIT;
+   for (uint32_t sample_count = VK_SAMPLE_COUNT_2_BIT;
+        sample_count <= VK_SAMPLE_COUNT_8_BIT; sample_count <<= 1) {
+      if (mtl_device_supports_sample_count(pdev->mtl_dev_handle, sample_count))
+         pdev->supported_sample_counts |= sample_count;
+   }
+   assert(pdev->supported_sample_counts <= (KK_MAX_SAMPLES << 1) - 1);
 }
 
 VkResult
@@ -1169,8 +1221,7 @@ kk_GetPhysicalDeviceQueueFamilyProperties2(
          p->queueFamilyProperties.minImageTransferGranularity =
             (VkExtent3D){1, 1, 1};
 
-         vk_foreach_struct(ext, p->pNext)
-         {
+         vk_foreach_struct(ext, p->pNext) {
             switch (ext->sType) {
             case VK_STRUCTURE_TYPE_QUEUE_FAMILY_GLOBAL_PRIORITY_PROPERTIES: {
                VkQueueFamilyGlobalPriorityProperties *pSub = (void *)ext;

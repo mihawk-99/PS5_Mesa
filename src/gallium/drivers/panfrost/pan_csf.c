@@ -338,7 +338,6 @@ csf_oom_handler_init(struct panfrost_context *ctx)
 #if PAN_ARCH >= 14
       cs_emit_fragment_state(&b, fbd_pointer);
 #endif
-      cs_wait_slot(&b, 0);
 
       /* Run the fragment job and wait */
       cs_select_endpoint_sb(&b, 3);
@@ -350,7 +349,7 @@ csf_oom_handler_init(struct panfrost_context *ctx)
       cs_wait_slot(&b, 3);
 
       /* Increment counter */
-      cs_add32(&b, counter, counter, 1);
+      cs_add_imm32(&b, counter, counter, 1);
       cs_store32(&b, counter, tiler_oom_ctx, FIELD_OFFSET(counter));
 
       /* Load completed chunks */
@@ -975,8 +974,9 @@ emit_ir_fbd(struct pan_csf_tiler_oom_ctx *ctx, enum pan_rendering_pass pass,
 
 #if PAN_ARCH <= 13
    ir_descs.fbd = desc_addr;
-   desc_addr += fb_sz;
 #endif
+
+   desc_addr += fb_sz;
 
    const int crc_rt = GENX(pan_select_crc_rt)(fb, fb->tile_size);
    const bool has_zs_ext = (fb->zs.view.zs || fb->zs.view.s || crc_rt >= 0);
@@ -1137,7 +1137,6 @@ GENX(csf_emit_fragment_job)(struct panfrost_batch *batch,
    /* Run the fragment job and wait */
 #if PAN_ARCH >= 14
    cs_emit_fragment_state(b, fbd_pointer);
-   cs_wait_slot(b, 0);
    cs_run_fragment2(b, false, MALI_TILE_RENDER_ORDER_Z_ORDER);
 #else
    cs_run_fragment(b, false, MALI_TILE_RENDER_ORDER_Z_ORDER);
@@ -1719,10 +1718,10 @@ GENX(csf_launch_draw_indirect)(struct panfrost_batch *batch,
                   cs_shader_res_sel(2, 2, 2, 0), drawid);
 #endif
 
-      cs_add64(b, address, address, indirect->stride);
-      cs_add32(b, counter, counter, (unsigned int)-1);
+      cs_add_imm64(b, address, address, indirect->stride);
+      cs_add_imm32(b, counter, counter, (unsigned int)-1);
       if (drawid.type != CS_INDEX_UNDEF)
-         cs_add32(b, drawid, drawid, 1);
+         cs_add_imm32(b, drawid, drawid, 1);
    }
 }
 

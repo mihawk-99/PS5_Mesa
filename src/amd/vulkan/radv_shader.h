@@ -81,6 +81,8 @@ struct radv_shader_stage_key {
    uint8_t storage_robustness2 : 1;
    uint8_t uniform_robustness2 : 1;
    uint8_t vertex_robustness1 : 1;
+   uint8_t coop_matrix_storage_robustness : 1;
+   uint8_t coop_matrix_uniform_robustness : 1;
 
    uint8_t optimisations_disabled : 1;
    uint8_t keep_statistic_info : 1;
@@ -97,7 +99,7 @@ struct radv_shader_stage_key {
    /* Whether the shader is used with indirect pipeline binds. */
    uint8_t indirect_bindable : 1;
 
-   uint32_t reserved : 17;
+   uint32_t reserved : 15;
 };
 
 struct radv_ps_epilog_key {
@@ -133,6 +135,7 @@ struct radv_graphics_state_key {
    uint32_t lib_flags : 4; /* VkGraphicsPipelineLibraryFlagBitsEXT */
 
    uint32_t has_multiview_view_index : 1;
+   uint32_t vrs_may_be_enabled : 1;
    uint32_t adjust_frag_coord_z : 1;
    uint32_t dynamic_rasterization_samples : 1;
    uint32_t dynamic_provoking_vtx_mode : 1;
@@ -167,9 +170,11 @@ struct radv_graphics_state_key {
    } rs;
 
    struct {
-      bool sample_shading_enable;
-      bool alpha_to_coverage_via_mrtz; /* GFX11+ */
+      bool sample_shading_enable : 1;
+      bool max_sample_shading_enable : 1;
+      bool alpha_to_coverage_via_mrtz : 1; /* GFX11+ */
       uint8_t rasterization_samples;
+      uint8_t ps_iter_samples; /* 0 if dynamic */
    } ms;
 
    struct vs {
@@ -236,14 +241,18 @@ struct radv_llvm_compiler_options {
 #define NGG_STATE_QUERY__SHIFT              6
 #define NGG_STATE_QUERY__MASK               0x7
 
-#define PS_STATE_NUM_SAMPLES__SHIFT    0
-#define PS_STATE_NUM_SAMPLES__MASK     0xf
-#define PS_STATE_LINE_RAST_MODE__SHIFT 4
-#define PS_STATE_LINE_RAST_MODE__MASK  0x3
-#define PS_STATE_PS_ITER_MASK__SHIFT   6
-#define PS_STATE_PS_ITER_MASK__MASK    0xffff
-#define PS_STATE_RAST_PRIM__SHIFT      22
-#define PS_STATE_RAST_PRIM__MASK       0x3
+#define PS_STATE_NUM_SAMPLES__SHIFT             0
+#define PS_STATE_NUM_SAMPLES__MASK              0xf
+#define PS_STATE_LINE_RAST_MODE__SHIFT          4
+#define PS_STATE_LINE_RAST_MODE__MASK           0x3
+#define PS_STATE_PS_ITER_MASK__SHIFT            6
+#define PS_STATE_PS_ITER_MASK__MASK             0xffff
+#define PS_STATE_RAST_PRIM__SHIFT               22
+#define PS_STATE_RAST_PRIM__MASK                0x3
+#define PS_STATE_USE_FLOAT_FRAG_COORD_XY__SHIFT 24
+#define PS_STATE_USE_FLOAT_FRAG_COORD_XY__MASK  0x1
+#define PS_STATE_USE_SAMPLE_MASK_IN__SHIFT      25
+#define PS_STATE_USE_SAMPLE_MASK_IN__MASK       0x1
 
 struct radv_shader_layout {
    uint32_t num_sets;
@@ -527,6 +536,7 @@ struct radv_compiler_info {
       uint32_t use_fmask : 1;
       uint32_t force_64_byte_sampled_image : 1;
       uint32_t robust_buffer_access : 1; /* Only used by LLVM. */
+      uint32_t coop_matrix_robust_buffer_access : 1;
       uint32_t mitigate_smem_oob : 1;
       uint32_t mitigate_smem_with_null_prt : 1;
       uint32_t bvh8 : 1;
@@ -545,7 +555,7 @@ struct radv_compiler_info {
       uint32_t tex_non_uniform : 1;
       uint32_t lower_terminate_to_discard : 1;
       uint32_t no_implicit_varying_subgroup_size : 1;
-      uint32_t padding : 30;
+      uint32_t padding : 29;
 
       int32_t force_aniso;
 

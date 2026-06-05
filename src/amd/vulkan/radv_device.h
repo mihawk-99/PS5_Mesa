@@ -16,11 +16,13 @@
 
 #include "util/mesa-blake3.h"
 
-#include "radv_debug_nir.h"
+#include "tools/radv_debug.h"
+#include "tools/radv_debug_nir.h"
+#include "tools/radv_rra.h"
+
 #include "radv_pipeline.h"
 #include "radv_queue.h"
 #include "radv_radeon_winsys.h"
-#include "radv_rra.h"
 #include "radv_shader.h"
 
 #include "vk_acceleration_structure.h"
@@ -210,11 +212,8 @@ struct radv_device {
    VkCommandBuffer sqtt_stop_cmdbuf[2];
 
    uint64_t sqtt_size;
-   VkBuffer sqtt_buffer;
-   VkDeviceMemory sqtt_memory;
-
-   VkBuffer sqtt_staging_buffer;
-   VkDeviceMemory sqtt_staging_memory;
+   struct radv_backed_buffer sqtt_buffer;
+   struct radv_backed_buffer sqtt_staging_buffer;
 
    /* SQTT timestamps for queue events. */
    simple_mtx_t sqtt_timestamp_mtx;
@@ -236,11 +235,8 @@ struct radv_device {
    /* SPM. */
    struct ac_spm spm;
 
-   uint64_t spm_buffer_va;
-   VkBuffer spm_buffer;
-   VkDeviceMemory spm_memory;
-   VkBuffer spm_staging_buffer;
-   VkDeviceMemory spm_staging_memory;
+   struct radv_backed_buffer spm_buffer;
+   struct radv_backed_buffer spm_staging_buffer;
 
    /* Radeon Raytracing Analyzer trace. */
    struct radv_rra_trace_data rra_trace;

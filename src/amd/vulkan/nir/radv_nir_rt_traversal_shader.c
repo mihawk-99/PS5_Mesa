@@ -10,12 +10,12 @@
 #include "nir/radv_nir_rt_stage_common.h"
 #include "nir/radv_nir_rt_traversal_shader.h"
 
+#include "tools/radv_rra.h"
 #include "aco_nir_call_attribs.h"
 #include "nir_builder.h"
 #include "radv_meta_nir.h"
 #include "radv_nir_rt_stage_functions.h"
 #include "radv_physical_device.h"
-#include "radv_rra.h"
 
 /* Variables only used internally to ray traversal. This is data that describes
  * the current state of the traversal vs. what we'd give to a shader.  e.g. what

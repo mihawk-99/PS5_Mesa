@@ -6,16 +6,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef _WIN32
-#include "drm-uapi/amdgpu_drm.h"
-#endif
-
 #include "util/vl_zscan_data.h"
 #include "ac_vcn_dec.h"
 
+#include "tools/radv_debug.h"
 #include "radv_buffer.h"
 #include "radv_cs.h"
-#include "radv_debug.h"
 #include "radv_device_memory.h"
 #include "radv_entrypoints.h"
 #include "radv_image.h"
@@ -90,90 +86,9 @@ radv_vcn_sq_tail(struct radv_cmd_stream *cs, struct rvcn_sq_var *sq)
 }
 
 void
-radv_vcn_write_memory(struct radv_cmd_buffer *cmd_buffer, uint64_t va, unsigned value)
-{
-   struct radv_device *device = radv_cmd_buffer_device(cmd_buffer);
-   struct radv_physical_device *pdev = radv_device_physical(device);
-   struct rvcn_sq_var sq;
-   struct radv_cmd_stream *cs = cmd_buffer->cs;
-   enum ac_video_write_memory_support support = pdev->info.video_caps.queue[cs->hw_ip].write_memory;
-
-   if (support == AC_VIDEO_WRITE_MEMORY_SUPPORT_NONE)
-      return;
-
-   if (support == AC_VIDEO_WRITE_MEMORY_SUPPORT_PCIE_ATOMICS) {
-      fprintf(stderr, "radv: VCN WRITE_MEMORY requires PCIe atomics support. Expect issues "
-                      "if PCIe atomics are not enabled on current device.\n");
-   }
-
-   bool separate_queue = pdev->vid_decode_ip != AMD_IP_VCN_UNIFIED;
-   if (cmd_buffer->qf == RADV_QUEUE_VIDEO_DEC && separate_queue && pdev->vid_dec_reg.data2) {
-      radeon_check_space(device->ws, cs->b, 8);
-      set_reg(cmd_buffer, pdev->vid_dec_reg.data0, va & 0xffffffff);
-      set_reg(cmd_buffer, pdev->vid_dec_reg.data1, va >> 32);
-      set_reg(cmd_buffer, pdev->vid_dec_reg.data2, value);
-      set_reg(cmd_buffer, pdev->vid_dec_reg.cmd, RDECODE_CMD_WRITE_MEMORY << 1);
-      return;
-   }
-
-   radeon_check_space(device->ws, cs->b, 256);
-   radv_vcn_sq_header(cs, &sq, RADEON_VCN_ENGINE_TYPE_COMMON);
-   struct rvcn_cmn_engine_ib_package *ib_header = (struct rvcn_cmn_engine_ib_package *)&(cs->b->buf[cs->b->cdw]);
-   ib_header->package_size = sizeof(struct rvcn_cmn_engine_ib_package) + sizeof(struct rvcn_cmn_engine_op_writememory);
-   cs->b->cdw++;
-   ib_header->package_type = RADEON_VCN_IB_COMMON_OP_WRITEMEMORY;
-   cs->b->cdw++;
-
-   struct rvcn_cmn_engine_op_writememory *write_memory =
-      (struct rvcn_cmn_engine_op_writememory *)&(cs->b->buf[cs->b->cdw]);
-   write_memory->dest_addr_lo = va & 0xffffffff;
-   write_memory->dest_addr_hi = va >> 32;
-   write_memory->data = value;
-
-   cs->b->cdw += sizeof(*write_memory) / 4;
-   radv_vcn_sq_tail(cs, &sq);
-}
-
-void
 radv_init_physical_device_decoder(struct radv_physical_device *pdev)
 {
    pdev->vid_decode_ip = pdev->info.video_caps.dec[AC_VIDEO_CODEC_AVC].ip_type;
-
-   switch (pdev->info.vcn_ip_version) {
-   case VCN_1_0_0:
-   case VCN_1_0_1:
-      pdev->vid_dec_reg.data0 = RDECODE_VCN1_GPCOM_VCPU_DATA0;
-      pdev->vid_dec_reg.data1 = RDECODE_VCN1_GPCOM_VCPU_DATA1;
-      pdev->vid_dec_reg.cmd = RDECODE_VCN1_GPCOM_VCPU_CMD;
-      pdev->vid_dec_reg.cntl = RDECODE_VCN1_ENGINE_CNTL;
-      break;
-   case VCN_2_0_0:
-   case VCN_2_0_2:
-   case VCN_2_0_3:
-   case VCN_2_2_0:
-      pdev->vid_dec_reg.data0 = RDECODE_VCN2_GPCOM_VCPU_DATA0;
-      pdev->vid_dec_reg.data1 = RDECODE_VCN2_GPCOM_VCPU_DATA1;
-      pdev->vid_dec_reg.data2 = RDECODE_VCN2_GPCOM_VCPU_DATA2;
-      pdev->vid_dec_reg.cmd = RDECODE_VCN2_GPCOM_VCPU_CMD;
-      pdev->vid_dec_reg.cntl = RDECODE_VCN2_ENGINE_CNTL;
-      break;
-   case VCN_2_5_0:
-   case VCN_2_6_0:
-   case VCN_3_0_0:
-   case VCN_3_0_2:
-   case VCN_3_0_16:
-   case VCN_3_0_33:
-   case VCN_3_1_1:
-   case VCN_3_1_2:
-      pdev->vid_dec_reg.data0 = RDECODE_VCN2_5_GPCOM_VCPU_DATA0;
-      pdev->vid_dec_reg.data1 = RDECODE_VCN2_5_GPCOM_VCPU_DATA1;
-      pdev->vid_dec_reg.data2 = RDECODE_VCN2_5_GPCOM_VCPU_DATA2;
-      pdev->vid_dec_reg.cmd = RDECODE_VCN2_5_GPCOM_VCPU_CMD;
-      pdev->vid_dec_reg.cntl = RDECODE_VCN2_5_ENGINE_CNTL;
-      break;
-   default:
-      break;
-   }
 }
 
 void

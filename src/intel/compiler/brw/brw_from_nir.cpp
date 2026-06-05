@@ -17,6 +17,7 @@
 #include "util/lut.h"
 #include "compiler/glsl_types.h"
 
+#include <cassert>
 #include <optional>
 
 struct brw_bind_info {
@@ -2953,13 +2954,6 @@ brw_from_nir_emit_tes_intrinsic(nir_to_brw_state &ntb,
       bld.MOV(retype(dest, BRW_TYPE_UD), s.tes_payload().urb_output);
       break;
 
-   case nir_intrinsic_load_attribute_payload_intel:
-      tes_prog_data->base.urb_read_length =
-         MAX2(tes_prog_data->base.urb_read_length,
-              DIV_ROUND_UP(nir_src_as_uint(instr->src[0]) + 1, 8));
-      brw_from_nir_emit_intrinsic(ntb, bld, instr);
-      break;
-
    case nir_intrinsic_load_tess_config_intel:
       bld.MOV(retype(dest, BRW_TYPE_UD),
               byte_offset(
@@ -4366,7 +4360,7 @@ emit_rt_lsc_fence(const brw_builder &bld,
    send->src[SEND_SRC_PAYLOAD1] = brw_vec8_grf(0, 0);
    send->src[SEND_SRC_PAYLOAD2] = brw_reg();
 
-   send->sfid = BRW_SFID_UGM;
+   send->sfid = GEN_SFID_UGM;
    send->desc = lsc_fence_msg_desc(devinfo, scope, flush_type, true);
    send->mlen = reg_unit(devinfo); /* g0 header */
    send->ex_mlen = 0;
@@ -4523,7 +4517,7 @@ emit_fence(const brw_builder &bld, enum opcode opcode,
 
 static uint32_t
 lsc_fence_descriptor_for_intrinsic(const struct intel_device_info *devinfo,
-                                   nir_intrinsic_instr *instr)
+                                   nir_intrinsic_instr *instr, bool is_tgm)
 {
    assert(devinfo->has_lsc);
 
@@ -4549,8 +4543,17 @@ lsc_fence_descriptor_for_intrinsic(const struct intel_device_info *devinfo,
             flush_type = LSC_FLUSH_TYPE_EVICT;
             break;
          case SCOPE_WORKGROUP:
-            scope = LSC_FENCE_THREADGROUP;
-            flush_type = LSC_FLUSH_TYPE_NONE;
+            /* On Xe2 and Xe3 we need the eviction due to aliasing of TGM data
+             * in L1 (HSD 14020414266). On Xe3p we need this due to how data
+             * post-format conversion happens (HSD 22020984324).
+             * Also, we have to upgrade the scope to TILE since flush_type is
+             * ignored for threadgroup fences, which means we'll use the
+             * values alaready initialized.
+             */
+            if (devinfo->ver < 20 || !is_tgm) {
+               scope = LSC_FENCE_THREADGROUP;
+               flush_type = LSC_FLUSH_TYPE_NONE;
+            }
             break;
          case SCOPE_SHADER_CALL:
          case SCOPE_INVOCATION:
@@ -4999,16 +5002,16 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
       if (devinfo->has_lsc) {
          assert(devinfo->verx10 >= 125);
          uint32_t desc =
-            lsc_fence_descriptor_for_intrinsic(devinfo, instr);
+            lsc_fence_descriptor_for_intrinsic(devinfo, instr, tgm_fence);
          if (ugm_fence) {
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_UGM, desc,
+               emit_fence(ubld1, opcode, GEN_SFID_UGM, desc,
                           true /* commit_enable */);
          }
 
          if (tgm_fence) {
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_TGM, desc,
+               emit_fence(ubld1, opcode, GEN_SFID_TGM, desc,
                           true /* commit_enable */);
          }
 
@@ -5023,20 +5026,20 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
                ubld1.SYNC(TGL_SYNC_ALLWR);
             }
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_SLM, desc,
+               emit_fence(ubld1, opcode, GEN_SFID_SLM, desc,
                           true /* commit_enable */);
          }
 
          if (urb_fence) {
             assert(opcode == SHADER_OPCODE_MEMORY_FENCE);
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_URB, desc,
+               emit_fence(ubld1, opcode, GEN_SFID_URB, desc,
                           true /* commit_enable */);
          }
       } else if (devinfo->ver >= 11) {
          if (tgm_fence || ugm_fence || urb_fence) {
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_HDC0, 0,
+               emit_fence(ubld1, opcode, GEN_SFID_HDC0, 0,
                           true /* commit_enable HSD ES # 1404612949 */);
          }
 
@@ -5047,7 +5050,7 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
              * special binding table index and the normal DATA_CACHE SFID.
              */
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_SLM, 0,
+               emit_fence(ubld1, opcode, GEN_SFID_SLM, 0,
                           true /* commit_enable HSD ES # 1404612949 */);
          }
       } else {
@@ -5059,7 +5062,7 @@ brw_from_nir_emit_intrinsic(nir_to_brw_state &ntb,
 
          if (tgm_fence || ugm_fence || slm_fence || urb_fence) {
             fence_regs[fence_regs_count++] =
-               emit_fence(ubld1, opcode, BRW_SFID_HDC0, 0, commit_enable);
+               emit_fence(ubld1, opcode, GEN_SFID_HDC0, 0, commit_enable);
          }
       }
 
@@ -5993,8 +5996,14 @@ brw_from_nir_emit_memory_access(nir_to_brw_state &ntb,
    }
 
    int data_src = nir_get_io_data_src_number(instr);
-   unsigned components = is_store ? instr->src[data_src].ssa->num_components
-                                  : instr->def.num_components;
+   unsigned components;
+   if (is_store) {
+      assert(data_src >= 0);
+      components = instr->src[data_src].ssa->num_components;
+   } else {
+      components = instr->def.num_components;
+   }
+
    if (components == 0)
       components = instr->num_components;
 

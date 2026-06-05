@@ -4,8 +4,3 @@ arm64-v8a CtsGraphicsTestCases android.graphics.cts.VulkanFeaturesTest#testAndro
 # Failed due to non-gfx issues
 arm64-v8a CtsGraphicsTestCases android.graphics.fonts.SystemFontsTest#testFontsFallbackUnreadable[0]
 arm64-v8a CtsGraphicsTestCases android.graphics.fonts.SystemFontsTest#testAvailableFonts_ReadOnlyFile[0]
-
-# ANGLE bug https://issues.angleproject.org/issues/504886977
-# Fix on the way: https://chromium-review.googlesource.com/c/angle/angle/+/7770269
-arm64-v8a CtsNativeHardwareTestCases android.hardware.nativehardware.cts.AHardwareBufferNativeTests#SingleLayer_ColorTest_GpuColorOutputCpuRead_R5G6B5_UNORM
-arm64-v8a CtsNativeHardwareTestCases android.hardware.nativehardware.cts.AHardwareBufferNativeTests#SingleLayer_ColorTest_CpuWriteColorGpuRead_R5G6B5_UNORM

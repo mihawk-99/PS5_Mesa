@@ -279,9 +279,6 @@ gather_intrinsic_info(const nir_shader *nir, const nir_intrinsic_instr *instr, s
    case nir_intrinsic_load_frag_coord_w_rcp:
       info->ps.reads_frag_coord_mask |= BITFIELD_BIT(3);
       break;
-   case nir_intrinsic_load_sample_pos:
-      info->ps.reads_sample_pos_mask |= nir_def_components_read(&instr->def);
-      break;
    case nir_intrinsic_load_push_constant:
       gather_push_constant_info(nir, instr, info);
       break;
@@ -314,6 +311,12 @@ gather_intrinsic_info(const nir_shader *nir, const nir_intrinsic_instr *instr, s
       break;
    case nir_intrinsic_begin_invocation_interlock:
       info->ps.pops = true;
+      break;
+   case nir_intrinsic_load_use_float_frag_coord_xy_amd:
+      info->ps.selects_frag_coord_xy_dynamically = true;
+      break;
+   case nir_intrinsic_load_use_sample_mask_in_amd:
+      info->ps.selects_sample_mask_in_dynamically = true;
       break;
    default:
       break;

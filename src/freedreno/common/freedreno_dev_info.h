@@ -474,6 +474,11 @@ struct fd_dev_info {
 
       /* The amount of valid draw state IDs. */
       uint32_t max_draw_states;
+
+      /* Whether GRAS_CL_INTERP_CNTL has FACENESS/CENTERRHW and thus
+       * being able to avoid setting ij_linear_sample for FragFace/FragCoord.
+       */
+      bool has_implicit_fragface_fragcoord_ij_linear;
    } props;
 };
 

@@ -16,14 +16,16 @@
 #include <sys/sysmacros.h>
 #endif
 
+#include "vk_drm_syncobj.h"
 #include "vk_log.h"
 #include "vk_shader_module.h"
 
+#include "tools/radv_debug.h"
 #include "util/disk_cache.h"
 #include "util/hex.h"
 #include "util/u_debug.h"
 #include "radv_android.h"
-#include "radv_debug.h"
+#include "radv_device.h"
 #include "radv_entrypoints.h"
 #include "radv_instance.h"
 #include "radv_physical_device.h"
@@ -33,7 +35,6 @@
 
 #ifdef _WIN32
 typedef void *drmDevicePtr;
-#include <io.h>
 #else
 #include "drm-uapi/amdgpu_drm.h"
 #include "util/os_drm.h"
@@ -646,18 +647,6 @@ radv_physical_device_init_mem_types(struct radv_physical_device *pdev)
    }
 }
 
-uint32_t
-radv_find_memory_index(const struct radv_physical_device *pdev, VkMemoryPropertyFlags flags)
-{
-   const VkPhysicalDeviceMemoryProperties *mem_properties = &pdev->memory_properties;
-   for (uint32_t i = 0; i < mem_properties->memoryTypeCount; ++i) {
-      if (mem_properties->memoryTypes[i].propertyFlags == flags) {
-         return i;
-      }
-   }
-   UNREACHABLE("invalid memory properties");
-}
-
 static void
 radv_get_binning_settings(const struct radv_physical_device *pdev, struct radv_binning_settings *settings)
 {
@@ -696,6 +685,7 @@ radv_physical_device_get_supported_extensions(const struct radv_physical_device 
       .KHR_depth_stencil_resolve = true,
       .KHR_descriptor_update_template = true,
       .KHR_device_address_commands = true,
+      .KHR_device_fault = true,
       .KHR_device_group = true,
       .KHR_draw_indirect_count = true,
       .KHR_driver_properties = true,
@@ -763,6 +753,7 @@ radv_physical_device_get_supported_extensions(const struct radv_physical_device 
       .KHR_shader_float16_int8 = true,
       .KHR_shader_float_controls = true,
       .KHR_shader_float_controls2 = true,
+      .KHR_shader_fma = true,
       .KHR_shader_integer_dot_product = true,
       .KHR_shader_maximal_reconvergence = true,
       .KHR_shader_non_semantic_info = true,
@@ -1051,7 +1042,7 @@ radv_physical_device_get_features(const struct radv_physical_device *pdev, struc
       .shaderFloat16 = radv_shader_fp16_enabled(pdev),
       .shaderInt8 = true,
 
-      .descriptorIndexing = pdev->info.has_vm_always_valid,
+      .descriptorIndexing = true,
       .shaderInputAttachmentArrayDynamicIndexing = true,
       .shaderUniformTexelBufferArrayDynamicIndexing = true,
       .shaderStorageTexelBufferArrayDynamicIndexing = true,
@@ -1062,14 +1053,14 @@ radv_physical_device_get_features(const struct radv_physical_device *pdev, struc
       .shaderInputAttachmentArrayNonUniformIndexing = true,
       .shaderUniformTexelBufferArrayNonUniformIndexing = true,
       .shaderStorageTexelBufferArrayNonUniformIndexing = true,
-      .descriptorBindingUniformBufferUpdateAfterBind = pdev->info.has_vm_always_valid,
-      .descriptorBindingSampledImageUpdateAfterBind = pdev->info.has_vm_always_valid,
-      .descriptorBindingStorageImageUpdateAfterBind = pdev->info.has_vm_always_valid,
-      .descriptorBindingStorageBufferUpdateAfterBind = pdev->info.has_vm_always_valid,
-      .descriptorBindingUniformTexelBufferUpdateAfterBind = pdev->info.has_vm_always_valid,
-      .descriptorBindingStorageTexelBufferUpdateAfterBind = pdev->info.has_vm_always_valid,
-      .descriptorBindingUpdateUnusedWhilePending = pdev->info.has_vm_always_valid,
-      .descriptorBindingPartiallyBound = pdev->info.has_vm_always_valid,
+      .descriptorBindingUniformBufferUpdateAfterBind = true,
+      .descriptorBindingSampledImageUpdateAfterBind = true,
+      .descriptorBindingStorageImageUpdateAfterBind = true,
+      .descriptorBindingStorageBufferUpdateAfterBind = true,
+      .descriptorBindingUniformTexelBufferUpdateAfterBind = true,
+      .descriptorBindingStorageTexelBufferUpdateAfterBind = true,
+      .descriptorBindingUpdateUnusedWhilePending = true,
+      .descriptorBindingPartiallyBound = true,
       .descriptorBindingVariableDescriptorCount = true,
       .runtimeDescriptorArray = true,
 
@@ -1081,7 +1072,7 @@ radv_physical_device_get_features(const struct radv_physical_device *pdev, struc
       .separateDepthStencilLayouts = true,
       .hostQueryReset = true,
       .timelineSemaphore = pdev->info.has_timeline_syncobj,
-      .bufferDeviceAddress = pdev->info.has_vm_always_valid,
+      .bufferDeviceAddress = true,
       .bufferDeviceAddressCaptureReplay = true,
       .bufferDeviceAddressMultiDevice = false,
       .vulkanMemoryModel = true,
@@ -1621,6 +1612,17 @@ radv_physical_device_get_features(const struct radv_physical_device *pdev, struc
 
       /* VK_KHR_maintenance11 */
       .maintenance11 = true,
+
+      /* VK_KHR_shader_fma */
+      .shaderFmaFloat16 = radv_shader_fp16_enabled(pdev),
+      .shaderFmaFloat32 = true,
+      .shaderFmaFloat64 = true,
+
+      /* VK_KHR_device_fault */
+      .deviceFault = true,
+      .deviceFaultVendorBinary = instance->debug_flags & RADV_DEBUG_HANG,
+      .deviceFaultReportMasked = true,
+      .deviceFaultDeviceLostOnMasked = false,
    };
 }
 
@@ -1913,11 +1915,11 @@ radv_get_physical_device_properties(struct radv_physical_device *pdev)
       .shaderRoundingModeRTEFloat16 = has_fp16,
       .shaderRoundingModeRTZFloat16 = has_fp16 && !pdev->use_llvm,
       .shaderSignedZeroInfNanPreserveFloat16 = has_fp16,
-      .shaderDenormFlushToZeroFloat64 = pdev->info.gfx_level >= GFX8 && !pdev->use_llvm,
-      .shaderDenormPreserveFloat64 = pdev->info.gfx_level >= GFX8,
-      .shaderRoundingModeRTEFloat64 = pdev->info.gfx_level >= GFX8,
-      .shaderRoundingModeRTZFloat64 = pdev->info.gfx_level >= GFX8 && !pdev->use_llvm,
-      .shaderSignedZeroInfNanPreserveFloat64 = pdev->info.gfx_level >= GFX8,
+      .shaderDenormFlushToZeroFloat64 = !pdev->use_llvm,
+      .shaderDenormPreserveFloat64 = true,
+      .shaderRoundingModeRTEFloat64 = true,
+      .shaderRoundingModeRTZFloat64 = !pdev->use_llvm,
+      .shaderSignedZeroInfNanPreserveFloat64 = true,
       .maxUpdateAfterBindDescriptorsInAllPools = UINT32_MAX / 64,
       .shaderUniformBufferArrayNonUniformIndexingNative = false,
       .shaderSampledImageArrayNonUniformIndexingNative = false,
@@ -2335,6 +2337,9 @@ radv_get_physical_device_properties(struct radv_physical_device *pdev)
       .samplerYcbcrConversionCount = 3,
       .sparseDescriptorHeaps = false,
       .protectedDescriptorHeaps = false,
+
+      /* VK_KHR_device_fault */
+      .maxDeviceFaultCount = 1,
    };
 
    struct vk_properties *p = &pdev->vk.properties;
@@ -2449,52 +2454,49 @@ radv_physical_device_try_create(struct radv_instance *instance, drmDevicePtr drm
 #else
    VkResult result;
    int fd = -1;
-   int master_fd = -1;
+   int wsi_master_fd = -1;
    bool is_virtio = false;
+   const char *path = drm_device->nodes[DRM_NODE_RENDER];
+   drmVersionPtr version;
 
-   if (drm_device) {
-      const char *path = drm_device->nodes[DRM_NODE_RENDER];
-      drmVersionPtr version;
-
-      fd = open(path, O_RDWR | O_CLOEXEC);
-      if (fd < 0) {
-         return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER, "Could not open device %s: %m", path);
-      }
-
-      version = drmGetVersion(fd);
-      if (!version) {
-         close(fd);
-
-         return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
-                          "Could not get the kernel driver version for device %s: %m", path);
-      }
-
-      if (!strcmp(version->name, "amdgpu")) {
-#ifdef HAVE_AMDGPU_VIRTIO
-         if (debug_get_bool_option("AMD_FORCE_VPIPE", false)) {
-            is_virtio = true;
-            close(fd);
-            fd = -1;
-         }
-#endif
-      } else
-#ifdef HAVE_AMDGPU_VIRTIO
-         if (!strcmp(version->name, "virtio_gpu")) {
-         is_virtio = true;
-      } else
-#endif
-      {
-         drmFreeVersion(version);
-         close(fd);
-
-         return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
-                          "Device '%s' is not using the AMDGPU kernel driver: %m", path);
-      }
-      drmFreeVersion(version);
-
-      if (instance->debug_flags & RADV_DEBUG_STARTUP)
-         fprintf(stderr, "radv: info: Found device '%s'.\n", path);
+   fd = open(path, O_RDWR | O_CLOEXEC);
+   if (fd < 0) {
+      return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER, "Could not open device %s: %m", path);
    }
+
+   version = drmGetVersion(fd);
+   if (!version) {
+      close(fd);
+
+      return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
+                       "Could not get the kernel driver version for device %s: %m", path);
+   }
+
+   if (!strcmp(version->name, "amdgpu")) {
+#ifdef HAVE_AMDGPU_VIRTIO
+      if (debug_get_bool_option("AMD_FORCE_VPIPE", false)) {
+         is_virtio = true;
+         close(fd);
+         fd = -1;
+      }
+#endif
+   } else
+#ifdef HAVE_AMDGPU_VIRTIO
+      if (!strcmp(version->name, "virtio_gpu")) {
+      is_virtio = true;
+   } else
+#endif
+   {
+      drmFreeVersion(version);
+      close(fd);
+
+      return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER, "Device '%s' is not using the AMDGPU kernel driver: %m",
+                       path);
+   }
+   drmFreeVersion(version);
+
+   if (instance->debug_flags & RADV_DEBUG_STARTUP)
+      fprintf(stderr, "radv: info: Found device '%s'.\n", path);
 
    struct radv_physical_device *pdev =
       vk_zalloc2(&instance->vk.alloc, NULL, sizeof(*pdev), 8, VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE);
@@ -2512,51 +2514,69 @@ radv_physical_device_try_create(struct radv_instance *instance, drmDevicePtr drm
       goto fail_alloc;
    }
 
-   if (drm_device) {
-      result = radv_amdgpu_winsys_create(fd, instance->debug_flags, instance->perftest_flags, is_virtio, &pdev->ws);
+   result = radv_amdgpu_winsys_create(fd, instance->debug_flags, instance->perftest_flags, is_virtio, &pdev->ws);
+   if (result != VK_SUCCESS) {
+      result = vk_errorf(instance, result, "failed to initialize winsys");
+      goto fail_base;
+   }
 
-      if (result != VK_SUCCESS) {
-         result = vk_errorf(instance, result, "failed to initialize winsys");
-         goto fail_base;
+   pdev->ws->query_info(pdev->ws, &pdev->info);
+
+   pdev->syncobj_sync_type = vk_drm_syncobj_get_type(pdev->ws->get_fd(pdev->ws));
+
+   int num_sync_types = 0;
+   if (pdev->syncobj_sync_type.features) {
+      if (!pdev->info.has_timeline_syncobj && pdev->syncobj_sync_type.features & VK_SYNC_FEATURE_TIMELINE) {
+         pdev->syncobj_sync_type.get_value = NULL;
+         pdev->syncobj_sync_type.features &= ~VK_SYNC_FEATURE_TIMELINE;
       }
+      pdev->sync_types[num_sync_types++] = &pdev->syncobj_sync_type;
+      if (!(pdev->syncobj_sync_type.features & VK_SYNC_FEATURE_TIMELINE)) {
+         pdev->emulated_timeline_sync_type = vk_sync_timeline_get_type(&pdev->syncobj_sync_type);
+         pdev->sync_types[num_sync_types++] = &pdev->emulated_timeline_sync_type.sync;
+      }
+   }
+   pdev->sync_types[num_sync_types++] = NULL;
+   pdev->vk.supported_sync_types = pdev->sync_types;
 
-      pdev->vk.supported_sync_types = pdev->ws->get_sync_types(pdev->ws);
-      pdev->ws->query_info(pdev->ws, &pdev->info);
+   for (uint32_t p = VK_QUEUE_GLOBAL_PRIORITY_LOW; p <= VK_QUEUE_GLOBAL_PRIORITY_REALTIME; p <<= 1) {
+      if (pdev->ws->ctx_is_priority_permitted(pdev->ws, vk_to_radeon_priority(p)) != VK_SUCCESS)
+         continue;
 
-      if (instance->vk.enabled_extensions.KHR_display) {
-         master_fd = open(drm_device->nodes[DRM_NODE_PRIMARY], O_RDWR | O_CLOEXEC);
-         if (master_fd >= 0) {
-            uint32_t accel_working = 0;
-            struct drm_amdgpu_info request = {.return_pointer = (uintptr_t)&accel_working,
-                                              .return_size = sizeof(accel_working),
-                                              .query = AMDGPU_INFO_ACCEL_WORKING};
+      pdev->global_priority_mask |= p;
+   }
 
-            if (drm_ioctl_write(master_fd, DRM_AMDGPU_INFO, &request, sizeof(struct drm_amdgpu_info)) < 0 ||
-                !accel_working) {
-               close(master_fd);
-               master_fd = -1;
-            }
+   if (instance->vk.enabled_extensions.KHR_display) {
+      wsi_master_fd = open(drm_device->nodes[DRM_NODE_PRIMARY], O_RDWR | O_CLOEXEC);
+      if (wsi_master_fd >= 0) {
+         uint32_t accel_working = 0;
+         struct drm_amdgpu_info request = {.return_pointer = (uintptr_t)&accel_working,
+                                           .return_size = sizeof(accel_working),
+                                           .query = AMDGPU_INFO_ACCEL_WORKING};
+
+         if (drm_ioctl_write(wsi_master_fd, DRM_AMDGPU_INFO, &request, sizeof(struct drm_amdgpu_info)) < 0 ||
+             !accel_working) {
+            close(wsi_master_fd);
+            wsi_master_fd = -1;
          }
-      }
-
-      /* Allow all devices on a virtual winsys, otherwise do a basic support check. */
-      if (!radv_is_gpu_supported(&pdev->info)) {
-         if (instance->debug_flags & RADV_DEBUG_STARTUP)
-            fprintf(stderr, "radv: info: device '%s' is not supported by RADV.\n",
-                    ac_get_family_name(pdev->info.family));
-         result = VK_ERROR_INCOMPATIBLE_DRIVER;
-         goto fail_wsi;
-      }
-
-      pdev->addrlib = ac_addrlib_create(&pdev->info, &pdev->info.max_alignment);
-      if (!pdev->addrlib) {
-         result = VK_ERROR_INITIALIZATION_FAILED;
-         goto fail_wsi;
       }
    }
 
-   pdev->master_fd = master_fd;
-   pdev->local_fd = fd;
+   /* Allow all devices on a virtual winsys, otherwise do a basic support check. */
+   if (!radv_is_gpu_supported(&pdev->info)) {
+      if (instance->debug_flags & RADV_DEBUG_STARTUP)
+         fprintf(stderr, "radv: info: device '%s' is not supported by RADV.\n", ac_get_family_name(pdev->info.family));
+      result = VK_ERROR_INCOMPATIBLE_DRIVER;
+      goto fail_wsi;
+   }
+
+   pdev->addrlib = ac_addrlib_create(&pdev->info, &pdev->info.max_alignment);
+   if (!pdev->addrlib) {
+      result = VK_ERROR_INITIALIZATION_FAILED;
+      goto fail_wsi;
+   }
+
+   pdev->wsi_master_fd = wsi_master_fd;
 
    pdev->use_llvm = instance->debug_flags & RADV_DEBUG_LLVM;
 #if !AMD_LLVM_AVAILABLE
@@ -2671,28 +2691,26 @@ radv_physical_device_try_create(struct radv_instance *instance, drmDevicePtr drm
    radv_physical_device_get_supported_extensions(pdev, &pdev->vk.supported_extensions);
    radv_physical_device_get_features(pdev, &pdev->vk.supported_features);
 
-   if (drm_device) {
-      struct stat primary_stat = {0}, render_stat = {0};
+   struct stat primary_stat = {0}, render_stat = {0};
 
-      pdev->available_nodes = drm_device->available_nodes;
-      pdev->bus_info = *drm_device->businfo.pci;
+   pdev->available_nodes = drm_device->available_nodes;
+   pdev->bus_info = *drm_device->businfo.pci;
 
-      if ((drm_device->available_nodes & (1 << DRM_NODE_PRIMARY)) &&
-          stat(drm_device->nodes[DRM_NODE_PRIMARY], &primary_stat) != 0) {
-         result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED, "failed to stat DRM primary node %s",
-                            drm_device->nodes[DRM_NODE_PRIMARY]);
-         goto fail_perfcounters;
-      }
-      pdev->primary_devid = primary_stat.st_rdev;
-
-      if ((drm_device->available_nodes & (1 << DRM_NODE_RENDER)) &&
-          stat(drm_device->nodes[DRM_NODE_RENDER], &render_stat) != 0) {
-         result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED, "failed to stat DRM render node %s",
-                            drm_device->nodes[DRM_NODE_RENDER]);
-         goto fail_perfcounters;
-      }
-      pdev->render_devid = render_stat.st_rdev;
+   if ((drm_device->available_nodes & (1 << DRM_NODE_PRIMARY)) &&
+       stat(drm_device->nodes[DRM_NODE_PRIMARY], &primary_stat) != 0) {
+      result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED, "failed to stat DRM primary node %s",
+                         drm_device->nodes[DRM_NODE_PRIMARY]);
+      goto fail_perfcounters;
    }
+   pdev->primary_devid = primary_stat.st_rdev;
+
+   if ((drm_device->available_nodes & (1 << DRM_NODE_RENDER)) &&
+       stat(drm_device->nodes[DRM_NODE_RENDER], &render_stat) != 0) {
+      result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED, "failed to stat DRM render node %s",
+                         drm_device->nodes[DRM_NODE_RENDER]);
+      goto fail_perfcounters;
+   }
+   pdev->render_devid = render_stat.st_rdev;
 
    if (radv_device_get_cache_uuid(pdev, pdev->cache_uuid)) {
       result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED, "cannot generate UUID");
@@ -2712,7 +2730,7 @@ radv_physical_device_try_create(struct radv_instance *instance, drmDevicePtr drm
    radv_get_physical_device_properties(pdev);
 
    if ((instance->debug_flags & RADV_DEBUG_INFO))
-      ac_print_gpu_info(stdout, &pdev->info, pdev->local_fd);
+      ac_print_gpu_info(stdout, &pdev->info, fd);
 
    radv_init_physical_device_decoder(pdev);
    radv_init_physical_device_encoder(pdev);
@@ -2748,6 +2766,9 @@ radv_physical_device_try_create(struct radv_instance *instance, drmDevicePtr drm
 
    *pdev_out = pdev;
 
+   close(fd);
+   fd = -1;
+
    return VK_SUCCESS;
 
 fail_perfcounters:
@@ -2766,24 +2787,10 @@ fail_alloc:
 fail_fd:
    if (fd != -1)
       close(fd);
-   if (master_fd != -1)
-      close(master_fd);
+   if (wsi_master_fd != -1)
+      close(wsi_master_fd);
    return result;
 #endif
-}
-
-VkResult
-create_null_physical_device(struct vk_instance *vk_instance)
-{
-   struct radv_instance *instance = container_of(vk_instance, struct radv_instance, vk);
-   struct radv_physical_device *pdev;
-
-   VkResult result = radv_physical_device_try_create(instance, NULL, &pdev);
-   if (result != VK_SUCCESS)
-      return result;
-
-   list_addtail(&pdev->vk.link, &instance->vk.physical_devices.list);
-   return VK_SUCCESS;
 }
 
 VkResult
@@ -2826,10 +2833,8 @@ radv_physical_device_destroy(struct vk_physical_device *vk_device)
       pdev->ws->destroy(pdev->ws);
    disk_cache_destroy(pdev->vk.disk_cache);
    disk_cache_destroy(pdev->disk_cache_meta);
-   if (pdev->local_fd != -1)
-      close(pdev->local_fd);
-   if (pdev->master_fd != -1)
-      close(pdev->master_fd);
+   if (pdev->wsi_master_fd != -1)
+      close(pdev->wsi_master_fd);
    vk_physical_device_finish(&pdev->vk);
    vk_free(&instance->vk.alloc, pdev);
 }
@@ -2918,7 +2923,7 @@ radv_get_physical_device_queue_family_properties(struct radv_physical_device *pd
          *pQueueFamilyProperties[idx] = (VkQueueFamilyProperties){
             .queueFlags = VK_QUEUE_VIDEO_DECODE_BIT_KHR | radv_queue_family_protected_flag(pdev, RADV_QUEUE_VIDEO_DEC),
             .queueCount = pdev->info.ip[pdev->vid_decode_ip].num_queues,
-            .timestampValidBits = 0,
+            .timestampValidBits = pdev->info.video_caps.queue[pdev->vid_decode_ip].timestamp ? 64 : 0,
             .minImageTransferGranularity = (VkExtent3D){1, 1, 1},
          };
          idx++;
@@ -2943,7 +2948,7 @@ radv_get_physical_device_queue_family_properties(struct radv_physical_device *pd
          *pQueueFamilyProperties[idx] = (VkQueueFamilyProperties){
             .queueFlags = VK_QUEUE_VIDEO_ENCODE_BIT_KHR | radv_queue_family_protected_flag(pdev, RADV_QUEUE_VIDEO_ENC),
             .queueCount = pdev->info.ip[AMD_IP_VCN_ENC].num_queues,
-            .timestampValidBits = 0,
+            .timestampValidBits = pdev->info.video_caps.queue[AMD_IP_VCN_ENC].timestamp ? 64 : 0,
             .minImageTransferGranularity = (VkExtent3D){1, 1, 1},
          };
          idx++;
@@ -2968,12 +2973,10 @@ radv_get_physical_device_queue_family_properties(struct radv_physical_device *pd
 static void
 radv_get_global_queue_priorities(struct radv_physical_device *pdev, VkQueueFamilyGlobalPriorityProperties *prop)
 {
-   struct radeon_winsys *ws = pdev->ws;
-
    prop->priorityCount = 0;
 
    for (uint32_t p = VK_QUEUE_GLOBAL_PRIORITY_LOW; p <= VK_QUEUE_GLOBAL_PRIORITY_REALTIME; p <<= 1) {
-      if (ws->ctx_is_priority_permitted(ws, vk_to_radeon_priority(p)) != VK_SUCCESS)
+      if (!(pdev->global_priority_mask & p))
          continue;
 
       prop->priorities[prop->priorityCount++] = p;
@@ -3058,6 +3061,28 @@ radv_GetPhysicalDeviceQueueFamilyProperties2(VkPhysicalDevice physicalDevice, ui
    }
 }
 
+struct radv_heap_budget {
+   uint64_t allocated_vram;
+   uint64_t vram_usage;
+   uint64_t allocated_vram_vis;
+   uint64_t vram_vis_usage;
+   uint64_t allocated_gtt;
+   uint64_t gtt_usage;
+};
+
+static void
+radv_get_heap_budget(struct radv_physical_device *pdev, struct radv_heap_budget *budget)
+{
+   memset(budget, 0, sizeof(*budget));
+
+   budget->allocated_vram = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM);
+   budget->vram_usage = pdev->ws->query_value(pdev->ws, RADEON_VRAM_USAGE);
+   budget->allocated_vram_vis = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM_VIS);
+   budget->vram_vis_usage = pdev->ws->query_value(pdev->ws, RADEON_VRAM_VIS_USAGE);
+   budget->allocated_gtt = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_GTT);
+   budget->gtt_usage = pdev->ws->query_value(pdev->ws, RADEON_GTT_USAGE);
+}
+
 static void
 radv_get_memory_budget_properties(VkPhysicalDevice physicalDevice,
                                   VkPhysicalDeviceMemoryBudgetPropertiesEXT *memoryBudget)
@@ -3065,6 +3090,9 @@ radv_get_memory_budget_properties(VkPhysicalDevice physicalDevice,
    VK_FROM_HANDLE(radv_physical_device, pdev, physicalDevice);
    const struct radv_instance *instance = radv_physical_device_instance(pdev);
    VkPhysicalDeviceMemoryProperties *memory_properties = &pdev->memory_properties;
+   struct radv_heap_budget budget;
+
+   radv_get_heap_budget(pdev, &budget);
 
    /* For all memory heaps, the computation of budget is as follow:
     *	heap_budget = heap_size - global_heap_usage + app_heap_usage
@@ -3086,12 +3114,10 @@ radv_get_memory_budget_properties(VkPhysicalDevice physicalDevice,
          uint64_t total_heap_size = pdev->memory_properties.memoryHeaps[vram_vis_heap_idx].size;
 
          /* Get the different memory usages. */
-         uint64_t vram_vis_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM_VIS) +
-                                            pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM);
-         uint64_t gtt_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_GTT);
+         uint64_t vram_vis_internal_usage = budget.allocated_vram_vis + budget.allocated_vram;
+         uint64_t gtt_internal_usage = budget.allocated_gtt;
          uint64_t total_internal_usage = vram_vis_internal_usage + gtt_internal_usage;
-         uint64_t total_system_usage =
-            pdev->ws->query_value(pdev->ws, RADEON_VRAM_VIS_USAGE) + pdev->ws->query_value(pdev->ws, RADEON_GTT_USAGE);
+         uint64_t total_system_usage = budget.vram_vis_usage + budget.gtt_usage;
          uint64_t total_usage = MAX2(total_internal_usage, total_system_usage);
 
          /* Compute the total free space that can be allocated for this process across all heaps. */
@@ -3112,15 +3138,13 @@ radv_get_memory_budget_properties(VkPhysicalDevice physicalDevice,
          uint64_t gtt_heap_size = pdev->memory_properties.memoryHeaps[gtt_heap_idx].size;
          uint64_t vram_vis_heap_size = pdev->memory_properties.memoryHeaps[vram_vis_heap_idx].size;
 
-         uint64_t vram_vis_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM_VIS) +
-                                            pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM);
-         uint64_t gtt_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_GTT);
+         uint64_t vram_vis_internal_usage = budget.allocated_vram_vis + budget.allocated_vram;
+         uint64_t gtt_internal_usage = budget.allocated_gtt;
 
          /* Compute the total heap size, internal and system usage. */
          uint64_t total_heap_size = vram_vis_heap_size + gtt_heap_size;
          uint64_t total_internal_usage = vram_vis_internal_usage + gtt_internal_usage;
-         uint64_t total_system_usage =
-            pdev->ws->query_value(pdev->ws, RADEON_VRAM_VIS_USAGE) + pdev->ws->query_value(pdev->ws, RADEON_GTT_USAGE);
+         uint64_t total_system_usage = budget.vram_vis_usage + budget.gtt_usage;
 
          uint64_t total_usage = MAX2(total_internal_usage, total_system_usage);
 
@@ -3152,17 +3176,17 @@ radv_get_memory_budget_properties(VkPhysicalDevice physicalDevice,
          const uint8_t vram_heap_idx = 0, gtt_heap_idx = 1, vram_vis_heap_idx = 2;
 
          /* GTT */
-         const uint64_t gtt_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_GTT);
-         const uint64_t gtt_system_usage = pdev->ws->query_value(pdev->ws, RADEON_GTT_USAGE);
+         const uint64_t gtt_internal_usage = budget.allocated_gtt;
+         const uint64_t gtt_system_usage = budget.gtt_usage;
          const uint64_t gtt_total_usage = MAX2(gtt_internal_usage, gtt_system_usage);
 
          const uint64_t gtt_free_space = pdev->memory_properties.memoryHeaps[gtt_heap_idx].size -
                                          MIN2(pdev->memory_properties.memoryHeaps[gtt_heap_idx].size, gtt_total_usage);
 
          /* VRAM visible/invisible */
-         const uint64_t vram_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM);
-         const uint64_t vram_vis_internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM_VIS);
-         uint64_t vram_system_usage = pdev->ws->query_value(pdev->ws, RADEON_VRAM_USAGE);
+         const uint64_t vram_internal_usage = budget.allocated_vram;
+         const uint64_t vram_vis_internal_usage = budget.allocated_vram_vis;
+         uint64_t vram_system_usage = budget.vram_usage;
          const uint64_t vram_vis_system_usage =
             MIN2(vram_system_usage, pdev->memory_properties.memoryHeaps[vram_vis_heap_idx].size);
 
@@ -3193,18 +3217,18 @@ radv_get_memory_budget_properties(VkPhysicalDevice physicalDevice,
 
             switch (type) {
             case RADV_HEAP_VRAM:
-               internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM);
-               system_usage = pdev->ws->query_value(pdev->ws, RADEON_VRAM_USAGE);
+               internal_usage = budget.allocated_vram;
+               system_usage = budget.vram_usage;
                break;
             case RADV_HEAP_VRAM_VIS:
-               internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM_VIS);
+               internal_usage = budget.allocated_vram_vis;
                if (!(pdev->heaps & RADV_HEAP_VRAM))
-                  internal_usage += pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_VRAM);
-               system_usage = pdev->ws->query_value(pdev->ws, RADEON_VRAM_VIS_USAGE);
+                  internal_usage += budget.allocated_vram;
+               system_usage = budget.vram_vis_usage;
                break;
             case RADV_HEAP_GTT:
-               internal_usage = pdev->ws->query_value(pdev->ws, RADEON_ALLOCATED_GTT);
-               system_usage = pdev->ws->query_value(pdev->ws, RADEON_GTT_USAGE);
+               internal_usage = budget.allocated_gtt;
+               system_usage = budget.gtt_usage;
                break;
             }
 

@@ -219,6 +219,7 @@ struct ac_video_queue_caps {
       uint32_t supported;
    };
    enum ac_video_write_memory_support write_memory;
+   bool timestamp;
 };
 
 struct ac_video_caps {

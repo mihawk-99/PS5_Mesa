@@ -297,14 +297,14 @@ kk_DestroyDevice(VkDevice _device, const VkAllocationCallbacks *pAllocator)
    if (dev->heap)
       kk_destroy_bo(dev, dev->heap);
 
-   /* Release the residency set last once all BOs are released. */
-   mtl_release(dev->residency_set.handle);
-   simple_mtx_destroy(&dev->residency_set.mutex);
-
    if (dev->has_queue) {
       kk_queue_finish(dev, &dev->queue);
       dev->has_queue = false;
    }
+
+   /* Release the residency set last once all BOs are released. */
+   mtl_release(dev->residency_set.handle);
+   simple_mtx_destroy(&dev->residency_set.mutex);
 
    vk_device_finish(&dev->vk);
 
@@ -345,6 +345,23 @@ kk_device_remove_heap_from_residency_set(struct kk_device *dev, mtl_heap *heap)
 {
    simple_mtx_lock(&dev->residency_set.mutex);
    mtl_residency_set_remove_allocation(dev->residency_set.handle, heap);
+   simple_mtx_unlock(&dev->residency_set.mutex);
+}
+
+void
+kk_device_add_buffer_to_residency_set(struct kk_device *dev, mtl_buffer *buffer)
+{
+   simple_mtx_lock(&dev->residency_set.mutex);
+   mtl_residency_set_add_allocation(dev->residency_set.handle, buffer);
+   simple_mtx_unlock(&dev->residency_set.mutex);
+}
+
+void
+kk_device_remove_buffer_from_residency_set(struct kk_device *dev,
+                                           mtl_buffer *buffer)
+{
+   simple_mtx_lock(&dev->residency_set.mutex);
+   mtl_residency_set_remove_allocation(dev->residency_set.handle, buffer);
    simple_mtx_unlock(&dev->residency_set.mutex);
 }
 

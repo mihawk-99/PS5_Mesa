@@ -11,6 +11,7 @@
 
 #include "drm-uapi/drm_fourcc.h"
 #include "git_sha1.h"
+#include "perfcntrs/freedreno_perfcntr.h"
 
 #include "common/freedreno_stompable_regs.h"
 /* for fd_get_driver/device_uuid() */
@@ -19,10 +20,12 @@
 #include "util/driconf.h"
 #include "util/hex.h"
 #include "util/os_misc.h"
+#include "util/u_atomic.h"
 #include "util/u_debug.h"
 #include "util/u_process.h"
 #include "vk_android.h"
 #include "vk_debug_utils.h"
+#include "vk_physical_device.h"
 #include "vk_shader_module.h"
 #include "vk_util.h"
 #include "vk_sampler.h"
@@ -49,6 +52,24 @@
 
 uint64_t os_page_size = 4096;
 
+static bool
+tu_device_get_build_id(blake3_hasher *ctx)
+{
+#ifdef TU_BUILD_ID_OVERRIDE
+   {
+      assert(strlen(TU_BUILD_ID_OVERRIDE) % 2 == 0);
+      unsigned size = strlen(TU_BUILD_ID_OVERRIDE) / 2;
+      auto data = static_cast<unsigned char *>(ralloc_size(NULL, size));
+      mesa_hex_to_bytes(data, TU_BUILD_ID_OVERRIDE, size);
+      _mesa_blake3_update(ctx, data, size);
+      ralloc_free(data);
+      return true;
+   }
+#else
+   return disk_cache_get_function_identifier((void *) tu_device_get_build_id, ctx);
+#endif
+}
+
 static int
 tu_device_get_cache_uuid(struct tu_physical_device *device, void *uuid)
 {
@@ -60,15 +81,19 @@ tu_device_get_cache_uuid(struct tu_physical_device *device, void *uuid)
     * device.
     */
    uint64_t driver_flags = TU_DEBUG(NOMULTIPOS);
-   uint16_t family = fd_dev_gpu_id(&device->dev_id);
+
+   /* Note: we intentionally drop the upper 32 bits since they contain fuse
+    * values that don't affect compilation.
+    */
+   uint32_t chip_id = device->dev_id.chip_id;
 
    memset(uuid, 0, VK_UUID_SIZE);
    _mesa_blake3_init(&ctx);
 
-   if (!disk_cache_get_function_identifier((void *)tu_device_get_cache_uuid, &ctx))
+   if (!tu_device_get_build_id(&ctx))
       return -1;
 
-   _mesa_blake3_update(&ctx, &family, sizeof(family));
+   _mesa_blake3_update(&ctx, &chip_id, sizeof(chip_id));
    _mesa_blake3_update(&ctx, &driver_flags, sizeof(driver_flags));
    _mesa_blake3_update(&ctx, &device->uche_trap_base, sizeof(device->uche_trap_base));
    _mesa_blake3_final(&ctx, blake3);
@@ -202,6 +227,7 @@ get_device_extensions(const struct tu_physical_device *device,
       .KHR_incremental_present = true,
 #endif
       .KHR_index_type_uint8 = true,
+      .KHR_internally_synchronized_queues = true,
       .KHR_line_rasterization = !device->info->props.is_a702,
       .KHR_load_store_op_none = true,
       .KHR_maintenance1 = true,
@@ -273,6 +299,7 @@ get_device_extensions(const struct tu_physical_device *device,
       .EXT_conservative_rasterization = device->info->chip >= 7,
       .EXT_custom_border_color = true,
       .EXT_custom_resolve = true,
+      .EXT_debug_marker = true,
       .EXT_depth_clamp_control = true,
       .EXT_depth_clamp_zero_one = true,
       .EXT_depth_clip_control = true,
@@ -547,6 +574,9 @@ tu_get_features(struct tu_physical_device *pdevice,
 
    /* VK_KHR_index_type_uint8 */
    features->indexTypeUint8 = true;
+
+   /* VK_KHR_internally_synchronized_queues */
+   features->internallySynchronizedQueues = true;
 
    /* VK_KHR_line_rasterization */
    features->rectangularLines = !pdevice->info->props.is_a702;
@@ -885,8 +915,8 @@ tu_get_physical_device_properties_1_1(struct tu_physical_device *pdevice,
    p->deviceNodeMask = 0;
    p->deviceLUIDValid = false;
 
-   p->subgroupSize = pdevice->info->props.supports_double_threadsize ?
-      pdevice->info->threadsize_base * 2 : pdevice->info->threadsize_base;
+   p->subgroupSize =
+      pdevice->expose_double_threadsize ? pdevice->info->threadsize_base * 2 : pdevice->info->threadsize_base;
    p->subgroupSupportedStages = VK_SHADER_STAGE_COMPUTE_BIT;
    p->subgroupSupportedOperations = VK_SUBGROUP_FEATURE_BASIC_BIT |
                                     VK_SUBGROUP_FEATURE_VOTE_BIT |
@@ -975,7 +1005,7 @@ tu_get_physical_device_properties_1_2(struct tu_physical_device *pdevice,
     * get people confused, but vkd3d-proton cannot emulate it itself so we
     * have to allow it to use our emulation.
     */
-   p->shaderDenormPreserveFloat32 = pdevice->instance->enable_softfloat32;
+   p->shaderDenormPreserveFloat32 = pdevice->instance->drirc.misc.enable_softfloat32;
 
    p->shaderRoundingModeRTEFloat32           = true;
    p->shaderRoundingModeRTZFloat32           = false;
@@ -1034,8 +1064,8 @@ tu_get_physical_device_properties_1_3(struct tu_physical_device *pdevice,
                                       struct vk_properties *p)
 {
    p->minSubgroupSize = pdevice->info->threadsize_base;
-   p->maxSubgroupSize = pdevice->info->props.supports_double_threadsize ?
-      pdevice->info->threadsize_base * 2 : pdevice->info->threadsize_base;
+   p->maxSubgroupSize =
+      pdevice->expose_double_threadsize ? pdevice->info->threadsize_base * 2 : pdevice->info->threadsize_base;
    p->maxComputeWorkgroupSubgroups = pdevice->info->max_waves;
    p->requiredSubgroupSizeStages = VK_SHADER_STAGE_ALL;
 
@@ -1164,9 +1194,9 @@ tu_get_properties(struct tu_physical_device *pdevice,
    props->maxComputeWorkGroupCount[0] =
       props->maxComputeWorkGroupCount[1] =
       props->maxComputeWorkGroupCount[2] = 65535;
-   props->maxComputeWorkGroupInvocations = pdevice->info->props.supports_double_threadsize ?
-      pdevice->info->threadsize_base * 2 * pdevice->info->max_waves :
-      pdevice->info->threadsize_base * pdevice->info->max_waves;
+   props->maxComputeWorkGroupInvocations = pdevice->expose_double_threadsize
+                                              ? pdevice->info->threadsize_base * 2 * pdevice->info->max_waves
+                                              : pdevice->info->threadsize_base * pdevice->info->max_waves;
    if (pdevice->info->props.is_a702) {
       props->maxComputeWorkGroupSize[0] =
          props->maxComputeWorkGroupSize[1] = 512;
@@ -1240,8 +1270,8 @@ tu_get_properties(struct tu_physical_device *pdevice,
             VK_MAKE_VERSION(1, 3, VK_HEADER_VERSION))
          : VK_MAKE_VERSION(1, 0, VK_HEADER_VERSION);
    props->driverVersion = vk_get_driver_version();
-   props->vendorID = pdevice->instance->force_vk_vendor != 0 ?
-                     pdevice->instance->force_vk_vendor : 0x5143;
+   props->vendorID = pdevice->instance->drirc.debug.force_vk_vendor != 0 ?
+                     pdevice->instance->drirc.debug.force_vk_vendor : 0x5143;
    props->deviceID = pdevice->dev_id.chip_id;
    props->deviceType = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
 
@@ -1437,7 +1467,7 @@ tu_get_properties(struct tu_physical_device *pdevice,
    props->earlyFragmentMultisampleCoverageAfterSampleCounting = true;
    props->earlyFragmentSampleMaskTestBeforeSampleCounting = true;
    props->depthStencilSwizzleOneSupport =
-      pdevice->info->props.has_z24uint_s8uint && pdevice->instance->enable_d24s8_border_color_workaround;
+      pdevice->info->props.has_z24uint_s8uint && pdevice->instance->drirc.misc.enable_d24s8_border_color_workaround;
    props->polygonModePointSize = true;
    props->nonStrictWideLinesUseParallelogram = false;
    props->nonStrictSinglePixelWideLinesUseParallelogram = false;
@@ -1668,7 +1698,7 @@ tu_physical_device_init(struct tu_physical_device *device,
                                      &device->config_gmem,
                                      &device->config_sysmem);
 
-      if (instance->reserve_descriptor_set) {
+      if (!instance->drirc.misc.dont_reserve_descriptor_set) {
          device->usable_sets = device->reserved_set_idx = device->info->props.max_sets - 1;
       } else {
          device->usable_sets = device->info->props.max_sets;
@@ -1686,6 +1716,8 @@ tu_physical_device_init(struct tu_physical_device *device,
                                  "cannot generate UUID");
       goto fail_free_name;
    }
+
+   device->expose_double_threadsize = info.props.supports_double_threadsize && !instance->drirc.misc.restrict_subgroup_size_64;
 
    device->level1_dcache_size = util_cache_granularity();
    device->has_cached_non_coherent_memory =
@@ -1705,7 +1737,7 @@ tu_physical_device_init(struct tu_physical_device *device,
          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
          VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
 
-      if (instance->override_uncached_as_cache_coherent) {
+      if (instance->drirc.misc.override_uncached_as_cache_coherent) {
           /* Retain this memory type index to override later. */
           device->preferred_uncached_as_cached_index = device->memory.type_count;
       }
@@ -1834,38 +1866,6 @@ tu_destroy_physical_device(struct vk_physical_device *device)
    vk_free(&device->instance->alloc, device);
 }
 
-static const driOptionDescription tu_dri_options[] = {
-   DRI_CONF_SECTION_PERFORMANCE
-      DRI_CONF_VK_X11_OVERRIDE_MIN_IMAGE_COUNT(0)
-      DRI_CONF_VK_X11_STRICT_IMAGE_COUNT(false)
-      DRI_CONF_VK_X11_ENSURE_MIN_IMAGE_COUNT(false)
-      DRI_CONF_VK_XWAYLAND_WAIT_READY(false)
-      DRI_CONF_TU_ALLOW_CONCURRENT_BINNING(false)
-   DRI_CONF_SECTION_END
-
-   DRI_CONF_SECTION_DEBUG
-      DRI_CONF_FORCE_VK_VENDOR()
-      DRI_CONF_VK_WSI_FORCE_BGRA8_UNORM_FIRST(false)
-      DRI_CONF_VK_WSI_FORCE_SWAPCHAIN_TO_CURRENT_EXTENT(false)
-      DRI_CONF_VK_X11_IGNORE_SUBOPTIMAL(false)
-      DRI_CONF_VK_DONT_CARE_AS_LOAD(false)
-   DRI_CONF_SECTION_END
-
-   DRI_CONF_SECTION_MISCELLANEOUS
-      DRI_CONF_DISABLE_CONSERVATIVE_LRZ(false)
-      DRI_CONF_TU_DONT_RESERVE_DESCRIPTOR_SET(false)
-      DRI_CONF_TU_ALLOW_OOB_INDIRECT_UBO_LOADS(false)
-      DRI_CONF_TU_ENABLE_D24S8_BORDER_COLOR_WORKAROUND(false)
-      DRI_CONF_TU_ENABLE_FAST_BORDER_COLOR_FOR_UNDEFINED_FORMATS(false)
-      DRI_CONF_TU_USE_TEX_COORD_ROUND_NEAREST_EVEN_MODE(false)
-      DRI_CONF_TU_IGNORE_FRAG_DEPTH_DIRECTION(false)
-      DRI_CONF_TU_ENABLE_SOFTFLOAT32(false)
-      DRI_CONF_TU_EMULATE_ALPHA_TO_COVERAGE(false)
-      DRI_CONF_TU_AUTOTUNE_ALGORITHM()
-      DRI_CONF_TU_OVERRIDE_UNCACHED_AS_CACHE_COHERENT(false)
-   DRI_CONF_SECTION_END
-};
-
 static void
 tu_init_dri_options(struct tu_instance *instance)
 {
@@ -1877,40 +1877,12 @@ tu_init_dri_options(struct tu_instance *instance)
       .engineVersion = instance->vk.app_info.engine_version,
    };
 
-   driParseOptionInfo(&instance->available_dri_options, tu_dri_options,
-                      ARRAY_SIZE(tu_dri_options));
-   driParseConfigFiles(&instance->dri_options, &instance->available_dri_options,
-                       &params);
+   turnip_parse_dri_options(&instance->drirc, &params);
 
-   instance->force_vk_vendor =
-         driQueryOptioni(&instance->dri_options, "force_vk_vendor");
-   instance->dont_care_as_load =
-         driQueryOptionb(&instance->dri_options, "vk_dont_care_as_load");
-   instance->conservative_lrz =
-         !driQueryOptionb(&instance->dri_options, "disable_conservative_lrz");
-   instance->reserve_descriptor_set =
-         !driQueryOptionb(&instance->dri_options, "tu_dont_reserve_descriptor_set");
-   instance->allow_oob_indirect_ubo_loads =
-         driQueryOptionb(&instance->dri_options, "tu_allow_oob_indirect_ubo_loads");
-   instance->enable_d24s8_border_color_workaround =
-         driQueryOptionb(&instance->dri_options, "tu_enable_d24s8_border_color_workaround");
-   instance->enable_fast_border_color_for_undefined_formats =
-         driQueryOptionb(&instance->dri_options, "tu_enable_fast_border_color_for_undefined_formats");
-   instance->use_tex_coord_round_nearest_even_mode =
-         driQueryOptionb(&instance->dri_options, "tu_use_tex_coord_round_nearest_even_mode");
-   instance->ignore_frag_depth_direction =
-         driQueryOptionb(&instance->dri_options, "tu_ignore_frag_depth_direction");
-   instance->enable_softfloat32 =
-         driQueryOptionb(&instance->dri_options, "tu_enable_softfloat32");
-   instance->emulate_alpha_to_coverage =
-         driQueryOptionb(&instance->dri_options, "tu_emulate_alpha_to_coverage");
-   instance->autotune_algo =
-         driQueryOptionstr(&instance->dri_options, "tu_autotune_algorithm");
-   instance->override_uncached_as_cache_coherent =
-         driQueryOptionb(&instance->dri_options, "tu_override_uncached_as_cache_coherent");
-   instance->allow_concurrent_binning =
-      (driQueryOptionb(&instance->dri_options, "tu_allow_concurrent_binning") && !TU_DEBUG(NO_CONCURRENT_BINNING)) ||
-      TU_DEBUG(FORCE_CONCURRENT_BINNING);
+   if (TU_DEBUG(NO_CONCURRENT_BINNING))
+      instance->drirc.perf.allow_concurrent_binning = false;
+   if (TU_DEBUG(FORCE_CONCURRENT_BINNING))
+      instance->drirc.perf.allow_concurrent_binning = true;
 }
 
 static uint32_t instance_count = 0;
@@ -1986,8 +1958,8 @@ tu_DestroyInstance(VkInstance _instance,
 
    VG(VALGRIND_DESTROY_MEMPOOL(instance));
 
-   driDestroyOptionCache(&instance->dri_options);
-   driDestroyOptionInfo(&instance->available_dri_options);
+   driDestroyOptionCache(&instance->drirc.options);
+   driDestroyOptionInfo(&instance->drirc.available_options);
 
    vk_instance_finish(&instance->vk);
    vk_free(&instance->vk.alloc, instance);
@@ -2078,19 +2050,10 @@ tu_GetPhysicalDeviceQueueFamilyProperties2(
 uint64_t
 tu_get_system_heap_size(struct tu_physical_device *physical_device)
 {
-   uint64_t total_ram = 0;
-   ASSERTED bool has_physical_memory =
-      os_get_total_physical_memory(&total_ram);
-   assert(has_physical_memory);
+   float *percent = &physical_device->instance->drirc.misc.heap_memory_percent;
 
-   /* We don't want to burn too much ram with the GPU.  If the user has 4GiB
-    * or less, we use at most half.  If they have more than 4GiB, we use 3/4.
-    */
-   uint64_t available_ram;
-   if (total_ram <= 4ull * 1024ull * 1024ull * 1024ull)
-      available_ram = total_ram / 2;
-   else
-      available_ram = total_ram * 3 / 4;
+   uint64_t available_ram = os_get_gpu_heap_size(*percent, percent);
+   assert(available_ram);
 
    if (physical_device->va_size)
       available_ram = MIN2(available_ram, physical_device->va_size);
@@ -2098,25 +2061,21 @@ tu_get_system_heap_size(struct tu_physical_device *physical_device)
    return available_ram;
 }
 
-static VkDeviceSize
+static inline VkDeviceSize
 tu_get_budget_memory(struct tu_physical_device *physical_device)
 {
    uint64_t heap_size = physical_device->heap.size;
-   uint64_t heap_used = physical_device->heap.used;
-   uint64_t sys_available;
-   ASSERTED bool has_available_memory =
-      os_get_available_system_memory(&sys_available);
-   assert(has_available_memory);
-
-   if (physical_device->va_size)
-      sys_available = MIN2(sys_available, physical_device->va_size);
+   uint64_t heap_used = p_atomic_read(&physical_device->heap.used);
 
    /*
     * Let's not incite the app to starve the system: report at most 90% of
     * available system memory.
     */
-   uint64_t heap_available = sys_available * 9 / 10;
-   return MIN2(heap_size, heap_used + heap_available);
+   const float percent = 0.9f;
+
+   return vk_physical_device_heap_budget_from_system(&physical_device->vk,
+                                                     percent, heap_size,
+                                                     heap_used);
 }
 
 VKAPI_ATTR void VKAPI_CALL
@@ -3118,6 +3077,10 @@ tu_CreateDevice(VkPhysicalDevice physicalDevice,
       }
    }
 
+   device->perfcntrs = fd_perfcntr_state_alloc(
+      &physical_device->dev_id,
+      is_kgsl(physical_device->instance) ? -1 : device->fd);
+
    device->autotune = new tu_autotune(device, result);
    if (result != VK_SUCCESS)
       goto fail_autotune;
@@ -3164,7 +3127,7 @@ tu_CreateDevice(VkPhysicalDevice physicalDevice,
    device->use_z24uint_s8uint =
       physical_device->info->props.has_z24uint_s8uint &&
       (!border_color_without_format ||
-       !physical_device->instance->enable_d24s8_border_color_workaround);
+       !physical_device->instance->drirc.misc.enable_d24s8_border_color_workaround);
    device->use_lrz = !TU_DEBUG_START(NOLRZ);
 
    tu_gpu_tracepoint_config_variable();
@@ -3218,6 +3181,7 @@ tu_CreateDevice(VkPhysicalDevice physicalDevice,
 fail_timeline_cond:
 fail_a725_workaround:
 fail_autotune:
+   fd_perfcntr_state_free(device->perfcntrs);
    delete device->autotune;
 fail_bin_preamble:
 fail_prepare_perfcntrs_pass_cs:
@@ -3323,6 +3287,8 @@ tu_DestroyDevice(VkDevice _device, const VkAllocationCallbacks *pAllocator)
    }
 
    delete device->autotune;
+
+   fd_perfcntr_state_free(device->perfcntrs);
 
    tu_bo_suballocator_finish(&device->pipeline_suballoc);
    tu_bo_suballocator_finish(&device->kgsl_profiling_suballoc);
@@ -3600,7 +3566,7 @@ tu_memory_emit_report(struct tu_device *device,
          &device->vk, VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_ALLOCATION_FAILED_EXT,
          /* mem_obj_id */ 0, alloc_info->allocationSize,
          VK_OBJECT_TYPE_DEVICE_MEMORY,
-         /* obj_handle */ 0, alloc_info->memoryTypeIndex);
+         /* obj_handle */ 0, /* heap_index */ 0);
       return;
    }
 
@@ -3617,7 +3583,7 @@ tu_memory_emit_report(struct tu_device *device,
 
    vk_emit_device_memory_report(&device->vk, type, mem->bo->unique_id,
                                 mem->bo->size, VK_OBJECT_TYPE_DEVICE_MEMORY,
-                                (uintptr_t)(mem), mem->vk.memory_type_index);
+                                (uintptr_t)(mem), /* heap_index */ 0);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -3770,15 +3736,9 @@ tu_AllocateMemory(VkDevice _device,
       __vk_append_struct(mem->image->vk.android_deferred_create_info,
                          &external_info);
 
-      result = tu_image_init(device, mem->image,
-                             mem->image->vk.android_deferred_create_info);
-      if (result != VK_SUCCESS) {
-         vk_device_memory_destroy(&device->vk, pAllocator, &mem->vk);
-         return result;
-      }
-
-      result = TU_CALLX(device, tu_image_update_layout)(
-         device, mem->image, eci.drmFormatModifier, a_plane_layouts);
+      result = TU_CALLX(device, tu_image_init)(
+         device, mem->image, mem->image->vk.android_deferred_create_info,
+         eci.drmFormatModifier, a_plane_layouts);
       if (result != VK_SUCCESS) {
          vk_device_memory_destroy(&device->vk, pAllocator, &mem->vk);
          return result;
@@ -4044,8 +4004,7 @@ tu_init_msrtss_attachments(struct tu_device *device,
        */
       vk_image_init(&device->vk, &images[i].vk, &image_info);
 
-      tu_image_init(device, &images[i], &image_info);
-      TU_CALLX(device, tu_image_update_layout)(device, &images[i], DRM_FORMAT_MOD_INVALID, NULL);
+      TU_CALLX(device, tu_image_init)(device, &images[i], &image_info, DRM_FORMAT_MOD_INVALID, NULL);
 
       if (is_ds) {
          depth_size = align64(depth_size, images[i].layout[0].base_align);

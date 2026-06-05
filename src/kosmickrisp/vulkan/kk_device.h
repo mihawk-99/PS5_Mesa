@@ -121,6 +121,10 @@ void kk_device_finish_lib(struct kk_device *dev);
 void kk_device_add_heap_to_residency_set(struct kk_device *dev, mtl_heap *heap);
 void kk_device_remove_heap_from_residency_set(struct kk_device *dev,
                                               mtl_heap *heap);
+void kk_device_add_buffer_to_residency_set(struct kk_device *dev,
+                                           mtl_buffer *buffer);
+void kk_device_remove_buffer_from_residency_set(struct kk_device *dev,
+                                                mtl_buffer *buffer);
 void kk_device_make_resources_resident(struct kk_device *dev);
 
 /* Required to create a sampler */

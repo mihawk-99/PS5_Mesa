@@ -615,6 +615,7 @@ ac_fill_video_info(struct radeon_info *info, struct ac_drm_device *dev)
       cap->dec = info->vcn_ip_version >= VCN_4_0_0 ? 1 : 0;
       cap->enc = vcn_dec_only(info) ? 0 : 1;
       cap->write_memory = write_memory_supported(info);
+      cap->timestamp = info->vcn_ip_version >= VCN_2_0_0;
       if (cap->dec)
          vcn_dec_caps(info);
       if (cap->enc)

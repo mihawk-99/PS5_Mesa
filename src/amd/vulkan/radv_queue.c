@@ -9,14 +9,14 @@
  */
 
 #include "radv_queue.h"
+#include "tools/radv_debug_hang.h"
+#include "tools/radv_debug_nir.h"
+#include "tools/radv_rmv.h"
 #include "radv_buffer.h"
 #include "radv_cp_reg_shadowing.h"
 #include "radv_cs.h"
-#include "radv_debug.h"
-#include "radv_debug_nir.h"
 #include "radv_device_memory.h"
 #include "radv_image.h"
-#include "radv_rmv.h"
 #include "vk_semaphore.h"
 #include "vk_sync.h"
 
@@ -1789,7 +1789,7 @@ radv_queue_submit_normal(struct radv_queue *queue, struct vk_queue_submit *submi
 
    queue->last_shader_upload_seq = MAX2(queue->last_shader_upload_seq, shader_upload_seq);
 
-   radv_dump_printf_data(device, stderr);
+   radv_dump_printf_data(device, stderr, true);
 
 fail:
    free(cs_array);

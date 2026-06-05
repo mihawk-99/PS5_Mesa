@@ -235,7 +235,7 @@ lower_shader_trace_ray(nir_builder *b, nir_intrinsic_instr *call, void *data)
    nir_trace_ray_intel(b,
                        nir_load_btd_global_arg_addr_intel(b),
                        nir_imm_int(b, BRW_RT_BVH_LEVEL_WORLD),
-                       nir_imm_int(b, GEN_RT_TRACE_RAY_INITAL),
+                       nir_imm_int(b, GEN_RT_TRACE_RAY_INITIAL),
                        .synchronous = false);
    return true;
 }

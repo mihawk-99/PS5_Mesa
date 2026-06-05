@@ -276,6 +276,9 @@ anv_shader_init_uuid(struct anv_physical_device *device)
    const bool cbv_push_buffer = device->instance->drirc.perf.promote_cbv_push_buffer;
    _mesa_blake3_update(&ctx, &cbv_push_buffer, sizeof(cbv_push_buffer));
 
+   const bool fs_sample_d_wa = device->instance->drirc.debug.fs_sampler_undef_derivatives_workaround;
+   _mesa_blake3_update(&ctx, &fs_sample_d_wa, sizeof(fs_sample_d_wa));
+
    uint8_t blake3[BLAKE3_KEY_LEN];
    _mesa_blake3_final(&ctx, blake3);
    memcpy(device->shader_binary_uuid, blake3, sizeof(device->shader_binary_uuid));
@@ -1510,6 +1513,10 @@ anv_shader_lower_nir(struct anv_device *device,
       NIR_PASS(_, nir, nir_opt_dce);
    }
 
+   if (nir->info.stage == MESA_SHADER_FRAGMENT &&
+       pdevice->instance->drirc.debug.fs_sampler_undef_derivatives_workaround)
+      NIR_PASS(_, nir, brw_nir_apply_sampler_undef_derivatives_workaround);
+
    if (mesa_shader_stage_uses_workgroup(nir->info.stage)) {
       NIR_PASS(_, nir, nir_lower_vars_to_explicit_types,
                nir_var_mem_shared, shared_type_info);
@@ -2067,7 +2074,8 @@ anv_shader_compile(struct vk_device *vk_device,
          struct jay_shader_bin *bin =
             jay_compile(devinfo, mem_ctx, nir,
                         (union brw_any_prog_data *)compile_params->prog_data,
-                        (union brw_any_prog_key *)compile_params->key);
+                        (union brw_any_prog_key *)compile_params->key,
+                        shader_data->archiver);
          shader_data->code = bin->kernel;
 
          if (mesa_shader_stage_uses_workgroup(nir->info.stage)) {

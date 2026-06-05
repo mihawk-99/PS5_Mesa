@@ -78,7 +78,7 @@ nir_intrinsics_c = custom_target(
   depend_files : files('nir_intrinsics.py'),
 )
 
-with_nir_headers_only = (
+with_nir_headers_only = not with_gfx_compute or (
   gallium_drivers == ['d3d12'] and
   get_option('gallium-d3d12-graphics').disabled() and
   not [
@@ -141,6 +141,7 @@ else
   'nir_liveness.c',
   'nir_loop_analyze.c',
   'nir_loop_analyze.h',
+  'nir_lower_abort.c',
   'nir_lower_alu.c',
   'nir_lower_alu_width.c',
   'nir_lower_alpha.c',

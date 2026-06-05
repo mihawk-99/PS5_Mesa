@@ -11,8 +11,8 @@
 
 #include <stdio.h>
 
+#include "tools/radv_debug.h"
 #include "radv_amdgpu_bo.h"
-#include "radv_debug.h"
 
 #include <inttypes.h>
 #include <pthread.h>
@@ -388,14 +388,14 @@ radv_amdgpu_winsys_bo_destroy(struct radeon_winsys *_ws, struct radeon_winsys_bo
 
    if (bo->base.initial_domain & RADEON_DOMAIN_VRAM) {
       if (bo->base.vram_no_cpu_access) {
-         p_atomic_add(&ws->allocated_vram, -align64(bo->base.size, ws->info.gart_page_size));
+         p_atomic_add(&ws->alloc_tracker->allocated_vram, -align64(bo->base.size, ws->info.gart_page_size));
       } else {
-         p_atomic_add(&ws->allocated_vram_vis, -align64(bo->base.size, ws->info.gart_page_size));
+         p_atomic_add(&ws->alloc_tracker->allocated_vram_vis, -align64(bo->base.size, ws->info.gart_page_size));
       }
    }
 
    if (bo->base.initial_domain & RADEON_DOMAIN_GTT)
-      p_atomic_add(&ws->allocated_gtt, -align64(bo->base.size, ws->info.gart_page_size));
+      p_atomic_add(&ws->alloc_tracker->allocated_gtt, -align64(bo->base.size, ws->info.gart_page_size));
 
    ac_drm_va_range_free(bo->va_handle);
    FREE(bo);
@@ -565,7 +565,6 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned 
       request.flags |= AMDGPU_GEM_CREATE_EXPLICIT_SYNC;
    if ((initial_domain & RADEON_DOMAIN_VRAM_GTT) && (flags & RADEON_FLAG_NO_INTERPROCESS_SHARING) &&
        ((ws->perftest & RADV_PERFTEST_LOCAL_BOS) || (flags & RADEON_FLAG_PREFER_LOCAL_BO))) {
-      assert(ws->info.has_vm_always_valid);
       bo->base.is_local = true;
       request.flags |= AMDGPU_GEM_CREATE_VM_ALWAYS_VALID;
    }
@@ -642,14 +641,14 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned 
        * visible counter because they can be mapped.
        */
       if (bo->base.vram_no_cpu_access) {
-         p_atomic_add(&ws->allocated_vram, align64(bo->base.size, ws->info.gart_page_size));
+         p_atomic_add(&ws->alloc_tracker->allocated_vram, align64(bo->base.size, ws->info.gart_page_size));
       } else {
-         p_atomic_add(&ws->allocated_vram_vis, align64(bo->base.size, ws->info.gart_page_size));
+         p_atomic_add(&ws->alloc_tracker->allocated_vram_vis, align64(bo->base.size, ws->info.gart_page_size));
       }
    }
 
    if (initial_domain & RADEON_DOMAIN_GTT)
-      p_atomic_add(&ws->allocated_gtt, align64(bo->base.size, ws->info.gart_page_size));
+      p_atomic_add(&ws->alloc_tracker->allocated_gtt, align64(bo->base.size, ws->info.gart_page_size));
 
    if (ws->debug_all_bos)
       radv_amdgpu_global_bo_list_add(ws, bo);
@@ -817,7 +816,7 @@ radv_amdgpu_winsys_bo_from_ptr(struct radeon_winsys *_ws, void *pointer, uint64_
    bo->cpu_map = NULL;
    bo->base.obj_id = (uintptr_t)(buf_handle.abo);
 
-   p_atomic_add(&ws->allocated_gtt, align64(bo->base.size, ws->info.gart_page_size));
+   p_atomic_add(&ws->alloc_tracker->allocated_gtt, align64(bo->base.size, ws->info.gart_page_size));
 
    if (ws->debug_all_bos)
       radv_amdgpu_global_bo_list_add(ws, bo);
@@ -910,9 +909,9 @@ radv_amdgpu_winsys_bo_from_fd(struct radeon_winsys *_ws, int fd, unsigned priori
    bo->base.obj_id = (uintptr_t)(result.bo.abo);
 
    if (bo->base.initial_domain & RADEON_DOMAIN_VRAM)
-      p_atomic_add(&ws->allocated_vram, align64(bo->base.size, ws->info.gart_page_size));
+      p_atomic_add(&ws->alloc_tracker->allocated_vram, align64(bo->base.size, ws->info.gart_page_size));
    if (bo->base.initial_domain & RADEON_DOMAIN_GTT)
-      p_atomic_add(&ws->allocated_gtt, align64(bo->base.size, ws->info.gart_page_size));
+      p_atomic_add(&ws->alloc_tracker->allocated_gtt, align64(bo->base.size, ws->info.gart_page_size));
 
    if (ws->debug_all_bos)
       radv_amdgpu_global_bo_list_add(ws, bo);

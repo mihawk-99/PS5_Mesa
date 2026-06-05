@@ -117,8 +117,7 @@ mtl_render_pass_descriptor_set_default_raster_sample_count(
 void
 mtl_render_pass_descriptor_set_sample_positions(
    mtl_render_pass_descriptor *descriptor,
-   const struct mtl_sample_position *positions,
-   uint32_t count)
+   const struct mtl_sample_position *positions, uint32_t count)
 {
 }
 

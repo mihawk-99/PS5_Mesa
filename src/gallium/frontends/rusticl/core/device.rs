@@ -9,6 +9,7 @@ use crate::core::util::*;
 use crate::core::version::*;
 use crate::impl_cl_type_trait_base;
 
+use mesa_rust::compiler::clc::spirv::SPIRVToNirOptions;
 use mesa_rust::compiler::clc::*;
 use mesa_rust::compiler::nir::*;
 use mesa_rust::pipe::context::*;
@@ -1386,6 +1387,25 @@ impl DeviceBase {
     pub fn uuid_supported(&self) -> bool {
         self.screen().device_uuid().is_some() && self.screen().driver_uuid().is_some()
     }
+
+    pub fn spirv_to_nir_opts(&self) -> SPIRVToNirOptions {
+        let mut spirv_float_controls = float_controls::FLOAT_CONTROLS_DENORM_FLUSH_TO_ZERO_FP32
+            | float_controls::FLOAT_CONTROLS_ROUNDING_MODE_RTE_FP16
+            | float_controls::FLOAT_CONTROLS_ROUNDING_MODE_RTE_FP32
+            | float_controls::FLOAT_CONTROLS_ROUNDING_MODE_RTE_FP64;
+
+        if self.shader_caps().fp16_no_denorms {
+            spirv_float_controls |= float_controls::FLOAT_CONTROLS_DENORM_FLUSH_TO_ZERO_FP16;
+        } else {
+            spirv_float_controls |= float_controls::FLOAT_CONTROLS_DENORM_PRESERVE_FP16;
+        }
+
+        SPIRVToNirOptions {
+            caps: &self.spirv_caps,
+            address_bits: self.address_bits(),
+            float_controls: spirv_float_controls,
+        }
+    }
 }
 
 impl Device {
@@ -1441,11 +1461,15 @@ impl Device {
 
         // Libclc depends on a few caps which must always be enabled. At runtime we should never
         // actually pass relevant functionality down to drivers, so this should be fine.
-        let mut spirv_caps = dev_base.spirv_caps;
+        let mut spirv_to_nir_opts = dev_base.spirv_to_nir_opts();
+
+        let mut spirv_caps = *spirv_to_nir_opts.caps;
         spirv_caps.Float64 = true;
         spirv_caps.Int64 = true;
+        spirv_caps.GenericPointer = true;
+        spirv_to_nir_opts.caps = &spirv_caps;
 
-        let lib_clc = spirv::SPIRVBin::get_lib_clc(dev_base.screen(), &spirv_caps);
+        let lib_clc = spirv::SPIRVBin::get_lib_clc(dev_base.screen(), spirv_to_nir_opts);
         if lib_clc.is_none() {
             eprintln!("Libclc failed to load. Please make sure it is installed and provides spirv-mesa3d-.spv and/or spirv64-mesa3d-.spv");
         }
