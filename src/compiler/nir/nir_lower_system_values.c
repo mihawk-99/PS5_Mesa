@@ -108,6 +108,7 @@ lower_system_value_instr(nir_builder *b, nir_instr *instr, void *_state)
          return NULL;
       }
 
+   case nir_intrinsic_load_enqueued_workgroup_size:
    case nir_intrinsic_load_local_invocation_id:
    case nir_intrinsic_load_local_invocation_index:
    case nir_intrinsic_load_num_workgroups:
@@ -681,13 +682,19 @@ lower_compute_system_value_instr(nir_builder *b,
       }
 
    case nir_intrinsic_load_workgroup_size:
-      if (b->shader->info.workgroup_size_variable) {
-         /* If the local work group size is variable it can't be lowered at
-          * this point.  We do, however, have to make sure that the intrinsic
-          * is only 32-bit.
+      if (b->shader->info.workgroup_size_variable ||
+          (options && options->non_uniform_workgroups)) {
+         /* If the local work group size is variable or potentially non-uniform
+          * it can't be lowered at this point.
           */
          return NULL;
-      } else {
+      }
+
+      /* It will get constant folded */
+      return nir_load_enqueued_workgroup_size(b);
+
+   case nir_intrinsic_load_enqueued_workgroup_size:
+      if (!b->shader->info.workgroup_size_variable) {
          /* using a 32 bit constant is safe here as no device/driver needs more
           * than 32 bits for the local size */
          nir_const_value workgroup_size_const[3];
@@ -698,9 +705,14 @@ lower_compute_system_value_instr(nir_builder *b,
          return nir_u2uN(b, nir_build_imm(b, 3, 32, workgroup_size_const), bit_size);
       }
 
+      if (!options || !options->non_uniform_workgroups)
+         return nir_load_workgroup_size(b);
+
+      return NULL;
+
    case nir_intrinsic_load_global_invocation_id: {
       if (!b->shader->options->has_cs_global_id) {
-         nir_def *group_size = nir_load_workgroup_size(b);
+         nir_def *group_size = nir_load_enqueued_workgroup_size(b);
          nir_def *group_id = nir_load_workgroup_id(b);
          nir_def *base_group_id = nir_load_base_workgroup_id(b, bit_size);
          nir_def *local_id = nir_load_local_invocation_id(b);
@@ -711,7 +723,7 @@ lower_compute_system_value_instr(nir_builder *b,
                  _mesa_set_search(state->lower_once_list, instr) == NULL) {
 
          nir_def *global_id = nir_load_global_invocation_id(b, bit_size);
-         nir_def *group_size = nir_u2uN(b, nir_load_workgroup_size(b), bit_size);
+         nir_def *group_size = nir_u2uN(b, nir_load_enqueued_workgroup_size(b), bit_size);
          nir_def *base_group_id = nir_load_base_workgroup_id(b, bit_size);
 
          _mesa_set_add(state->lower_once_list, nir_def_instr(global_id));
@@ -803,6 +815,11 @@ lower_compute_system_value_instr(nir_builder *b,
 
    case nir_intrinsic_load_shader_index:
       return nir_imm_int(b, b->shader->info.cs.shader_index);
+
+   case nir_intrinsic_load_enqueued_num_subgroups:
+      if (!options || !options->non_uniform_workgroups)
+         return nir_load_num_subgroups(b);
+      return NULL;
 
    default:
       return NULL;

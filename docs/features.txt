@@ -845,7 +845,7 @@ Rusticl Optional OpenCL 2.x Features:
   Device-Side Enqueue                                   not started
   Pipes                                                 not started
   Program Scope Global Variables                        in progress
-  Non-Uniform Work-groups                               not started
+  Non-Uniform Work-groups                               DONE
   Images                                                DONE (freedreno, iris, llvmpipe, zink)
   - Read-Write Images                                   DONE
   - sRGB Images                                         DONE

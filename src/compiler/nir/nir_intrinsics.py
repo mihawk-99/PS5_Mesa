@@ -1066,6 +1066,12 @@ system_value("global_invocation_index", 1, bit_sizes=[32, 64])
 # threads per dimension in an invocation
 system_value("global_size", 3, bit_sizes=[32, 64])
 system_value("work_dim", 1)
+
+# OpenCL non-uniform workgroup system values
+system_value("enqueued_workgroup_size", 3)
+system_value("enqueued_num_subgroups", 1)
+system_value("subgroup_max_size", 1)
+
 system_value("line_width", 1)
 system_value("aa_line_width", 1)
 # BASE=0 for global/shader, BASE=1 for local/function

@@ -213,7 +213,7 @@ unsafe impl CLInfo<cl_device_info> for cl_device_id {
             CL_DEVICE_NODE_MASK => {
                 v.write::<cl_uint>(dev.screen().device_node_mask().unwrap_or_default())
             }
-            CL_DEVICE_NON_UNIFORM_WORK_GROUP_SUPPORT => v.write::<bool>(false),
+            CL_DEVICE_NON_UNIFORM_WORK_GROUP_SUPPORT => v.write::<bool>(true),
             CL_DEVICE_NUMERIC_VERSION => v.write::<cl_version>(dev.cl_version.into()),
             CL_DEVICE_OPENCL_C_ALL_VERSIONS => v.write::<&[cl_name_version]>(&dev.clc_versions),
             CL_DEVICE_OPENCL_C_FEATURES => v.write::<&[cl_name_version]>(&dev.clc_features),

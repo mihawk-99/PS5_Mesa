@@ -16,6 +16,9 @@ struct rusticl_lower_state {
     size_t order_arr_loc;
     size_t work_dim_loc;
     size_t num_workgroups_loc;
+    size_t enqueued_workgroup_size_loc;
+    size_t enqueued_num_subgroups_loc;
+    size_t max_subgroup_size_loc;
 };
 
 bool rusticl_lower_intrinsics(nir_shader *nir, struct rusticl_lower_state *state);

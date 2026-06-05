@@ -5404,7 +5404,7 @@ nir_to_spirv(struct nir_shader *s, const struct ntv_info *sinfo)
       break;
    case MESA_SHADER_KERNEL:
    case MESA_SHADER_COMPUTE:
-      if (s->info.workgroup_size[0] || s->info.workgroup_size[1] || s->info.workgroup_size[2])
+      if (!s->info.workgroup_size_variable)
          spirv_builder_emit_exec_mode_literal3(&ctx.builder, entry_point, SpvExecutionModeLocalSize,
                                                (uint32_t[3]){(uint32_t)s->info.workgroup_size[0], (uint32_t)s->info.workgroup_size[1],
                                                (uint32_t)s->info.workgroup_size[2]});

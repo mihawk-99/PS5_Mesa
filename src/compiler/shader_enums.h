@@ -853,6 +853,11 @@ typedef enum
    SYSTEM_VALUE_USER_DATA_AMD,
    /*@}*/
 
+   /** OpenCL Non-uniform workgroups */
+   SYSTEM_VALUE_ENQUEUED_WORKGROUP_SIZE,
+   SYSTEM_VALUE_ENQUEUED_NUM_SUBGROUPS,
+   SYSTEM_VALUE_SUBGROUP_MAX_SIZE,
+
    /** Required for VK_KHR_device_group */
    SYSTEM_VALUE_DEVICE_INDEX,
 
