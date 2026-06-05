@@ -194,6 +194,9 @@ static bool virgl_vtest_resource_is_busy(struct virgl_winsys *vws,
 {
    struct virgl_vtest_winsys *vtws = virgl_vtest_winsys(vws);
 
+   if (!res)
+      return false;
+
    /* implement busy check */
    int ret;
    ret = virgl_vtest_busy_wait(vtws, res->res_handle, 0);
@@ -422,6 +425,9 @@ static void virgl_vtest_resource_wait(struct virgl_winsys *vws,
                                       struct virgl_hw_res *res)
 {
    struct virgl_vtest_winsys *vtws = virgl_vtest_winsys(vws);
+
+   if (!res)
+      return;
 
    virgl_vtest_busy_wait(vtws, res->res_handle, VCMD_BUSY_WAIT_FLAG_WAIT);
 }
