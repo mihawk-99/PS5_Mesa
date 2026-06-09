@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -19,6 +20,18 @@
 
 namespace pps
 {
+/// @brief Perfetto-compatible counter group categories for classifying GPU counters.
+/// These mirror the values in perfetto::protos::pbzero::GpuCounterDescriptor::CounterGroup
+/// so that driver implementations do not need to include Perfetto headers.
+enum class CounterGroupType {
+   VERTICES,
+   FRAGMENTS,
+   COMPUTE,
+   MEMORY,
+   PRIMITIVES,
+   RAY_TRACING,
+};
+
 /// @brief Abstract Driver class
 class Driver
 {
@@ -89,6 +102,14 @@ class Driver
    /// This is useful when the driver can do a better timestamp correlation
    /// than sampling separately CPU & GPU timestamps.
    virtual bool cpu_gpu_timestamp(uint64_t &cpu_timestamp, uint64_t &gpu_timestamp) const = 0;
+
+   /// @brief Classify a counter name into Perfetto counter groups.
+   /// Drivers should call add_group(CounterGroupType::XYZ) for each group
+   /// that applies to the given counter name.
+   /// The default implementation does nothing (counters are left unclassified).
+   virtual void classify_counter_groups(
+      const std::string & /*counter_name*/,
+      const std::function<void(CounterGroupType)> & /*add_group*/) const {}
 
    DrmDevice drm_device;
 

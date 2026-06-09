@@ -52,6 +52,10 @@ class IntelDriver : public Driver
    bool cpu_gpu_timestamp(uint64_t &cpu_timestamp,
                           uint64_t &gpu_timestamp) const override;
 
+   void classify_counter_groups(
+      const std::string &counter_name,
+      const std::function<void(CounterGroupType)> &add_group) const override;
+
    private:
    /// @brief Requests the next perf sample
    /// @return The sample GPU timestamp

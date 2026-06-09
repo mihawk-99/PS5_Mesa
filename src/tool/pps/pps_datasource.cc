@@ -187,6 +187,32 @@ template <typename GpuCounterDescriptor> void add_descriptors(GpuCounterDescript
       }
       spec->add_numerator_units(units);
       spec->set_select_by_default(true);
+
+      // Classify counter into Perfetto counter groups via driver's virtual method.
+      // Each driver maps its own counter naming conventions; unrecognised counters
+      // are left without a group (which is valid).
+      driver.classify_counter_groups(counter.name, [&](CounterGroupType group) {
+         switch (group) {
+         case CounterGroupType::VERTICES:
+            spec->add_groups(GpuCounterDescriptor::VERTICES);
+            break;
+         case CounterGroupType::FRAGMENTS:
+            spec->add_groups(GpuCounterDescriptor::FRAGMENTS);
+            break;
+         case CounterGroupType::COMPUTE:
+            spec->add_groups(GpuCounterDescriptor::COMPUTE);
+            break;
+         case CounterGroupType::MEMORY:
+            spec->add_groups(GpuCounterDescriptor::MEMORY);
+            break;
+         case CounterGroupType::PRIMITIVES:
+            spec->add_groups(GpuCounterDescriptor::PRIMITIVES);
+            break;
+         case CounterGroupType::RAY_TRACING:
+            spec->add_groups(GpuCounterDescriptor::RAY_TRACING);
+            break;
+         }
+      });
    }
 }
 

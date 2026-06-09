@@ -8,6 +8,8 @@
 
 #include "intel_pps_driver.h"
 
+#include <cctype>
+#include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
 #include <math.h>
@@ -382,6 +384,61 @@ bool IntelDriver::cpu_gpu_timestamp(uint64_t &cpu_timestamp,
    gpu_timestamp =
       intel_device_info_timebase_scale(&perf->devinfo, gpu_timestamp);
    return true;
+}
+
+void IntelDriver::classify_counter_groups(
+   const std::string &cname_in,
+   const std::function<void(CounterGroupType)> &add_group) const
+{
+   // Normalise to upper-case so the heuristics work for both Mixed-case
+   // (e.g. "VsThreads", "PostPsDepthTestFails") and UPPER_SNAKE_CASE
+   // (e.g. "CLIPPER_INPUT_VERTEX") counter names used across Intel OA XMLs.
+   std::string cname;
+   cname.reserve(cname_in.size());
+   for (char c : cname_in)
+      cname.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+
+   auto starts_with = [](const std::string &s, const char *prefix) {
+      return s.compare(0, strlen(prefix), prefix) == 0;
+   };
+   auto ends_with = [](const std::string &s, const char *suffix) {
+      size_t slen = strlen(suffix);
+      return s.size() >= slen && s.compare(s.size() - slen, slen, suffix) == 0;
+   };
+   auto contains = [](const std::string &s, const char *needle) {
+      return s.find(needle) != std::string::npos;
+   };
+
+   if (starts_with(cname, "VS") || starts_with(cname, "VERTEX") ||
+       contains(cname, "_VERTEX") || ends_with(cname, "_VS")) {
+      add_group(CounterGroupType::VERTICES);
+   }
+   if (starts_with(cname, "PS") || starts_with(cname, "PIXEL") ||
+       starts_with(cname, "POSTPS") || starts_with(cname, "RASTERIZER") ||
+       starts_with(cname, "SHADERPIX") || starts_with(cname, "SHADER_PIX") ||
+       starts_with(cname, "SAMPLES") || ends_with(cname, "_PS")) {
+      add_group(CounterGroupType::FRAGMENTS);
+   }
+   if (starts_with(cname, "CS") || starts_with(cname, "ASYNCCS") ||
+       starts_with(cname, "ASYNC_GPGPU") || starts_with(cname, "GPGPU")) {
+      add_group(CounterGroupType::COMPUTE);
+   }
+   if (starts_with(cname, "GTI") || starts_with(cname, "L3") ||
+       starts_with(cname, "SLM") || starts_with(cname, "SHADERMEMORY") ||
+       starts_with(cname, "LOAD_STORE") || starts_with(cname, "LOADSTORE") ||
+       starts_with(cname, "COLOR_L3") || starts_with(cname, "GPU_MEMORY") ||
+       starts_with(cname, "SAMPLER_")) {
+      add_group(CounterGroupType::MEMORY);
+   }
+   if (starts_with(cname, "CLIPPER") || starts_with(cname, "SO") ||
+       starts_with(cname, "IA_") || starts_with(cname, "STREAMOUT") ||
+       starts_with(cname, "STRIPSFAN") || contains(cname, "PRIMITIVE")) {
+      add_group(CounterGroupType::PRIMITIVES);
+   }
+   if (starts_with(cname, "RT_") || contains(cname, "RAYTRACE") ||
+       contains(cname, "_RT_")) {
+      add_group(CounterGroupType::RAY_TRACING);
+   }
 }
 
 } // namespace pps
