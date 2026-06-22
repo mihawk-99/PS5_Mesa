@@ -1,3 +1,4 @@
+VK_AMD_anti_lag on RADV
 VK_IMG_filter_linear_2d on pvr
 VK_KHR_maintenance7 on pvr
 Vulkan 1.3 on panvk/v6-7

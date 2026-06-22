@@ -940,6 +940,7 @@ radv_physical_device_get_supported_extensions(const struct radv_physical_device 
       .EXT_ycbcr_2plane_444_formats = true,
       .EXT_ycbcr_image_arrays = true,
       .EXT_zero_initialize_device_memory = true,
+      .AMD_anti_lag = true,
       .AMD_buffer_marker = true,
       .AMD_device_coherent_memory = radv_device_coherent_memory_enabled(pdev),
       .AMD_draw_indirect_count = true,
@@ -1673,6 +1674,9 @@ radv_physical_device_get_features(const struct radv_physical_device *pdev, struc
 
       /* VK_KHR_extended_flags */
       .extendedFlags = true,
+
+      /* VK_AMD_anti_lag */
+      .antiLag = true,
    };
 }
 
