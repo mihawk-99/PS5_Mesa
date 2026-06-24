@@ -69,6 +69,44 @@ struct nvk_object_counts {
    uint32_t sampler_ycbcr_conversions;
 };
 
+struct nvk_rusd_stats {
+   struct timespec time;
+   uint32_t temp_gpu;
+   uint32_t temp_hbm;
+   uint32_t power_gpu;
+   uint32_t power_gpu_average;
+   uint32_t power_board;
+   uint32_t power_board_average;
+   uint32_t power_vram_average;
+   uint32_t power_cpu;
+   uint32_t power_cap;
+   uint32_t power_limit_requested;
+   uint32_t clock_graphics;
+   uint32_t clock_memory;
+   uint32_t clock_video;
+   uint32_t clock_sm;
+   uint32_t util_gpu;
+   uint32_t util_memory;
+   uint32_t util_nvenc;
+   uint32_t util_nvdec;
+   uint32_t util_nvjpg;
+   uint32_t util_nvofa;
+   uint32_t util_nvenc_period;
+   uint32_t util_nvdec_period;
+   uint32_t util_nvjpg_period;
+   uint32_t util_nvofa_period;
+   uint32_t pstate;
+   uint32_t throttle_status;
+   uint32_t throttle_gpu_idle;
+   uint32_t throttle_app_clock;
+   uint32_t throttle_sw_power_cap;
+   uint32_t throttle_hw_slowdown;
+   uint32_t throttle_sync_boost;
+   uint32_t throttle_sw_thermal;
+   uint32_t throttle_hw_thermal;
+   uint32_t throttle_hw_power_brake;
+   uint32_t throttle_display_clock;
+};
 struct nvk_device {
    struct vk_device vk;
 
@@ -78,6 +116,8 @@ struct nvk_device {
 
    struct nvk_queue *gfx_queue;
    struct nvk_object_counts obj_counts;
+   struct nvk_rusd_stats rusd;
+   struct timespec rusd_timestamp;
 
    struct nvk_layer_dispatch_tables layer_dispatch;
    struct nvkmd_mem *zero_page;

@@ -14,6 +14,10 @@
 #include "vk_pipeline.h"
 #include "cimgui/cimgui.h"
 
+#include <stdint.h>
+#include <stdio.h>
+#include <time.h>
+
 #define NVK_QUEUE_GRAPHICS 0
 
 /* Mapped from VkSwapchainKHR */
@@ -595,10 +599,27 @@ setup_swapchain_data(struct nvk_device *device, struct swapchain_data *data,
       device->layer_dispatch.hud.CreateCommandPool(nvk_device_to_handle(device), &cpci, NULL, &data->command_pool));
 }
 
+static uint32_t read_rusd(const char *name) {
+   char path[256];
+   snprintf(path, sizeof(path), "/sys/class/drm/card0/device/rusd/%s", name);
+
+   FILE *file = fopen(path, "r");
+   if (!file)
+      return 0;
+
+   uint32_t val = 0;
+   fscanf(file, "%u", &val);
+   fclose(file);
+
+   return val;
+}
+
 static void
 compute_swapchain_display(struct nvk_device *device, struct swapchain_data *data)
 {
    struct nvk_physical_device *pdev = (struct nvk_physical_device*)nvk_device_physical(device);
+   struct nvk_object_counts obj_counts = device->obj_counts;
+   struct nvk_rusd_stats *rusd = &device->rusd;
    const float margin = 10.0f;
 
    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_props = {
@@ -620,6 +641,50 @@ compute_swapchain_display(struct nvk_device *device, struct swapchain_data *data
    cimgui_draw_text("Device: %s", pdev->vk.properties.deviceName);
    cimgui_draw_separator();
 
+
+   struct timespec current;
+   clock_gettime(CLOCK_MONOTONIC, &current);
+
+   if ((current.tv_nsec - rusd->time.tv_nsec) / 1000000lu > 500) {
+      rusd->time.tv_sec = current.tv_sec;
+      rusd->time.tv_nsec = current.tv_nsec;
+      rusd->temp_gpu = read_rusd("temp_gpu");
+      rusd->temp_hbm = read_rusd("temp_hbm");
+      rusd->power_gpu = read_rusd("power_gpu");
+      rusd->power_gpu_average = read_rusd("power_gpu_average");
+      rusd->power_board = read_rusd("power_board");
+      rusd->power_board_average = read_rusd("power_board_average");
+      rusd->power_vram_average = read_rusd("power_vram_average");
+      rusd->power_cpu = read_rusd("power_cpu");
+      rusd->power_cap = read_rusd("power_cap");
+      rusd->power_limit_requested = read_rusd("power_limit_requested");
+      rusd->clock_graphics = read_rusd("clock_graphics");
+      rusd->clock_memory = read_rusd("clock_memory");
+      rusd->clock_video = read_rusd("clock_video");
+      rusd->clock_sm = read_rusd("clock_sm");
+      rusd->util_gpu = read_rusd("util_gpu");
+      rusd->util_memory = read_rusd("util_memory");
+      rusd->util_nvenc = read_rusd("util_nvenc");
+      rusd->util_nvdec = read_rusd("util_nvdec");
+      rusd->util_nvjpg = read_rusd("util_nvjpg");
+      rusd->util_nvofa = read_rusd("util_nvofa");
+      rusd->util_nvenc_period = read_rusd("util_nvenc_period");
+      rusd->util_nvdec_period = read_rusd("util_nvdec_period");
+      rusd->util_nvjpg_period = read_rusd("util_nvjpg_period");
+      rusd->util_nvofa_period = read_rusd("util_nvofa_period");
+      rusd->pstate = read_rusd("pstate");
+      rusd->throttle_status = read_rusd("throttle_status");
+      rusd->throttle_gpu_idle = read_rusd("throttle_gpu_idle");
+      rusd->throttle_app_clock = read_rusd("throttle_app_clock");
+      rusd->throttle_sw_power_cap = read_rusd("throttle_sw_power_cap");
+      rusd->throttle_hw_slowdown = read_rusd("throttle_hw_slowdown");
+      rusd->throttle_sync_boost = read_rusd("throttle_sync_boost");
+      rusd->throttle_sw_thermal = read_rusd("throttle_sw_thermal");
+      rusd->throttle_hw_thermal = read_rusd("throttle_hw_thermal");
+      rusd->throttle_hw_power_brake = read_rusd("throttle_hw_power_brake");
+      rusd->throttle_display_clock = read_rusd("throttle_display_clock");
+   }
+
    cimgui_draw_text("Memory info (in MiB):");
    for (uint32_t i = 0; i < mem_props.memoryProperties.memoryHeapCount; i++) {
       VkMemoryHeap heap = mem_props.memoryProperties.memoryHeaps[i];
@@ -632,6 +697,44 @@ compute_swapchain_display(struct nvk_device *device, struct swapchain_data *data
          cimgui_draw_text("GTT: %" PRId64 " (budget), %" PRId64 " (usage)", budget, usage);
       }
    }
+
+   cimgui_draw_separator();
+   cimgui_draw_text("RUSD:");
+   cimgui_draw_text("temp_gpu                      %12u", rusd->temp_gpu);
+   cimgui_draw_text("temp_hbm                      %12u", rusd->temp_hbm);
+   cimgui_draw_text("power_gpu                     %12u", rusd->power_gpu);
+   cimgui_draw_text("power_gpu_average             %12u", rusd->power_gpu_average);
+   cimgui_draw_text("power_board                   %12u", rusd->power_board);
+   cimgui_draw_text("power_board_average           %12u", rusd->power_board_average);
+   cimgui_draw_text("power_vram_average            %12u", rusd->power_vram_average);
+   cimgui_draw_text("power_cpu                     %12u", rusd->power_cpu);
+   cimgui_draw_text("power_cap                     %12u", rusd->power_cap);
+   cimgui_draw_text("power_limit_requested         %12u", rusd->power_limit_requested);
+   cimgui_draw_text("clock_graphics                %12u", rusd->clock_graphics);
+   cimgui_draw_text("clock_memory                  %12u", rusd->clock_memory);
+   cimgui_draw_text("clock_video                   %12u", rusd->clock_video);
+   cimgui_draw_text("clock_sm                      %12u", rusd->clock_sm);
+   cimgui_draw_text("util_gpu                      %12u", rusd->util_gpu);
+   cimgui_draw_text("util_memory                   %12u", rusd->util_memory);
+   cimgui_draw_text("util_nvenc                    %12u", rusd->util_nvenc);
+   cimgui_draw_text("util_nvdec                    %12u", rusd->util_nvdec);
+   cimgui_draw_text("util_nvjpg                    %12u", rusd->util_nvjpg);
+   cimgui_draw_text("util_nvofa                    %12u", rusd->util_nvofa);
+   cimgui_draw_text("util_nvenc_period             %12u", rusd->util_nvenc_period);
+   cimgui_draw_text("util_nvdec_period             %12u", rusd->util_nvdec_period);
+   cimgui_draw_text("util_nvjpg_period             %12u", rusd->util_nvjpg_period);
+   cimgui_draw_text("util_nvofa_period             %12u", rusd->util_nvofa_period);
+   cimgui_draw_text("pstate                        %12u", rusd->pstate);
+   cimgui_draw_text("throttle_status               %12u", rusd->throttle_status);
+   cimgui_draw_text("throttle_gpu_idle             %12u", rusd->throttle_gpu_idle);
+   cimgui_draw_text("throttle_app_clock            %12u", rusd->throttle_app_clock);
+   cimgui_draw_text("throttle_sw_power_cap         %12u", rusd->throttle_sw_power_cap);
+   cimgui_draw_text("throttle_hw_slowdown          %12u", rusd->throttle_hw_slowdown);
+   cimgui_draw_text("throttle_sync_boost           %12u", rusd->throttle_sync_boost);
+   cimgui_draw_text("throttle_sw_thermal           %12u", rusd->throttle_sw_thermal);
+   cimgui_draw_text("throttle_hw_thermal           %12u", rusd->throttle_hw_thermal);
+   cimgui_draw_text("throttle_hw_power_brake       %12u", rusd->throttle_hw_power_brake);
+   cimgui_draw_text("throttle_display_clock        %12u", rusd->throttle_display_clock);
 
    cimgui_draw_separator();
    cimgui_draw_text("Object count:");
