@@ -588,6 +588,9 @@ struct d3d12_video_encoder
    ComPtr<ID3D12Fence> m_spLastSliceFence;
    uint64_t            m_fenceValue = 1u;
    uint64_t            m_LastSliceFenceValue = 1u;
+#if (USE_D3D12_PREVIEW_HEADERS && (D3D12_PREVIEW_SDK_VERSION >= 721))
+   uint64_t            m_SliceFenceValue = 1u;
+#endif
    uint64_t            m_ResidencyFenceValue = 0u;
    bool                m_bPendingWorkNotFlushed = false;
 
