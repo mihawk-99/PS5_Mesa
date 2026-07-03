@@ -148,6 +148,7 @@ libanv_files = files(
   'anv_util.c',
   'anv_utrace.c',
   'anv_video.c',
+  'anv_video_h264_slice.c',
   'anv_wsi.c',
 )
 
