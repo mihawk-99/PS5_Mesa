@@ -146,7 +146,10 @@ interpolate_quad_depth( struct quad_header *quad )
 
 
 /**
- * Compute the depth_data::qzzzz[] values from the float fragment Z values.
+ * Convert quad's float depth values to int depth values (qzzzz). If the Z
+ * buffer stores integer values, we _have_ to do the depth compares with
+ * integers (not floats).  Otherwise, the float->int->float conversion of Z
+ * values (which isn't an identity function) will cause Z-fighting errors.
  */
 static void
 convert_quad_depth( struct depth_data *data, 
@@ -155,20 +158,8 @@ convert_quad_depth( struct depth_data *data,
    unsigned j;
    float dvals[TGSI_QUAD_SIZE];
 
-   /* Convert quad's float depth values to int depth values (qzzzz).
-    * If the Z buffer stores integer values, we _have_ to do the depth
-    * compares with integers (not floats).  Otherwise, the float->int->float
-    * conversion of Z values (which isn't an identity function) will cause
-    * Z-fighting errors.
-    */
-   if (data->clamp) {
-      for (j = 0; j < TGSI_QUAD_SIZE; j++) {
-         dvals[j] = CLAMP(quad->output.depth[j], data->minval, data->maxval);
-      }
-   } else {
-      for (j = 0; j < TGSI_QUAD_SIZE; j++) {
-         dvals[j] = quad->output.depth[j];
-      }
+   for (j = 0; j < TGSI_QUAD_SIZE; j++) {
+      dvals[j] = CLAMP(quad->output.depth[j], data->minval, data->maxval);
    }
 
    switch (data->format) {
@@ -865,12 +856,16 @@ depth_test_quads_fallback(struct quad_stage *qs,
       data.tile = sp_get_cached_tile(qs->softpipe->zsbuf_cache, 
                                      quads[0]->input.x0, 
                                      quads[0]->input.y0, quads[0]->input.layer);
-      data.clamp = !qs->softpipe->rasterizer->depth_clip_near;
 
-      near_val = qs->softpipe->viewports[vp_idx].translate[2] - qs->softpipe->viewports[vp_idx].scale[2];
-      far_val = near_val + (qs->softpipe->viewports[vp_idx].scale[2] * 2.0);
-      data.minval = MIN2(near_val, far_val);
-      data.maxval = MAX2(near_val, far_val);
+      if (qs->softpipe->rasterizer->depth_clamp) {
+         near_val = qs->softpipe->viewports[vp_idx].translate[2] - qs->softpipe->viewports[vp_idx].scale[2];
+         far_val = near_val + (qs->softpipe->viewports[vp_idx].scale[2] * 2.0);
+         data.minval = MIN2(near_val, far_val);
+         data.maxval = MAX2(near_val, far_val);
+      } else {
+         data.minval = 0.0;
+         data.maxval = 1.0;
+      }
    }
 
    /* EXT_depth_bounds_test says:
@@ -1000,7 +995,7 @@ choose_depth_test(struct quad_stage *qs,
 
    bool occlusion = qs->softpipe->active_query_count;
 
-   bool clipped = !qs->softpipe->rasterizer->depth_clip_near;
+   bool clamp = qs->softpipe->rasterizer->depth_clamp;
 
    bool depth_bounds = qs->softpipe->depth_stencil->depth_bounds_test;
 
@@ -1014,7 +1009,7 @@ choose_depth_test(struct quad_stage *qs,
    if (!alpha &&
        !depth &&
        !occlusion &&
-       !clipped &&
+       !clamp &&
        !stencil &&
        !depth_bounds) {
       qs->run = depth_noop;
@@ -1024,7 +1019,7 @@ choose_depth_test(struct quad_stage *qs,
             depth && 
             depthwrite && 
             !occlusion &&
-            !clipped &&
+            !clamp &&
             !stencil &&
             !depth_bounds)
    {
