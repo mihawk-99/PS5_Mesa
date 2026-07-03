@@ -2493,6 +2493,16 @@ anv_CreateImageView(VkDevice _device,
    if (iview == NULL)
       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
 
+   /* Workaround for FFmpeg commit 24db09a881c9e0eb5b36dcf693c6ac17e9d56be8. */
+   const VkImageUsageFlags video_coincide_usage =
+      VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+      VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR;
+   if ((image->vk.usage & video_coincide_usage) == video_coincide_usage &&
+       (iview->vk.usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) &&
+       !(iview->vk.usage & VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)) {
+      iview->vk.usage |= VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR;
+   }
+
    iview->image = image;
    iview->n_planes = anv_image_aspect_get_planes(iview->vk.aspects);
 
