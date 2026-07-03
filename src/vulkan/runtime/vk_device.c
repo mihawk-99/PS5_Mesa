@@ -521,6 +521,19 @@ vk_common_GetDeviceQueue2(VkDevice _device,
       }
    }
 
+   if (queue == NULL) {
+      const VkDeviceQueueCreateFlags want_flags = pQueueInfo->flags |
+         VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR;
+      vk_foreach_queue(iter, device) {
+         if (iter->queue_family_index == pQueueInfo->queueFamilyIndex &&
+             iter->index_in_family == pQueueInfo->queueIndex &&
+             iter->flags == want_flags) {
+            queue = iter;
+            break;
+         }
+      }
+   }
+
    *pQueue = queue ? vk_queue_to_handle(queue) : VK_NULL_HANDLE;
 }
 
