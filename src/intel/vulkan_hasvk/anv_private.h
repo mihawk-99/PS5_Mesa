@@ -927,6 +927,15 @@ struct anv_instance {
     struct hasvk_drirc                          drirc;
 };
 
+/* Parsed from the HASVK_DEBUG environment variable. */
+enum anv_debug {
+   ANV_DEBUG_VIDEO_DECODE               = BITFIELD_BIT(0),
+};
+
+extern enum anv_debug anv_debug;
+
+#define ANV_DEBUG(name) unlikely(anv_debug & ANV_DEBUG_##name)
+
 VkResult anv_init_wsi(struct anv_physical_device *physical_device);
 void anv_finish_wsi(struct anv_physical_device *physical_device);
 

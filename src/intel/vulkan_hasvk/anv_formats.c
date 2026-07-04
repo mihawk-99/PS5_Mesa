@@ -606,7 +606,7 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
 
    if ((anv_format->flags & ANV_FORMAT_FLAG_CAN_VIDEO) &&
        (anv_format->n_planes > 1 || vk_tiling == VK_IMAGE_TILING_OPTIMAL)) {
-      flags |= VIDEO_CODEC_H264DEC ?
+      flags |= (VIDEO_CODEC_H264DEC && ANV_DEBUG(VIDEO_DECODE)) ?
                   VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR |
                   VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR : 0;
    }

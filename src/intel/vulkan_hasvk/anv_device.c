@@ -72,6 +72,13 @@
 /* Render engine timestamp register */
 #define TIMESTAMP 0x2358
 
+static const struct debug_control debug_control[] = {
+   { "video-decode", ANV_DEBUG_VIDEO_DECODE },
+   { NULL, 0 }
+};
+
+enum anv_debug anv_debug;
+
 /* The "RAW" clocks on Linux are called "FAST" on FreeBSD */
 #if !defined(CLOCK_MONOTONIC_RAW) && defined(CLOCK_MONOTONIC_FAST)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC_FAST
@@ -174,7 +181,7 @@ get_device_extensions(const struct anv_physical_device *device,
    const bool has_syncobj_wait =
       (device->sync_syncobj_type.features & VK_SYNC_FEATURE_CPU_WAIT) != 0;
 
-   const bool video_decode = VIDEO_CODEC_H264DEC;
+   const bool video_decode = VIDEO_CODEC_H264DEC && ANV_DEBUG(VIDEO_DECODE);
 
    *ext = (struct vk_device_extension_table) {
       .KHR_8bit_storage                      = device->info.ver >= 8,
@@ -1579,7 +1586,7 @@ anv_physical_device_init_queue_families(struct anv_physical_device *pdevice)
             .engine_class = INTEL_ENGINE_CLASS_RENDER,
          };
       }
-      if (v_count > 0 && VIDEO_CODEC_H264DEC) {
+      if (v_count > 0 && VIDEO_CODEC_H264DEC && ANV_DEBUG(VIDEO_DECODE)) {
          pdevice->queue.families[family_count++] = (struct anv_queue_family) {
             .queueFlags = VK_QUEUE_VIDEO_DECODE_BIT_KHR,
             .queueCount = v_count,
@@ -2007,6 +2014,7 @@ VkResult anv_CreateInstance(
    anv_init_dri_options(instance);
 
    process_intel_debug_variable();
+   anv_debug = parse_debug_string(os_get_option("HASVK_DEBUG"), debug_control);
    instance->vk.enable_debug_logging = INTEL_DEBUG(DEBUG_PERF);
 
    intel_driver_ds_init();
