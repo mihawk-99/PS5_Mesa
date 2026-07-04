@@ -219,6 +219,30 @@ anv_GetPhysicalDeviceVideoFormatPropertiesKHR(VkPhysicalDevice physicalDevice,
    return VK_SUCCESS;
 }
 
+static uint64_t
+get_h264_video_mem_size(struct anv_video_session *vid, uint32_t mem_idx)
+{
+   uint32_t width_in_mb =
+      align(vid->vk.max_coded.width, ANV_MB_WIDTH) / ANV_MB_WIDTH;
+
+   switch (mem_idx) {
+   case ANV_VID_MEM_H264_INTRA_ROW_STORE:
+      /* intra row store is width in macroblocks * 64 */
+      return width_in_mb * 64;
+   case ANV_VID_MEM_H264_DEBLOCK_FILTER_ROW_STORE:
+      /* deblocking filter row store is width in macroblocks * 64 * 4 */
+      return width_in_mb * 64 * 4;
+   case ANV_VID_MEM_H264_BSD_MPC_ROW_SCRATCH:
+      /* bsd mpc row scratch is width in macroblocks * 64 * 2 */
+      return width_in_mb * 64 * 2;
+   case ANV_VID_MEM_H264_MPR_ROW_SCRATCH:
+      /* mpr row scratch is width in macroblocks * 64 * 2 */
+      return width_in_mb * 64 * 2;
+   default:
+      UNREACHABLE("unknown memory");
+   }
+}
+
 static void
 get_h264_video_session_mem_reqs(struct anv_video_session *vid,
                                 VkVideoSessionMemoryRequirementsKHR *mem_reqs,
@@ -230,39 +254,16 @@ get_h264_video_session_mem_reqs(struct anv_video_session *vid,
                           mem_reqs,
                           pVideoSessionMemoryRequirementsCount);
 
-   uint32_t width_in_mb =
-      align(vid->vk.max_coded.width, ANV_MB_WIDTH) / ANV_MB_WIDTH;
+   for (unsigned i = 0; i < ANV_VID_MEM_H264_MAX; i++) {
+      uint32_t bind_index = ANV_VID_MEM_H264_INTRA_ROW_STORE + i;
+      uint64_t size = get_h264_video_mem_size(vid, i);
 
-   /* intra row store is width in macroblocks * 64 */
-   vk_outarray_append_typed(VkVideoSessionMemoryRequirementsKHR, &out, p) {
-      p->memoryBindIndex = ANV_VID_MEM_H264_INTRA_ROW_STORE;
-      p->memoryRequirements.size = width_in_mb * 64;
-      p->memoryRequirements.alignment = 64;
-      p->memoryRequirements.memoryTypeBits = memory_types;
-   }
-
-   /* deblocking filter row store is width in macroblocks * 64 * 4 */
-   vk_outarray_append_typed(VkVideoSessionMemoryRequirementsKHR, &out, p) {
-      p->memoryBindIndex = ANV_VID_MEM_H264_DEBLOCK_FILTER_ROW_STORE;
-      p->memoryRequirements.size = width_in_mb * 64 * 4;
-      p->memoryRequirements.alignment = 64;
-      p->memoryRequirements.memoryTypeBits = memory_types;
-   }
-
-   /* bsd mpc row scratch is width in macroblocks * 64 * 2 */
-   vk_outarray_append_typed(VkVideoSessionMemoryRequirementsKHR, &out, p) {
-      p->memoryBindIndex = ANV_VID_MEM_H264_BSD_MPC_ROW_SCRATCH;
-      p->memoryRequirements.size = width_in_mb * 64 * 2;
-      p->memoryRequirements.alignment = 64;
-      p->memoryRequirements.memoryTypeBits = memory_types;
-   }
-
-   /* mpr row scratch is width in macroblocks * 64 * 2 */
-   vk_outarray_append_typed(VkVideoSessionMemoryRequirementsKHR, &out, p) {
-      p->memoryBindIndex = ANV_VID_MEM_H264_MPR_ROW_SCRATCH;
-      p->memoryRequirements.size = width_in_mb * 64 * 2;
-      p->memoryRequirements.alignment = 64;
-      p->memoryRequirements.memoryTypeBits = memory_types;
+      vk_outarray_append_typed(VkVideoSessionMemoryRequirementsKHR, &out, p) {
+         p->memoryBindIndex = bind_index;
+         p->memoryRequirements.size = size;
+         p->memoryRequirements.alignment = 64;
+         p->memoryRequirements.memoryTypeBits = memory_types;
+      }
    }
 }
 
