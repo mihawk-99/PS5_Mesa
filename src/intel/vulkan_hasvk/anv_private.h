@@ -2952,12 +2952,16 @@ struct anv_format_plane {
    VkImageAspectFlags aspect;
 };
 
+enum anv_format_flag {
+   ANV_FORMAT_FLAG_CAN_YCBCR = BITFIELD_BIT(0),
+   ANV_FORMAT_FLAG_CAN_VIDEO = BITFIELD_BIT(1),
+};
 
 struct anv_format {
    struct anv_format_plane planes[3];
    VkFormat vk_format;
    uint8_t n_planes;
-   bool can_ycbcr;
+   enum anv_format_flag flags:8;
 };
 
 static inline void

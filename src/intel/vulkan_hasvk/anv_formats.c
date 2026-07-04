@@ -63,6 +63,19 @@
 #define fmt1(__vk_fmt, __hw_fmt) \
    swiz_fmt1(__vk_fmt, __hw_fmt, RGBA)
 
+#define video_fmt1(__vk_fmt, __hw_fmt) \
+   [VK_ENUM_OFFSET(__vk_fmt)] = { \
+      .planes = { \
+         { .isl_format = __hw_fmt, .swizzle = RGBA, \
+           .denominator_scales = { 1, 1, }, \
+           .aspect = VK_IMAGE_ASPECT_COLOR_BIT, \
+         }, \
+      }, \
+      .vk_format = __vk_fmt, \
+      .n_planes = 1, \
+      .flags = ANV_FORMAT_FLAG_CAN_VIDEO, \
+   }
+
 #define d_fmt(__vk_fmt, __hw_fmt) \
    [VK_ENUM_OFFSET(__vk_fmt)] = { \
       .planes = { \
@@ -129,14 +142,15 @@
      .aspect = VK_IMAGE_ASPECT_PLANE_ ## __plane ## _BIT, \
    }
 
-#define ycbcr_fmt(__vk_fmt, __n_planes, ...) \
+#define ycbcr_fmt(__vk_fmt, __n_planes, __can_video, ...) \
    [VK_ENUM_OFFSET(__vk_fmt)] = { \
       .planes = { \
          __VA_ARGS__, \
       }, \
       .vk_format = __vk_fmt, \
       .n_planes = __n_planes, \
-      .can_ycbcr = true, \
+      .flags = ANV_FORMAT_FLAG_CAN_YCBCR | \
+               (__can_video ? ANV_FORMAT_FLAG_CAN_VIDEO : 0), \
    }
 
 /* HINT: For array formats, the ISL name should match the VK name.  For
@@ -154,7 +168,7 @@ static const struct anv_format main_formats[] = {
    fmt1(VK_FORMAT_R5G5B5A1_UNORM_PACK16,             ISL_FORMAT_A1B5G5R5_UNORM),
    swiz_fmt1(VK_FORMAT_B5G5R5A1_UNORM_PACK16,        ISL_FORMAT_A1B5G5R5_UNORM, BGRA),
    fmt1(VK_FORMAT_A1R5G5B5_UNORM_PACK16,             ISL_FORMAT_B5G5R5A1_UNORM),
-   fmt1(VK_FORMAT_R8_UNORM,                          ISL_FORMAT_R8_UNORM),
+   video_fmt1(VK_FORMAT_R8_UNORM,                    ISL_FORMAT_R8_UNORM),
    fmt1(VK_FORMAT_R8_SNORM,                          ISL_FORMAT_R8_SNORM),
    fmt1(VK_FORMAT_R8_USCALED,                        ISL_FORMAT_R8_USCALED),
    fmt1(VK_FORMAT_R8_SSCALED,                        ISL_FORMAT_R8_SSCALED),
@@ -162,7 +176,7 @@ static const struct anv_format main_formats[] = {
    fmt1(VK_FORMAT_R8_SINT,                           ISL_FORMAT_R8_SINT),
    swiz_fmt1(VK_FORMAT_R8_SRGB,                      ISL_FORMAT_L8_UNORM_SRGB,
                                                      _ISL_SWIZZLE(RED, ZERO, ZERO, ONE)),
-   fmt1(VK_FORMAT_R8G8_UNORM,                        ISL_FORMAT_R8G8_UNORM),
+   video_fmt1(VK_FORMAT_R8G8_UNORM,                  ISL_FORMAT_R8G8_UNORM),
    fmt1(VK_FORMAT_R8G8_SNORM,                        ISL_FORMAT_R8G8_SNORM),
    fmt1(VK_FORMAT_R8G8_USCALED,                      ISL_FORMAT_R8G8_USCALED),
    fmt1(VK_FORMAT_R8G8_SSCALED,                      ISL_FORMAT_R8G8_SSCALED),
@@ -341,25 +355,25 @@ static const struct anv_format _4444_formats[] = {
 };
 
 static const struct anv_format ycbcr_formats[] = {
-   ycbcr_fmt(VK_FORMAT_G8B8G8R8_422_UNORM, 1,
+   ycbcr_fmt(VK_FORMAT_G8B8G8R8_422_UNORM, 1, false,
              y_plane(0, ISL_FORMAT_YCRCB_NORMAL, RGBA, _ISL_SWIZZLE(RED, GREEN, BLUE, ZERO), 1, 1)),
-   ycbcr_fmt(VK_FORMAT_B8G8R8G8_422_UNORM, 1,
+   ycbcr_fmt(VK_FORMAT_B8G8R8G8_422_UNORM, 1, false,
              y_plane(0, ISL_FORMAT_YCRCB_SWAPY, RGBA, _ISL_SWIZZLE(RED, GREEN, BLUE, ZERO), 1, 1)),
-   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 2),
              chroma_plane(2, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_420_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_420_UNORM, 2, true,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8G8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 1),
              chroma_plane(2, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_422_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_422_UNORM, 2, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8G8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(2, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 1, 1)),
@@ -390,21 +404,21 @@ static const struct anv_format ycbcr_formats[] = {
    fmt_unsupported(VK_FORMAT_G16B16G16R16_422_UNORM),
    fmt_unsupported(VK_FORMAT_B16G16R16G16_422_UNORM),
 
-   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 2),
              chroma_plane(2, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 2, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16G16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 1),
              chroma_plane(2, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_422_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_422_UNORM, 2, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16G16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(2, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 1, 1)),
@@ -590,13 +604,11 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       return flags;
    }
 
-   /* XXX: Replace this with something like ANV_FORMAT_FLAG_CAN_VIDEO. */
-   if (vk_format == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM
-      || (vk_tiling == VK_IMAGE_TILING_OPTIMAL
-      && (vk_format == VK_FORMAT_R8_UNORM
-      || vk_format == VK_FORMAT_R8G8_UNORM))) {
-      flags |= VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR
-      | VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR;
+   if ((anv_format->flags & ANV_FORMAT_FLAG_CAN_VIDEO) &&
+       (anv_format->n_planes > 1 || vk_tiling == VK_IMAGE_TILING_OPTIMAL)) {
+      flags |= VIDEO_CODEC_H264DEC ?
+                  VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR |
+                  VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR : 0;
    }
 
    assert(aspects & VK_IMAGE_ASPECT_ANY_COLOR_BIT_ANV);
@@ -699,7 +711,7 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       flags &= ~VK_FORMAT_FEATURE_2_BLIT_DST_BIT;
    }
 
-   if (anv_format->can_ycbcr) {
+   if (anv_format->flags & ANV_FORMAT_FLAG_CAN_YCBCR) {
       /* The sampler doesn't have support for mid point when it handles YUV on
        * its own.
        */
@@ -831,7 +843,7 @@ get_buffer_format_features2(const struct intel_device_info *devinfo,
    if (anv_format->n_planes > 1)
       return 0;
 
-   if (anv_format->can_ycbcr)
+   if (anv_format->flags & ANV_FORMAT_FLAG_CAN_YCBCR)
       return 0;
 
    if (vk_format_is_depth_or_stencil(vk_format))

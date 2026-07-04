@@ -174,7 +174,7 @@ get_device_extensions(const struct anv_physical_device *device,
    const bool has_syncobj_wait =
       (device->sync_syncobj_type.features & VK_SYNC_FEATURE_CPU_WAIT) != 0;
 
-   const bool video_decode = true;
+   const bool video_decode = VIDEO_CODEC_H264DEC;
 
    *ext = (struct vk_device_extension_table) {
       .KHR_8bit_storage                      = device->info.ver >= 8,
@@ -1579,7 +1579,7 @@ anv_physical_device_init_queue_families(struct anv_physical_device *pdevice)
             .engine_class = INTEL_ENGINE_CLASS_RENDER,
          };
       }
-      if (v_count > 0) {
+      if (v_count > 0 && VIDEO_CODEC_H264DEC) {
          pdevice->queue.families[family_count++] = (struct anv_queue_family) {
             .queueFlags = VK_QUEUE_VIDEO_DECODE_BIT_KHR,
             .queueCount = v_count,
