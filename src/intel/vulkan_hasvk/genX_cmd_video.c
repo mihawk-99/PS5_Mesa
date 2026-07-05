@@ -512,6 +512,14 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
    uint32_t mb_height = sps->flags.frame_mbs_only_flag ?
                         pic_height_in_map_units : pic_height_in_map_units * 2;
 
+   /* Slice vertical positions are expressed in macroblock rows.
+    * Under MBAFF first_mb_in_slice addresses a macroblock pair, so the true MB
+    * row is (first_mb_in_slice / mb_width) * 2 while the column is unchanged.
+    */
+   bool field_pic = h264_pic_info->pStdPictureInfo->flags.field_pic_flag;
+   bool mbaff = sps->flags.mb_adaptive_frame_field_flag && !field_pic;
+   uint32_t pic_height_mbs = field_pic ? (mb_height / 2) : mb_height;
+
    struct anv_h264_slice_params *sp =
       calloc(h264_pic_info->sliceCount, sizeof(*sp));
    if (sp) {
@@ -633,6 +641,9 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
             const uint8_t *rl = (list == 0) ?
                (cur ? cur->ref_list0 : NULL) :
                (cur ? cur->ref_list1 : NULL);
+            const uint8_t *rlb = (list == 0) ?
+               (cur ? cur->ref_list0_bottom : NULL) :
+               (cur ? cur->ref_list1_bottom : NULL);
             for (unsigned e = 0; e < 32; e++) {
                uint8_t slot = (rl && e < ANV_H264_MAX_REF_FRAMES) ?
                               rl[e] : ANV_H264_INVALID_SLOT;
@@ -654,8 +665,11 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                            break;
                         }
                      }
+                     bool ref_bottom = field_pic && rlb &&
+                        e < ANV_H264_MAX_REF_FRAMES && rlb[e];
                      ref_idx.ReferenceListEntry[e] =
-                        (is_long ? 0x60u : 0x20u) | ((uint8_t)hw << 1);
+                        (is_long ? 0x60u : 0x20u) | ((uint8_t)hw << 1) |
+                        (ref_bottom ? 0x01u : 0x00u);
                   }
                }
             }
@@ -697,6 +711,8 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       if (s == 0 && cur && cur->first_mb_in_slice != 0) {
          uint32_t first_hor = cur->first_mb_in_slice % mb_width;
          uint32_t first_ver = cur->first_mb_in_slice / mb_width;
+         if (mbaff)
+            first_ver <<= 1;
          anv_batch_emit(&cmd_buffer->batch, GENX(MFX_AVC_SLICE_STATE), phantom) {
             phantom.SliceType = ISlice;
             phantom.SliceStartMBNumber = 0;
@@ -722,15 +738,25 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 
       {
          int st = cur ? cur->slice_type : ANV_H264_SLICE_I;
-         uint32_t next_fmb = (uint32_t)(mb_width * mb_height);
-         if (!last_slice && sp)
-            next_fmb = (uint32_t)sp[s + 1].first_mb_in_slice;
          uint32_t cur_fmb = cur ? (uint32_t)cur->first_mb_in_slice : 0;
          uint32_t cur_hor = cur_fmb % mb_width;
          uint32_t cur_ver = cur_fmb / mb_width;
-         uint32_t next_hor = next_fmb % mb_width;
-         uint32_t next_ver = next_fmb / mb_width;
-         if (next_ver >= mb_height) { next_hor = 0; next_ver = mb_height; }
+         if (mbaff)
+            cur_ver <<= 1;
+
+         uint32_t next_hor, next_ver;
+         if (last_slice || !sp) {
+            /* This value is already in MB rows, so it can't be doubled for MBAFF. */
+            next_hor = 0;
+            next_ver = pic_height_mbs;
+         } else {
+            uint32_t next_fmb = (uint32_t)sp[s + 1].first_mb_in_slice;
+            next_hor = next_fmb % mb_width;
+            next_ver = next_fmb / mb_width;
+            if (mbaff)
+               next_ver <<= 1;
+            if (next_ver >= pic_height_mbs) { next_hor = 0; next_ver = pic_height_mbs; }
+         }
 
          anv_batch_emit(&cmd_buffer->batch, GENX(MFX_AVC_SLICE_STATE), ss) {
             ss.SliceType =

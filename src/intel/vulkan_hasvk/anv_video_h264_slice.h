@@ -55,6 +55,9 @@ struct anv_h264_slice_params {
    uint8_t ref_list0[ANV_H264_MAX_REF_FRAMES];
    uint8_t ref_list1[ANV_H264_MAX_REF_FRAMES];
 
+   uint8_t ref_list0_bottom[ANV_H264_MAX_REF_FRAMES];
+   uint8_t ref_list1_bottom[ANV_H264_MAX_REF_FRAMES];
+
    bool has_weight_offsets_l0;
    bool has_weight_offsets_l1;
 
