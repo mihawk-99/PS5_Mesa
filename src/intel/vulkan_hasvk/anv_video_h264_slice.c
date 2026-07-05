@@ -529,6 +529,14 @@ anv_h264_parse_slice_header(
       }
    }
 
+   /* Let the caller fall back to concealment if the parser lost bit-alignment. */
+   if (out->slice_alpha_c0_offset_div2 < -6 || out->slice_alpha_c0_offset_div2 > 6 ||
+       out->slice_beta_offset_div2 < -6 || out->slice_beta_offset_div2 > 6 ||
+       out->slice_qp_delta < -51 || out->slice_qp_delta > 51 ||
+       out->disable_deblocking_filter_idc > 2 ||
+       out->cabac_init_idc > 2)
+      st.error = true;
+
    VALID_RBSP_OR_BAIL(st)
 
    if (pps->flags.entropy_coding_mode_flag) {
