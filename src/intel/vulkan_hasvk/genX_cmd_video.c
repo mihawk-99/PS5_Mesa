@@ -337,6 +337,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
          struct anv_address ref_addr = anv_image_address(ref_iv->image,
                                                          &ref_iv->image->planes[0].primary_surface.memory_range);
          buf.ReferencePictureAddress[hw] = ref_addr;
+
 #if GFX_VERx10 == 70
          buf.ReferencePictureCacheabilityControl[hw] = 2;
 #elif GFX_VERx10 == 75
@@ -396,6 +397,22 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
    }
 #endif
 
+   if (pps->chroma_qp_index_offset < -12 || pps->chroma_qp_index_offset > 12 ||
+       pps->second_chroma_qp_index_offset < -12 ||
+       pps->second_chroma_qp_index_offset > 12 ||
+       pps->pic_init_qp_minus26 < -26 || pps->pic_init_qp_minus26 > 25 ||
+       sps->log2_max_frame_num_minus4 > 12 ||
+       sps->log2_max_pic_order_cnt_lsb_minus4 > 12) {
+      mesa_logw_once("hasvk/video: out-of-range H.264 SPS/PPS parameter "
+                     "(sps_id=%u pps_id=%u chroma_qp=%d/%d init_qp_m26=%d "
+                     "log2_frame=%u log2_poc=%u) - clamping.",
+                     pps->seq_parameter_set_id, pps->pic_parameter_set_id,
+                     pps->chroma_qp_index_offset,
+                     pps->second_chroma_qp_index_offset,
+                     pps->pic_init_qp_minus26, sps->log2_max_frame_num_minus4,
+                     sps->log2_max_pic_order_cnt_lsb_minus4);
+   }
+
    anv_batch_emit(&cmd_buffer->batch, GENX(MFX_AVC_IMG_STATE), avc_img) {
       avc_img.FrameWidth = MIN2(frame_width_mbs - 1, 255u);
       avc_img.FrameHeight = MIN2(frame_height_mbs - 1, 254u);
@@ -410,8 +427,8 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 
       avc_img.WeightedBiPredictionIDC = pps->weighted_bipred_idc;
       avc_img.WeightedPredictionEnable = pps->flags.weighted_pred_flag;
-      avc_img.FirstChromaQPOffset = pps->chroma_qp_index_offset;
-      avc_img.SecondChromaQPOffset = pps->second_chroma_qp_index_offset;
+      avc_img.FirstChromaQPOffset = CLAMP(pps->chroma_qp_index_offset, -12, 12);
+      avc_img.SecondChromaQPOffset = CLAMP(pps->second_chroma_qp_index_offset, -12, 12);
       avc_img.FieldPicture = h264_pic_info->pStdPictureInfo->flags.field_pic_flag;
       avc_img.MBAFFMode = (sps->flags.mb_adaptive_frame_field_flag &&
                            !h264_pic_info->pStdPictureInfo->flags.field_pic_flag);
@@ -423,17 +440,17 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       avc_img.EntropyCodingSyncEnable = pps->flags.entropy_coding_mode_flag;
       avc_img.ChromaFormatIDC = sps->chroma_format_idc;
       avc_img.TrellisQuantizationChromaDisable = true;
-      avc_img.NumberofReferenceFrames = frame_info->referenceSlotCount;
+      avc_img.NumberofReferenceFrames = MIN2(frame_info->referenceSlotCount, 16u);
       avc_img.NumberofActiveReferencePicturesfromL0 = pps->num_ref_idx_l0_default_active_minus1 + 1;
       avc_img.NumberofActiveReferencePicturesfromL1 = pps->num_ref_idx_l1_default_active_minus1 + 1;
-      avc_img.InitialQPValue = pps->pic_init_qp_minus26;
+      avc_img.InitialQPValue = CLAMP(pps->pic_init_qp_minus26, -26, 25);
       avc_img.PicOrderPresent = pps->flags.bottom_field_pic_order_in_frame_present_flag;
       avc_img.DeltaPicOrderAlwaysZero = sps->flags.delta_pic_order_always_zero_flag;
       avc_img.PicOrderCountType = sps->pic_order_cnt_type;
       avc_img.DeblockingFilterControlPresent = pps->flags.deblocking_filter_control_present_flag;
       avc_img.RedundantPicCountPresent = pps->flags.redundant_pic_cnt_present_flag;
-      avc_img.Log2MaxFrameNumber = sps->log2_max_frame_num_minus4;
-      avc_img.Log2MaxPicOrderCountLSB = sps->log2_max_pic_order_cnt_lsb_minus4;
+      avc_img.Log2MaxFrameNumber = MIN2((uint32_t)sps->log2_max_frame_num_minus4, 12u);
+      avc_img.Log2MaxPicOrderCountLSB = MIN2((uint32_t)sps->log2_max_pic_order_cnt_lsb_minus4, 12u);
       avc_img.CurrentPictureFrameNumber = h264_pic_info->pStdPictureInfo->frame_num;
    }
 
@@ -526,6 +543,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                     &sp[s]);
          }
          if (!ok) {
+            memset(&sp[s], 0, sizeof(sp[s]));
             sp[s].slice_type = ANV_H264_SLICE_I;
             sp[s].first_mb_in_slice = 0;
             sp[s].num_ref_idx_l0_active_minus1 =
@@ -734,8 +752,8 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                (cur && st == ANV_H264_SLICE_B) ?
                MIN2((uint32_t)(cur->num_ref_idx_l1_active_minus1 + 1),
                     (uint32_t)ANV_H264_MAX_REF_FRAMES) : 0;
-            ss.SliceAlphaC0OffsetDiv2 = cur ? cur->slice_alpha_c0_offset_div2 : 0;
-            ss.SliceBetaOffsetDiv2 = cur ? cur->slice_beta_offset_div2 : 0;
+            ss.SliceAlphaC0OffsetDiv2 = CLAMP(cur ? cur->slice_alpha_c0_offset_div2 : 0, -6, 6);
+            ss.SliceBetaOffsetDiv2 = CLAMP(cur ? cur->slice_beta_offset_div2 : 0, -6, 6);
             ss.SliceQuantizationParameter =
                (uint32_t)CLAMP((int)(pps->pic_init_qp_minus26 + 26 +
                (cur ? cur->slice_qp_delta : 0)), 0, 51);
