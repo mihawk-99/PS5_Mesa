@@ -74,6 +74,41 @@ anv_h264_find_slice_nal(const uint8_t *buf, uint32_t off, uint32_t limit)
    return off + 3;
 }
 
+/* With chroma_format_idc == 0 (monochrome) the luma is correct but the chroma
+ * is never written so fill it with 0x80 to avoid sampled garbage.
+ */
+static void
+anv_video_init_neutral_chroma(struct anv_device *device,
+                              const struct anv_image *img)
+{
+   struct anv_image *mut_img = (struct anv_image *)img;
+
+   if (img->n_planes < 2 || mut_img->vid_neutral_chroma_init)
+      return;
+
+   const struct anv_image_memory_range *range =
+      &img->planes[1].primary_surface.memory_range;
+   struct anv_address addr = anv_image_address(img, range);
+   if (addr.bo == NULL)
+      return;
+
+   void *map = addr.bo->map;
+   bool mapped_here = false;
+   if (!map) {
+      if (anv_device_map_bo(device, addr.bo, 0, addr.bo->size,
+                            0, &map) != VK_SUCCESS)
+         return;
+      mapped_here = true;
+   }
+
+   memset((uint8_t *)map + addr.offset, 0x80, range->size);
+
+   if (mapped_here)
+      anv_device_unmap_bo(device, addr.bo, map, addr.bo->size);
+
+   mut_img->vid_neutral_chroma_init = true;
+}
+
 void
 genX(CmdBeginVideoCodingKHR) (VkCommandBuffer commandBuffer,
                               const VkVideoBeginCodingInfoKHR * pBeginInfo)
@@ -182,6 +217,9 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 
    const struct anv_image_view *iv = anv_image_view_from_handle(frame_info->dstPictureResource.imageViewBinding);
    const struct anv_image *img = iv->image;
+
+   if (sps->chroma_format_idc == 0)
+      anv_video_init_neutral_chroma(cmd_buffer->device, img);
 
    uint32_t frame_width_mbs  = sps->pic_width_in_mbs_minus1 + 1;
    uint32_t frame_height_mbs = sps->pic_height_in_map_units_minus1 + 1;

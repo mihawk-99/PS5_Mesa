@@ -3147,6 +3147,8 @@ struct anv_image {
     */
    bool from_gralloc;
 
+   bool vid_neutral_chroma_init;
+
    /**
     * The memory bindings created by vkCreateImage and vkBindImageMemory.
     *
