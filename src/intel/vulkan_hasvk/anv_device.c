@@ -261,6 +261,7 @@ get_device_extensions(const struct anv_physical_device *device,
       .KHR_video_maintenance2                = video_decode,
       .KHR_synchronization2                  = true,
       .KHR_timeline_semaphore                = true,
+      .KHR_internally_synchronized_queues    = true,
       .KHR_uniform_buffer_standard_layout    = true,
       .KHR_variable_pointers                 = true,
       .KHR_vulkan_memory_model               = true,
@@ -688,6 +689,9 @@ get_features(const struct anv_physical_device *pdevice,
 
       /* VK_KHR_video_maintenance2 */
       .videoMaintenance2 = true,
+
+      /* VK_KHR_internally_synchronized_queues */
+      .internallySynchronizedQueues = true,
    };
 
    /* We can't do image stores in vec4 shaders */
@@ -2497,7 +2501,7 @@ VkResult anv_CreateDevice(
     */
    assert(pCreateInfo->queueCreateInfoCount > 0);
    for (uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; i++) {
-      if (pCreateInfo->pQueueCreateInfos[i].flags != 0)
+      if (pCreateInfo->pQueueCreateInfos[i].flags & ~VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR)
          return vk_error(physical_device, VK_ERROR_INITIALIZATION_FAILED);
    }
 
