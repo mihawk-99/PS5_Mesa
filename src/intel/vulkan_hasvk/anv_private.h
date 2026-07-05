@@ -3219,6 +3219,7 @@ struct anv_image {
    } planes[3];
 
    struct anv_image_memory_range vid_dmv_top_surface;
+   struct anv_image_memory_range vid_dmv_bottom_surface;
 };
 
 static inline bool

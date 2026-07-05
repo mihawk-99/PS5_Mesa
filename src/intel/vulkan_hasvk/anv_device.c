@@ -3190,10 +3190,9 @@ VkResult anv_AllocateMemory(
 
       mem->dedicated_image = image;
 
-      /* Some legacy (non-modifiers) consumers need the tiling to be set on
-       * the BO.  In this case, we have a dedicated allocation.
-       */
-      if (image->vk.wsi_legacy_scanout) {
+      if (image->vk.wsi_legacy_scanout ||
+          (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+                              VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR))) {
          const struct isl_surf *surf = &image->planes[0].primary_surface.isl;
          result = anv_device_set_bo_tiling(device, mem->bo,
                                            surf->row_pitch_B,

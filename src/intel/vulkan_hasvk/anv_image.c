@@ -221,6 +221,9 @@ choose_isl_surf_usage(VkImageCreateFlags vk_create_flags,
    if (vk_create_flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
       isl_usage |= ISL_SURF_USAGE_CUBE_BIT;
 
+   if (vk_usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR || vk_usage & VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+      isl_usage |= ISL_SURF_USAGE_VIDEO_DECODE_BIT;
+
    /* Even if we're only using it for transfer operations, clears to depth and
     * stencil images happen as depth and stencil so they need the right ISL
     * usage bits or else things will fall apart.
@@ -695,23 +698,46 @@ add_video_buffers(struct anv_device *device,
                   struct anv_image *image,
                   const struct VkVideoProfileListInfoKHR *profile_list)
 {
-   ASSERTED bool ok;
+   VkResult result;
    unsigned size = 0;
 
    for (unsigned i = 0; i < profile_list->profileCount; i++) {
-      if (profile_list->pProfiles[i].videoCodecOperation == VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR) {
+      if (profile_list->pProfiles[i].videoCodecOperation ==
+          VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR) {
          unsigned w_mb = DIV_ROUND_UP(image->vk.extent.width, ANV_MB_WIDTH);
          unsigned h_mb = DIV_ROUND_UP(image->vk.extent.height, ANV_MB_HEIGHT);
-         size = w_mb * h_mb * 128;
+
+         /* On Ivy Bridge, the PRM specifies that the DMV buffer size is
+          * 557,056 bytes for a 1920x1088 frame (128x68 MBs). The hardware
+          * assumes a fixed frame width of 128 MBs regardless of actual frame
+          * width, but scales with height. This works out to 64 bytes per MB,
+          * or 8192 bytes per MB row (128 MBs * 64 bytes).
+          */
+         if (device->info->ver == 7) {
+            /* 128 MBs/row * h_mb rows * 64 bytes/MB = h_mb * 8192 */
+            size = h_mb * 8192;
+         } else {
+            /* XXX: Is this correct for Broadwell? */
+            size = w_mb * h_mb * 128;
+         }
       }
    }
 
    if (size == 0)
       return VK_SUCCESS;
 
-   ok = image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
-                           ANV_OFFSET_IMPLICIT, size, 65536, &image->vid_dmv_top_surface);
-   return ok;
+   result =
+      image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
+                         ANV_OFFSET_IMPLICIT, size, 65536,
+                         &image->vid_dmv_top_surface);
+   if (result != VK_SUCCESS)
+      return result;
+
+   result =
+      image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
+                         ANV_OFFSET_IMPLICIT, size, 65536,
+                         &image->vid_dmv_bottom_surface);
+   return result;
 }
 
 /**
@@ -843,11 +869,12 @@ check_memory_bindings(const struct anv_device *device,
          ? ANV_IMAGE_MEMORY_BINDING_PLANE_0 + p
          : ANV_IMAGE_MEMORY_BINDING_MAIN;
 
-      /* Aliasing is incompatible with the private binding because it does not
-       * live in a VkDeviceMemory.  The one exception is swapchain images.
+      /* Aliasing is generally incompatible with the private binding because
+       * it does not live in a VkDeviceMemory.
        */
       assert(!(image->vk.create_flags & VK_IMAGE_CREATE_ALIAS_BIT) ||
              image->from_wsi ||
+             (plane->primary_surface.isl.usage & ISL_SURF_USAGE_VIDEO_DECODE_BIT) ||
              image->bindings[ANV_IMAGE_MEMORY_BINDING_PRIVATE].memory_range.size == 0);
 
       /* Check primary surface */
@@ -1283,6 +1310,7 @@ anv_image_init(struct anv_device *device, struct anv_image *image,
    const VkVideoProfileListInfoKHR *video_profile =
       vk_find_struct_const(pCreateInfo->pNext,
                            VIDEO_PROFILE_LIST_INFO_KHR);
+
    if (video_profile) {
       r = add_video_buffers(device, image, video_profile);
       if (r != VK_SUCCESS)
@@ -1347,6 +1375,21 @@ anv_image_init_from_create_info(struct anv_device *device,
       return anv_image_init_from_gralloc(device, image, pCreateInfo,
                                          gralloc_info);
 
+   const VkVideoProfileListInfoKHR *video_profile =
+      vk_find_struct_const(pCreateInfo->pNext, VIDEO_PROFILE_LIST_INFO_KHR);
+
+   /* For video surfaces, we need to strip VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT
+    * as it may cause unwanted linear tiling fallback for some video operations.
+    */
+   VkImageCreateInfo modified_create_info;
+   if (video_profile) {
+      modified_create_info = *pCreateInfo;
+      modified_create_info.flags &=
+         ~VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
+
+      pCreateInfo = &modified_create_info;
+   }
+
    struct anv_image_create_info create_info = {
       .vk_info = pCreateInfo,
    };
@@ -1362,6 +1405,10 @@ anv_image_init_from_create_info(struct anv_device *device,
    if (mod_explicit_info &&
        !isl_drm_modifier_has_aux(mod_explicit_info->drmFormatModifier))
       create_info.isl_extra_usage_flags |= ISL_SURF_USAGE_DISABLE_AUX_BIT;
+
+   if (video_profile && pCreateInfo->tiling == VK_IMAGE_TILING_OPTIMAL) {
+      create_info.isl_tiling_flags = ISL_TILING_Y0_BIT;
+   }
 
    return anv_image_init(device, image, &create_info);
 }
@@ -1733,6 +1780,20 @@ anv_bind_image_memory(struct anv_device *device,
       };
 
       did_bind = true;
+   }
+
+   if (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+                          VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)) {
+      const struct isl_surf *surf = &image->planes[0].primary_surface.isl;
+      struct anv_bo *bo = image->bindings[ANV_IMAGE_MEMORY_BINDING_MAIN].address.bo;
+
+      if (bo && surf->tiling != ISL_TILING_LINEAR) {
+         VkResult result = anv_device_set_bo_tiling(device, bo,
+                                                    surf->row_pitch_B, surf->tiling);
+         if (result != VK_SUCCESS) {
+            return result;
+         }
+      }
    }
 
    if (bind_status)
