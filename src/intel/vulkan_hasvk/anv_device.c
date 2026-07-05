@@ -250,6 +250,8 @@ get_device_extensions(const struct anv_physical_device *device,
       .KHR_video_queue                       = video_decode,
       .KHR_video_decode_queue                = video_decode,
       .KHR_video_decode_h264                 = video_decode,
+      .KHR_video_maintenance1                = video_decode,
+      .KHR_video_maintenance2                = video_decode,
       .KHR_synchronization2                  = true,
       .KHR_timeline_semaphore                = true,
       .KHR_uniform_buffer_standard_layout    = true,
@@ -673,6 +675,12 @@ get_features(const struct anv_physical_device *pdevice,
 
       /* VK_KHR_maintenance6 */
       .maintenance6 = true,
+
+      /* VK_KHR_video_maintenance1 */
+      .videoMaintenance1 = true,
+
+      /* VK_KHR_video_maintenance2 */
+      .videoMaintenance2 = true,
    };
 
    /* We can't do image stores in vec4 shaders */
