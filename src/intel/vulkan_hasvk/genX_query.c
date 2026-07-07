@@ -59,10 +59,10 @@ anv_query_address(struct anv_query_pool *pool, uint32_t query)
    };
 }
 
-static void
-emit_query_mi_flush_availability(struct anv_cmd_buffer *cmd_buffer,
-                                 struct anv_address addr,
-                                 bool available)
+void
+genX(emit_query_mi_flush_availability)(struct anv_cmd_buffer *cmd_buffer,
+                                       struct anv_address addr,
+                                       bool available)
 {
    anv_batch_emit(&cmd_buffer->batch, GENX(MI_FLUSH_DW), flush) {
       flush.PostSyncOperation = WriteImmediateData;
@@ -815,7 +815,7 @@ void genX(CmdResetQueryPool)(
    }
    case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
       for (uint32_t i = 0; i < queryCount; i++)
-         emit_query_mi_flush_availability(cmd_buffer, anv_query_address(pool, firstQuery + i), false);
+         genX(emit_query_mi_flush_availability)(cmd_buffer, anv_query_address(pool, firstQuery + i), false);
       break;
 
    default:
@@ -1117,7 +1117,7 @@ void genX(CmdBeginQueryIndexedEXT)(
       break;
    }
    case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
-      emit_query_mi_flush_availability(cmd_buffer, query_addr, false);
+      genX(emit_query_mi_flush_availability)(cmd_buffer, query_addr, false);
       break;
    default:
       UNREACHABLE("");
@@ -1287,7 +1287,7 @@ void genX(CmdEndQueryIndexedEXT)(
       break;
    }
    case VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR:
-      emit_query_mi_flush_availability(cmd_buffer, query_addr, true);
+      genX(emit_query_mi_flush_availability)(cmd_buffer, query_addr, true);
       break;
 
    default:

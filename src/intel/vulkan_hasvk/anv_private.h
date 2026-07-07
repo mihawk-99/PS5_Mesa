@@ -3636,6 +3636,9 @@ struct anv_query_pool {
    struct intel_perf_counter_pass                *counter_pass;
    uint32_t                                     n_passes;
    struct intel_perf_query_info                 **pass_query;
+
+   /* Video encoding queries */
+   VkVideoCodecOperationFlagsKHR                codec;
 };
 
 #define ANV_MB_WIDTH 16

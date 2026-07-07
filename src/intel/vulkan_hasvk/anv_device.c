@@ -2091,7 +2091,12 @@ void anv_GetPhysicalDeviceQueueFamilyProperties2(
             case VK_STRUCTURE_TYPE_QUEUE_FAMILY_QUERY_RESULT_STATUS_PROPERTIES_KHR: {
                VkQueueFamilyQueryResultStatusPropertiesKHR *prop =
                   (VkQueueFamilyQueryResultStatusPropertiesKHR *)ext;
-               prop->queryResultStatusSupport = VK_TRUE;
+               /* Result status queries require the queue's command streamer
+                * to write the query result to memory. The VCS seemingly
+                * cannot do a posted memory write. */
+               prop->queryResultStatusSupport =
+                  (queue_family->queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) ?
+                  VK_FALSE : VK_TRUE;
                break;
             }
             case VK_STRUCTURE_TYPE_QUEUE_FAMILY_VIDEO_PROPERTIES_KHR: {
