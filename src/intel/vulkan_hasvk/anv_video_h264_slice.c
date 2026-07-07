@@ -134,7 +134,7 @@ anv_h264_gather_frefs(
       uint8_t parities = (ri->flags.top_field_flag ? ANV_H264_PAR_TOP : 0) |
                          (ri->flags.bottom_field_flag ? ANV_H264_PAR_BOTTOM : 0);
       if (parities == 0)
-         continue;
+         parities = ANV_H264_PAR_TOP | ANV_H264_PAR_BOTTOM;
 
       struct anv_h264_fref f;
       f.slot = (uint8_t)ref_slots[i].slotIndex;
