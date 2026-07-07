@@ -3235,6 +3235,10 @@ struct anv_image {
 
    struct anv_image_memory_range vid_dmv_top_surface;
    struct anv_image_memory_range vid_dmv_bottom_surface;
+
+   /* array_layers > 1 */
+   uint32_t vid_dmv_top_surface_pitch_B;
+   uint32_t vid_dmv_bottom_surface_pitch_B;
 };
 
 static inline bool
@@ -3525,6 +3529,65 @@ enum anv_image_view_state_flags {
    ANV_IMAGE_VIEW_STATE_STORAGE_LOWERED      = (1 << 0),
    ANV_IMAGE_VIEW_STATE_TEXTURE_OPTIMAL      = (1 << 1),
 };
+
+/* Address of the luma plane for a given DPB array layer. */
+static inline struct anv_address MUST_CHECK
+anv_image_dpb_address(const struct anv_image_view *iv,
+                      uint32_t arrayLayer)
+{
+   assert(iv->vk.base_mip_level == 0);
+   assert(iv->vk.layer_count > arrayLayer);
+
+   struct anv_address addr =
+      anv_image_address(iv->image,
+                        &iv->image->planes[0].primary_surface.memory_range);
+
+   if (anv_address_is_null(addr))
+      return addr;
+
+   uint64_t offset_B;
+   uint32_t x_offset_sa = 0, y_offset_sa = 0;
+   isl_surf_get_image_offset_B_tile_sa(&iv->image->planes[0].primary_surface.isl,
+                                       0,
+                                       iv->vk.base_array_layer + arrayLayer,
+                                       0,
+                                       &offset_B,
+                                       &x_offset_sa,
+                                       &y_offset_sa);
+
+   if (x_offset_sa || y_offset_sa)
+      mesa_logw_once("QPitch restrictions on gen7 can result in corruption.");
+
+   return anv_address_add(addr, offset_B);
+}
+
+static inline struct anv_address MUST_CHECK
+anv_image_dmv_top_address(const struct anv_image_view *iv,
+                          uint32_t arrayLayer)
+{
+   struct anv_address addr =
+      anv_image_address(iv->image, &iv->image->vid_dmv_top_surface);
+
+   if (anv_address_is_null(addr))
+      return addr;
+
+   return anv_address_add(addr, iv->image->vid_dmv_top_surface_pitch_B *
+                                ((uint64_t)iv->vk.base_array_layer + arrayLayer));
+}
+
+static inline struct anv_address MUST_CHECK
+anv_image_dmv_bottom_address(const struct anv_image_view *iv,
+                             uint32_t arrayLayer)
+{
+   struct anv_address addr =
+      anv_image_address(iv->image, &iv->image->vid_dmv_bottom_surface);
+
+   if (anv_address_is_null(addr))
+      return addr;
+
+   return anv_address_add(addr, iv->image->vid_dmv_bottom_surface_pitch_B *
+                                ((uint64_t)iv->vk.base_array_layer + arrayLayer));
+}
 
 void anv_image_fill_surface_state(struct anv_device *device,
                                   const struct anv_image *image,

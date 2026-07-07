@@ -716,8 +716,10 @@ add_video_buffers(struct anv_device *device,
          if (device->info->ver == 7) {
             /* However for frames wider than 128 MBs we need to make sure we
              * don't overrun and silently corrupt the buffer.
+             *
+             * Also a guard row that mirrors the VA-API driver.
              */
-            size = h_mb * MAX2(w_mb, 128u) * 64;
+            size = (h_mb + 1) * MAX2(w_mb, 128u) * 64;
          } else {
             /* XXX: Is this correct for Broadwell? */
             size = w_mb * h_mb * 128;
@@ -728,16 +730,34 @@ add_video_buffers(struct anv_device *device,
    if (size == 0)
       return VK_SUCCESS;
 
+   unsigned top_size = size;
+   if (image->vk.array_layers > 1) {
+      image->vid_dmv_top_surface_pitch_B = align(size, 64);
+      top_size = image->vid_dmv_top_surface_pitch_B *
+                 (image->vk.array_layers - 1) + size;
+   } else {
+      image->vid_dmv_top_surface_pitch_B = size;
+   }
+
    result =
       image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
-                         ANV_OFFSET_IMPLICIT, size, 65536,
+                         ANV_OFFSET_IMPLICIT, top_size, 65536,
                          &image->vid_dmv_top_surface);
    if (result != VK_SUCCESS)
       return result;
 
+   unsigned bottom_size = size;
+   if (image->vk.array_layers > 1) {
+      image->vid_dmv_bottom_surface_pitch_B = align(size, 64);
+      bottom_size = image->vid_dmv_bottom_surface_pitch_B *
+                    (image->vk.array_layers - 1) + size;
+   } else {
+      image->vid_dmv_bottom_surface_pitch_B = size;
+   }
+
    result =
       image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
-                         ANV_OFFSET_IMPLICIT, size, 65536,
+                         ANV_OFFSET_IMPLICIT, bottom_size, 65536,
                          &image->vid_dmv_bottom_surface);
    return result;
 }
@@ -1002,6 +1022,94 @@ check_drm_format_mod(const struct anv_device *device,
    return VK_SUCCESS;
 }
 
+/* Layered DPB needs every array slice to be a self-contained frame addressable
+ * with a single chroma offset. The default layout puts all luma slices first
+ * and all chroma slices after, so we can't use a fixed YOffsetforUCb.
+ * Like ANV, we ask ISL to interleave the plane slices instead.
+ */
+static VkResult
+add_all_surfaces_implicit_interleaved_arrays_layout(
+   struct anv_device *device,
+   struct anv_image *image,
+   const VkImageFormatListCreateInfo *format_list_info,
+   isl_tiling_flags_t isl_tiling_flags,
+   isl_surf_usage_flags_t isl_extra_usage_flags)
+{
+   const struct intel_device_info *devinfo = device->info;
+   const struct vk_format_ycbcr_info *ycbcr_info =
+      vk_format_get_ycbcr_info(image->vk.format);
+   VkResult result;
+
+   VkImageAspectFlagBits aspects[3];
+   unsigned num_aspects = 0;
+   u_foreach_bit(b, image->vk.aspects) {
+      assert(num_aspects < 3);
+      aspects[num_aspects++] = 1 << b;
+   }
+
+   uint32_t surfs_offsets[3];
+   struct isl_surf *surfs[3];
+   struct isl_surf_init_info infos[3];
+   struct anv_format_plane plane_format[3];
+
+   for (unsigned i = 0; i < num_aspects; i++) {
+      VkImageAspectFlagBits aspect = aspects[i];
+      const uint32_t plane = anv_image_aspect_to_plane(image, aspect);
+      plane_format[i] =
+         anv_get_format_plane(devinfo, image->vk.format, plane,
+                              image->vk.tiling);
+      assert(plane_format[i].isl_format != ISL_FORMAT_UNSUPPORTED);
+
+      VkImageUsageFlags vk_usage = vk_image_usage(&image->vk, aspect);
+      isl_surf_usage_flags_t isl_usage =
+         choose_isl_surf_usage(image->vk.create_flags, vk_usage,
+                               isl_extra_usage_flags, aspect);
+
+      uint32_t width = image->vk.extent.width;
+      uint32_t height = image->vk.extent.height;
+      if (ycbcr_info) {
+         assert(plane < ycbcr_info->n_planes);
+         width /= ycbcr_info->planes[plane].denominator_scales[0];
+         height /= ycbcr_info->planes[plane].denominator_scales[1];
+      }
+
+      surfs[i] = &image->planes[plane].primary_surface.isl;
+
+      infos[i] = (struct isl_surf_init_info) {
+         .dim = vk_to_isl_surf_dim[image->vk.image_type],
+         .format = plane_format[i].isl_format,
+         .width = width,
+         .height = height,
+         .depth = image->vk.extent.depth,
+         .levels = image->vk.mip_levels,
+         .array_len = image->vk.array_layers,
+         .samples = image->vk.samples,
+         .min_alignment_B = 0,
+         .row_pitch_B = 0,
+         .usage = isl_usage,
+         .tiling_flags = isl_tiling_flags,
+      };
+   }
+
+   if (!isl_surf_init_interleaved_arrays(&device->isl_dev, num_aspects, surfs,
+                                         surfs_offsets, infos))
+      return vk_errorf(device, VK_ERROR_UNKNOWN,
+                       "Unable to create interleaved arrayed image");
+
+   for (unsigned i = 0; i < num_aspects; i++) {
+      const uint32_t plane = anv_image_aspect_to_plane(image, aspects[i]);
+      image->planes[plane].aux_usage = ISL_AUX_USAGE_NONE;
+      result = add_surface(device, image,
+                           &image->planes[plane].primary_surface,
+                           ANV_IMAGE_MEMORY_BINDING_PLANE_0 + plane,
+                           surfs_offsets[i]);
+      if (result != VK_SUCCESS)
+         return result;
+   }
+
+   return VK_SUCCESS;
+}
+
 /**
  * Use when the app does not provide
  * VkImageDrmFormatModifierExplicitCreateInfoEXT.
@@ -1017,6 +1125,17 @@ add_all_surfaces_implicit_layout(
 {
    const struct intel_device_info *devinfo = device->info;
    VkResult result;
+
+   /* XXX: Based on what I could glean from !35651. */
+   if (devinfo->ver == 8 && image->n_planes > 1 && !image->disjoint &&
+       image->vk.array_layers > 1 &&
+       (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+                           VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR))) {
+      assert(stride == 0);
+      return add_all_surfaces_implicit_interleaved_arrays_layout(
+                device, image, format_list_info, isl_tiling_flags,
+                isl_extra_usage_flags);
+   }
 
    u_foreach_bit(b, image->vk.aspects) {
       VkImageAspectFlagBits aspect = 1 << b;
