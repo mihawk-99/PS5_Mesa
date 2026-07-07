@@ -87,8 +87,8 @@
 #include "vk_util.h"
 #include "vk_queue.h"
 #include "vk_log.h"
-#include "vk_ycbcr_conversion.h"
 #include "vk_video.h"
+#include "vk_ycbcr_conversion.h"
 
 /* Pre-declarations needed for WSI entrypoints */
 struct wl_surface;
@@ -1058,6 +1058,7 @@ struct anv_device {
     pthread_mutex_t                             mutex;
 
     struct intel_batch_decode_ctx               decoder[ANV_MAX_QUEUE_FAMILIES];
+
     /*
      * When decoding a anv_cmd_buffer, we might need to search for BOs through
      * the cmd_buffer's list.
@@ -2590,8 +2591,8 @@ struct anv_cmd_buffer {
    struct u_trace                               trace;
 
    struct {
-      struct anv_video_session *vid;
-      struct anv_video_session_params *params;
+      struct anv_video_session                  *vid;
+      struct anv_video_session_params           *params;
    } video;
 };
 
@@ -3636,21 +3637,14 @@ struct anv_query_pool {
    struct intel_perf_query_info                 **pass_query;
 };
 
-static inline uint32_t khr_perf_query_preamble_offset(const struct anv_query_pool *pool,
-                                                      uint32_t pass)
-{
-   return pool->pass_size * pass + 8;
-}
-
-struct anv_vid_mem {
-   struct anv_device_memory *mem;
-   VkDeviceSize       offset;
-   VkDeviceSize       size;
-};
-
-#define ANV_VIDEO_MEM_REQS_H264 4
 #define ANV_MB_WIDTH 16
 #define ANV_MB_HEIGHT 16
+
+struct anv_vid_mem {
+   struct anv_device_memory                     *mem;
+   VkDeviceSize                                 offset;
+   VkDeviceSize                                 size;
+};
 
 enum {
    ANV_VID_MEM_H264_INTRA_ROW_STORE,
@@ -3661,15 +3655,21 @@ enum {
 };
 
 struct anv_video_session {
-   struct vk_video_session vk;
+   struct vk_video_session                      vk;
 
    /* the decoder needs some private memory allocations */
-   struct anv_vid_mem vid_mem[ANV_VID_MEM_H264_MAX];
+   struct anv_vid_mem                           vid_mem[ANV_VID_MEM_H264_MAX];
 };
 
 struct anv_video_session_params {
-   struct vk_video_session_parameters vk;
+   struct vk_video_session_parameters           vk;
 };
+
+static inline uint32_t khr_perf_query_preamble_offset(const struct anv_query_pool *pool,
+                                                      uint32_t pass)
+{
+   return pool->pass_size * pass + 8;
+}
 
 void
 anv_dump_pipe_bits(enum anv_pipe_bits bits);
@@ -3800,8 +3800,11 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(anv_sampler, base, VkSampler,
 VK_DEFINE_NONDISP_HANDLE_CASTS(anv_performance_configuration_intel, base,
                                VkPerformanceConfigurationINTEL,
                                VK_OBJECT_TYPE_PERFORMANCE_CONFIGURATION_INTEL)
-VK_DEFINE_NONDISP_HANDLE_CASTS(anv_video_session, vk.base, VkVideoSessionKHR, VK_OBJECT_TYPE_VIDEO_SESSION_KHR)
-VK_DEFINE_NONDISP_HANDLE_CASTS(anv_video_session_params, vk.base, VkVideoSessionParametersKHR, VK_OBJECT_TYPE_VIDEO_SESSION_PARAMETERS_KHR)
+VK_DEFINE_NONDISP_HANDLE_CASTS(anv_video_session, vk.base, VkVideoSessionKHR,
+                               VK_OBJECT_TYPE_VIDEO_SESSION_KHR)
+VK_DEFINE_NONDISP_HANDLE_CASTS(anv_video_session_params, vk.base,
+                               VkVideoSessionParametersKHR,
+                               VK_OBJECT_TYPE_VIDEO_SESSION_PARAMETERS_KHR)
 
 #define anv_genX(devinfo, thing) ({             \
    __typeof(&gfx7_##thing) genX_thing;          \
