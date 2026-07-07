@@ -3555,9 +3555,6 @@ anv_image_dpb_address(const struct anv_image_view *iv,
                                        &x_offset_sa,
                                        &y_offset_sa);
 
-   if (x_offset_sa || y_offset_sa)
-      mesa_logw_once("QPitch restrictions on gen7 can result in corruption.");
-
    return anv_address_add(addr, offset_B);
 }
 
