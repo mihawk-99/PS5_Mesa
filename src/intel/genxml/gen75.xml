@@ -1434,7 +1434,7 @@
     </group>
   </instruction>
   <instruction name="MFD_AVC_DPB_STATE" bias="2" length="27" engine="video">
-    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="25" />
+    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="9" />
     <field name="SubOpcode B" dword="0" bits="20:16" type="uint" default="6" />
     <field name="SubOpcode A" dword="0" bits="23:21" type="uint" default="1" />
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />
@@ -1458,7 +1458,10 @@
       </field>
     </group>
     <group count="16" dword="3" size="16">
-      <field name="LTST Frame Number List" dword="0" bits="15:0" type="uint" />
+      <field name="LTST Frame Number List" dword="0" bits="15:0" type="uint" prefix="LTST">
+        <value name="Long Term Frame" value="1" />
+        <value name="Short Term Frame" value="0" />
+      </field>
     </group>
     <group count="16" dword="11" size="16">
       <field name="View ID" dword="0" bits="15:0" type="uint" />
@@ -1507,21 +1510,22 @@
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />
     <field name="Pipeline" dword="0" bits="28:27" type="uint" default="2" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
-    <field name="Direct MV Buffer - MOCS" dword="1" bits="3:0" type="uint" nonzero="true"/>
-    <field name="Direct MV Buffer - Arbitration Priority Control" dword="1" bits="5:4" type="uint"/>
-    <field name="Direct MV Buffer 0 - Address" dword="1" bits="31:6" type="address"/>
-    <group count="15" dword="2" size="64">
+    <field name="Direct MV Buffer - MOCS" dword="1" bits="3:0" type="uint"/>
+    <field name="Direct MV Buffer - Arbitration Priority Control" dword="1" bits="5:4" type="uint" />
+    <field name="Direct MV Buffer 0 - Address" dword="1" bits="31:6" type="address" />
+    <group count="15" dword="3" size="64">
+      <field name="Direct MV Buffer - MOCS 1" dword="0" bits="3:0" type="uint" />
       <field name="Direct MV Buffer - Address 1" dword="0" bits="31:6" type="address" />
     </group>
-    <field name="Direct MV Buffer Write - MOCS" dword="34" bits="2:0" type="uint" nonzero="true"/>
-    <field name="Direct MV Buffer Write - Arbitration Priority Control" dword="34" bits="4:3" type="uint"/>
+    <field name="Direct MV Buffer Write - MOCS" dword="34" bits="2:0" type="uint"/>
+    <field name="Direct MV Buffer Write - Arbitration Priority Control" dword="34" bits="4:3" type="uint" />
     <field name="Direct MV Buffer (Write) - Address" dword="34" bits="31:5" type="address" />
     <group count="34" dword="37" size="32">
       <field name="POC List" dword="0" bits="31:0" type="uint" />
     </group>
   </instruction>
-  <instruction name="MFX_AVC_IMG_STATE" bias="2" length="21" engine="video">
-    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="19" />
+  <instruction name="MFX_AVC_IMG_STATE" bias="2" length="17" engine="video">
+    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="15" />
     <field name="SubOpcode B" dword="0" bits="20:16" type="uint" default="0" />
     <field name="SubOpcode A" dword="0" bits="23:21" type="uint" default="0" />
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />
@@ -1928,7 +1932,8 @@
     </field>
     <field name="Deblocking Filter Row Store Scratch - Address" dword="16" bits="31:6" type="address" />
     <group count="16" dword="19" size="64">
-      <field name="Reference Picture - Address" dword="0" bits="63:0" type="address" />
+      <field name="Reference Picture - MOCS" dword="0" bits="3:0" type="uint" />
+      <field name="Reference Picture - Address" dword="0" bits="31:6" type="address" />
     </group>
     <field name="MB Status Buffer - MOCS" dword="52" bits="3:0" type="uint" nonzero="true" />
     <field name="MB Status Buffer - Arbitration Priority Control" dword="52" bits="5:4" type="uint">

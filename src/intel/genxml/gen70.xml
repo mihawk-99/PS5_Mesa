@@ -82,7 +82,7 @@
       <field name="Buffer" dword="0" bits="31:5" type="address" />
     </group>
   </struct>
-  <struct name="INLINE_DATA_DESCRIPTION_FOR_MFD_AVC_BSD_OBJECT" length="2">
+  <struct name="INLINE_DATA_DESCRIPTION_FOR_MFD_AVC_BSD_OBJECT" length="3">
     <field name="MB Error Concealment P Slice Weight Prediction Disable" dword="0" bits="0:0" type="bool" />
     <field name="MB Error Concealment P Slice Motion Vectors Override Disable" dword="0" bits="1:1" type="bool" />
     <field name="MB Error Concealment P Slice Reference Index Override Disable" dword="0" bits="2:2" type="bool" />
@@ -99,6 +99,7 @@
     <field name="MB Error Concealment B Temporal Motion Vectors Override Enable" dword="0" bits="25:25" type="bool" />
     <field name="MB Error Concealment B Temporal Reference Index Override Enable" dword="0" bits="26:26" type="bool" />
     <field name="MB Error Concealment B Temporal Prediction Mode" dword="0" bits="28:27" type="uint" default="0" />
+    <field name="Intra PredMode (4x4/8x8 Luma) Error Control" dword="0" bits="29:29" type="bool" />
     <field name="Init Current MB Number" dword="0" bits="30:30" type="bool" />
     <field name="Concealment Method" dword="0" bits="31:31" type="uint" />
     <field name="First MB Bit Offset" dword="1" bits="2:0" type="uint" />
@@ -1829,8 +1830,8 @@
       <field name="POC List" dword="0" bits="31:0" type="uint" />
     </group>
   </instruction>
-  <instruction name="MFX_AVC_IMG_STATE" bias="2" length="14" engine="video">
-    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="12" />
+  <instruction name="MFX_AVC_IMG_STATE" bias="2" length="16" engine="video">
+    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="14" />
     <field name="SubOpcode B" dword="0" bits="20:16" type="uint" default="0" />
     <field name="SubOpcode A" dword="0" bits="23:21" type="uint" default="0" />
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />
@@ -1933,6 +1934,18 @@
     <field name="Log2 Max Pic Order Count LSB" dword="14" bits="31:24" type="uint" />
     <field name="Slice Group Change Rate" dword="15" bits="15:0" type="uint" />
     <field name="Current Picture Frame Number" dword="15" bits="31:16" type="uint" />
+  </instruction>
+  <instruction name="MFX_AVC_REF_IDX_STATE" bias="2" length="10" engine="video">
+    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="8" />
+    <field name="SubOpcode B" dword="0" bits="20:16" type="uint" default="4" />
+    <field name="SubOpcode A" dword="0" bits="23:21" type="uint" default="0" />
+    <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />
+    <field name="Pipeline" dword="0" bits="28:27" type="uint" default="2" />
+    <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
+    <field name="Reference Picture List Select" dword="1" bits="0:0" type="uint" />
+    <group count="32" dword="2" size="8">
+      <field name="Reference List Entry" dword="0" bits="7:0" type="uint" />
+    </group>
   </instruction>
   <instruction name="MFX_AVC_SLICE_STATE" bias="2" length="10" engine="video">
     <field name="DWord Length" dword="0" bits="11:0" type="uint" default="8" />
@@ -2054,6 +2067,13 @@
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="0" />
     <field name="Pipeline" dword="0" bits="28:27" type="uint" default="2" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
+    <field name="BSD/MPC Row Store Scratch Buffer - Cacheability Control" dword="1" bits="1:0" type="uint">
+      <value name="GTT entry" value="0" />
+      <value name="Not in LLC" value="1" />
+      <value name="In LLC" value="2" />
+      <value name="In LLC and MLC" value="3" />
+    </field>
+    <field name="BSD/MPC Row Store Scratch Buffer - Graphics Data Type" dword="1" bits="2:2" type="uint" />
     <field name="BSD/MPC Row Store Scratch Buffer - Arbitration Priority Control" dword="1" bits="5:4" type="uint">
       <value name="Highest priority" value="0" />
       <value name="Second Highest priority" value="1" />
@@ -2061,6 +2081,13 @@
       <value name="Lowest Priority" value="3" />
     </field>
     <field name="BSD/MPC Row Store Scratch Buffer - Address" dword="1" bits="31:6" type="address" />
+    <field name="MPR Row Store Scratch Buffer - Cacheability Control" dword="2" bits="1:0" type="uint">
+      <value name="GTT entry" value="0" />
+      <value name="Not in LLC" value="1" />
+      <value name="In LLC" value="2" />
+      <value name="In LLC and MLC" value="3" />
+    </field>
+    <field name="MPR Row Store Scratch Buffer - Graphics Data Type" dword="2" bits="2:2" type="uint" />
     <field name="MPR Row Store Scratch Buffer - Arbitration Priority Control" dword="2" bits="5:4" type="uint">
       <value name="Highest priority" value="0" />
       <value name="Second highest priority" value="1" />
@@ -2068,6 +2095,13 @@
       <value name="Lowest priority" value="3" />
     </field>
     <field name="MPR Row Store Scratch Buffer - Address" dword="2" bits="31:6" type="address" />
+    <field name="Bitplane Read Buffer - Cacheability Control" dword="3" bits="1:0" type="uint">
+      <value name="GTT entry" value="0" />
+      <value name="Not in LLC" value="1" />
+      <value name="In LLC" value="2" />
+      <value name="In LLC and MLC" value="3" />
+    </field>
+    <field name="Bitplane Read Buffer - Graphics Data Type" dword="3" bits="2:2" type="uint" />
     <field name="Bitplane Read Buffer - Arbitration Priority Control" dword="3" bits="5:4" type="uint">
       <value name="Highest priority" value="0" />
       <value name="Second highest priority" value="1" />
@@ -2536,8 +2570,8 @@
     <field name="Extended Stream-Out Enable" dword="1" bits="18:18" type="bool" />
     <field name="Pic Status/Error Report ID" dword="3" bits="31:0" type="uint" />
   </instruction>
-  <instruction name="MFX_QM_STATE" bias="2" length="34" engine="video">
-    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="32" />
+  <instruction name="MFX_QM_STATE" bias="2" length="18" engine="video">
+    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="16" />
     <field name="SubOpcode B" dword="0" bits="20:16" type="uint" default="7" />
     <field name="SubOpcode A" dword="0" bits="23:21" type="uint" default="0" />
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="0" />
@@ -2687,6 +2721,13 @@
     <field name="LumShift1 - double - BWD" dword="5" bits="21:16" type="uint" />
     <field name="LumShift2 - double - BWD" dword="5" bits="29:24" type="uint" />
   </instruction>
+  <instruction name="MFX_WAIT" bias="1" length="1" engine="video">
+    <field name="DWord Length" dword="0" bits="5:0" type="uint" default="0" />
+    <field name="MFX Sync Control Flag" dword="0" bits="8:8" type="bool" />
+    <field name="SubOpcode" dword="0" bits="26:16" type="uint" default="0" />
+    <field name="Command Subtype" dword="0" bits="28:27" type="uint" default="1" />
+    <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
+  </instruction>
   <instruction name="MI_CLFLUSH" bias="2" engine="render">
     <field name="DWord Length" dword="0" bits="9:0" type="uint" default="1" />
     <field name="Use Global GTT" dword="0" bits="22:22" type="bool" />
@@ -2786,7 +2827,7 @@
     <field name="Command SubType" dword="0" bits="28:27" type="uint" default="1" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
   </instruction>
-  <instruction name="PIPE_CONTROL" bias="2" length="5" engine="render">
+  <instruction name="PIPE_CONTROL" bias="2" length="5" engine="render|video">
     <field name="DWord Length" dword="0" bits="7:0" type="uint" default="3" />
     <field name="3D Command Sub Opcode" dword="0" bits="23:16" type="uint" default="0" />
     <field name="3D Command Opcode" dword="0" bits="26:24" type="uint" default="2" />
