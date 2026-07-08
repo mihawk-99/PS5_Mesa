@@ -5828,18 +5828,6 @@ void genX(CmdSetEvent2)(
    ANV_FROM_HANDLE(anv_cmd_buffer, cmd_buffer, commandBuffer);
    ANV_FROM_HANDLE(anv_event, event, _event);
 
-   if (is_video_queue_cmd_buffer(cmd_buffer)) {
-      anv_batch_emit(&cmd_buffer->batch, GENX(MI_FLUSH_DW), flush) {
-         flush.PostSyncOperation = WriteImmediateData;
-         flush.Address = (struct anv_address) {
-            cmd_buffer->device->dynamic_state_pool.block_pool.bo,
-            event->state.offset
-         };
-         flush.ImmediateData = VK_EVENT_SET;
-      }
-      return;
-   }
-
    VkPipelineStageFlags2 src_stages =
       vk_collect_dependency_info_src_stages(pDependencyInfo);
 
@@ -5870,18 +5858,6 @@ void genX(CmdResetEvent2)(
 {
    ANV_FROM_HANDLE(anv_cmd_buffer, cmd_buffer, commandBuffer);
    ANV_FROM_HANDLE(anv_event, event, _event);
-
-   if (is_video_queue_cmd_buffer(cmd_buffer)) {
-      anv_batch_emit(&cmd_buffer->batch, GENX(MI_FLUSH_DW), flush) {
-         flush.PostSyncOperation = WriteImmediateData;
-         flush.Address = (struct anv_address) {
-            cmd_buffer->device->dynamic_state_pool.block_pool.bo,
-            event->state.offset
-         };
-         flush.ImmediateData = VK_EVENT_RESET;
-      }
-      return;
-   }
 
    cmd_buffer->state.pending_pipe_bits |= ANV_PIPE_POST_SYNC_BIT;
    genX(cmd_buffer_apply_pipe_flushes)(cmd_buffer);
