@@ -40,11 +40,14 @@ __ringbuffer_add_wrap(uint32_t *val, uint32_t *size, uint32_t N)
        ? NULL                                                                                      \
        : &buffer.data[__ringbuffer_add_wrap(&buffer.head, &buffer.size, ARRAY_SIZE(buffer.data))])
 
+#define ringbuffer_free_n(buffer, n)                                                               \
+   assert(buffer.size >= n);                                                                       \
+   buffer.size -= n;                                                                               \
+   buffer.tail = (buffer.tail + n) % ARRAY_SIZE(buffer.data)
+
 #define ringbuffer_free(buffer, elem)                                                              \
    assert(elem == NULL || elem == &buffer.data[buffer.tail]);                                      \
-   buffer.size--;                                                                                  \
-   assert(buffer.size < ARRAY_SIZE(buffer.data));                                                  \
-   buffer.tail = (buffer.tail + 1) % ARRAY_SIZE(buffer.data)
+   ringbuffer_free_n(buffer, 1)
 
 #define ringbuffer_first(buffer) (&buffer.data[buffer.tail])
 
