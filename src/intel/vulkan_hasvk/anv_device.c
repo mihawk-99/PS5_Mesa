@@ -1482,7 +1482,8 @@ anv_physical_device_free_disk_cache(struct anv_physical_device *device)
 }
 
 static void
-anv_override_engine_counts(int *gc_count, int *g_count, int *c_count, int *v_count)
+anv_override_engine_counts(int *gc_count, int *g_count, int *c_count,
+                           int *v_count)
 {
    int gc_override = -1;
    int g_override = -1;
@@ -1533,9 +1534,11 @@ anv_physical_device_init_queue_families(struct anv_physical_device *pdevice)
       int gc_count =
          intel_engines_count(pdevice->engine_info,
                              INTEL_ENGINE_CLASS_RENDER);
+
       int v_count =
          intel_engines_count(pdevice->engine_info,
-                             I915_ENGINE_CLASS_VIDEO);
+                             INTEL_ENGINE_CLASS_VIDEO);
+
       int g_count = 0;
       int c_count = 0;
 
@@ -1570,7 +1573,7 @@ anv_physical_device_init_queue_families(struct anv_physical_device *pdevice)
          pdevice->queue.families[family_count++] = (struct anv_queue_family) {
             .queueFlags = VK_QUEUE_VIDEO_DECODE_BIT_KHR,
             .queueCount = v_count,
-            .engine_class = I915_ENGINE_CLASS_VIDEO,
+            .engine_class = INTEL_ENGINE_CLASS_VIDEO,
          };
       }
       /* Increase count below when other families are added as a reminder to
@@ -2094,8 +2097,10 @@ void anv_GetPhysicalDeviceQueueFamilyProperties2(
             case VK_STRUCTURE_TYPE_QUEUE_FAMILY_VIDEO_PROPERTIES_KHR: {
                VkQueueFamilyVideoPropertiesKHR *prop =
                   (VkQueueFamilyVideoPropertiesKHR *)ext;
-               if (queue_family->queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR)
-                  prop->videoCodecOperations = VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR;
+               if (queue_family->queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) {
+                  prop->videoCodecOperations =
+                     VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR;
+               }
                break;
             }
             default:
