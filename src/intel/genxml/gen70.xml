@@ -1542,7 +1542,7 @@
     <field name="Pipeline" dword="0" bits="28:27" type="uint" default="2" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
     <field name="Indirect BSD Data Length" dword="1" bits="31:0" type="uint" />
-    <field name="Indirect BSD Data Start Address" dword="2" bits="28:0" type="address" />
+    <field name="Indirect BSD Data Start Address" dword="2" bits="28:0" type="offset" />
     <field name="Inline Data" dword="3" bits="95:0" type="INLINE_DATA_DESCRIPTION_FOR_MFD_AVC_BSD_OBJECT" />
   </instruction>
   <instruction name="MFD_AVC_DPB_STATE" bias="2" length="11" engine="video">
@@ -1584,7 +1584,7 @@
     <field name="Pipeline" dword="0" bits="28:27" type="uint" default="2" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="3" />
     <field name="Indirect BSD Data Length" dword="1" bits="31:0" type="uint" />
-    <field name="Indirect BSD Data Start Address" dword="2" bits="28:0" type="address" />
+    <field name="Indirect BSD Data Start Address" dword="2" bits="28:0" type="offset" />
   </instruction>
   <instruction name="MFD_IT_OBJECT" bias="2" engine="video">
     <field name="DWord Length" dword="0" bits="11:0" type="uint" default="6" />
