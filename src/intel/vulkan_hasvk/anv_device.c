@@ -2505,21 +2505,21 @@ VkResult anv_CreateDevice(
    if (result != VK_SUCCESS)
       goto fail_alloc;
 
-   if (INTEL_DEBUG(DEBUG_BATCH)) {
+   if (INTEL_DEBUG(DEBUG_BATCH) || INTEL_DEBUG(DEBUG_BATCH_STATS)) {
       for (unsigned i = 0; i < physical_device->queue.family_count; i++) {
          struct intel_batch_decode_ctx *decoder = &device->decoder[i];
 
          const unsigned decode_flags =
             INTEL_BATCH_DECODE_FULL |
             (INTEL_DEBUG(DEBUG_COLOR) ? INTEL_BATCH_DECODE_IN_COLOR : 0) |
-            INTEL_BATCH_DECODE_OFFSETS |
-            INTEL_BATCH_DECODE_FLOATS;
+            INTEL_BATCH_DECODE_OFFSETS | INTEL_BATCH_DECODE_FLOATS;
 
          intel_batch_decode_ctx_init_elk(decoder,
                                          &physical_device->compiler->isa,
                                          &physical_device->info,
                                          stderr, decode_flags, NULL,
                                          decode_get_bo, NULL, device);
+         intel_batch_stats_reset(decoder);
 
          decoder->engine = physical_device->queue.families[i].engine_class;
          decoder->dynamic_base = DYNAMIC_STATE_POOL_MIN_ADDRESS;
@@ -2814,8 +2814,6 @@ void anv_DestroyDevice(
    if (!device)
       return;
 
-   struct anv_physical_device *pdevice = device->physical;
-
    anv_device_utrace_finish(device);
 
    anv_device_finish_blorp(device);
@@ -2855,18 +2853,13 @@ void anv_DestroyDevice(
       util_vma_heap_finish(&device->vma_lo);
    }
 
-   pthread_mutex_destroy(&device->mutex);
-
    for (uint32_t i = 0; i < device->queue_count; i++)
       anv_queue_finish(&device->queues[i]);
    vk_free(&device->vk.alloc, device->queues);
 
    intel_gem_destroy_context(device->fd, device->context_id);
 
-   if (INTEL_DEBUG(DEBUG_BATCH)) {
-      for (unsigned i = 0; i < pdevice->queue.family_count; i++)
-         intel_batch_decode_ctx_finish(&device->decoder[i]);
-   }
+   pthread_mutex_destroy(&device->mutex);
 
    close(device->fd);
 
