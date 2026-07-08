@@ -794,11 +794,14 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
          }
       }
 
-      bool need_w_l0 = (pps->flags.weighted_pred_flag &&
-                        cur && (cur->slice_type == ANV_H264_SLICE_P ||
-                                cur->slice_type == ANV_H264_SLICE_SP));
-      bool need_w_l1 = (pps->weighted_bipred_idc == 1 &&
-                        cur && cur->slice_type == ANV_H264_SLICE_B);
+      /* Emit MFX_AVC_WEIGHTOFFSET_STATE for both list 0 and list 1. */
+      bool is_b = cur && cur->slice_type == ANV_H264_SLICE_B;
+      bool need_w_l0 = cur &&
+         ((pps->flags.weighted_pred_flag &&
+           (cur->slice_type == ANV_H264_SLICE_P ||
+            cur->slice_type == ANV_H264_SLICE_SP)) ||
+          (pps->weighted_bipred_idc == 1 && is_b));
+      bool need_w_l1 = pps->weighted_bipred_idc == 1 && is_b;
       if (need_w_l0 || need_w_l1) {
          for (unsigned list = 0; list <= 1; list++) {
             if (list == 0 && !need_w_l0) continue;
