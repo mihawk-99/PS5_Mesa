@@ -713,7 +713,7 @@ add_video_buffers(struct anv_device *device,
           * width, but scales with height. This works out to 64 bytes per MB,
           * or 8192 bytes per MB row (128 MBs * 64 bytes).
           */
-         if (device->info->ver == 7) {
+         if (device->info->verx10 == 70) {
             /* However for frames wider than 128 MBs we need to make sure we
              * don't overrun and silently corrupt the buffer.
              *
@@ -721,7 +721,7 @@ add_video_buffers(struct anv_device *device,
              */
             size = (h_mb + 1) * MAX2(w_mb, 128u) * 64;
          } else {
-            /* XXX: Is this correct for Broadwell? */
+            /* XXX: This needs more testing. */
             size = w_mb * h_mb * 128;
          }
       }
