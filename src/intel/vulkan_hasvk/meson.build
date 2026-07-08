@@ -90,11 +90,11 @@ libanv_per_hw_ver_libs = []
 anv_per_hw_ver_files = files(
   'genX_blorp_exec.c',
   'genX_cmd_buffer.c',
+  'genX_cmd_video.c',
   'genX_gpu_memcpy.c',
   'genX_pipeline.c',
   'genX_query.c',
   'genX_state.c',
-  'genX_video.c',
 )
 foreach g : [['70', ['gfx7_cmd_buffer.c']],
              ['75', ['gfx7_cmd_buffer.c']],
