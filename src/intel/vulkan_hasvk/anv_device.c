@@ -74,6 +74,7 @@
 
 static const struct debug_control debug_control[] = {
    { "video-decode", ANV_DEBUG_VIDEO_DECODE },
+   { "video-debug", ANV_DEBUG_VIDEO_DEBUG },
    { NULL, 0 }
 };
 

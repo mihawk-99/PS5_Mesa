@@ -219,7 +219,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                slot_to_hw[s] = (int8_t)next_free;
                used[next_free++] = true;
             } else {
-               mesa_logw_once("hasvk/video: Too many simultaneous H.264 DPB references - dropping.");
+               mesa_logw_once("Too many simultaneous H.264 DPB references - dropping.");
             }
          }
       }
@@ -253,14 +253,14 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 #if GFX_VER < 8
    const bool gen7_layered_clamp = img->vk.array_layers > 1;
    if (gen7_layered_clamp)
-      mesa_logw_once("hasvk/video: Layered DPB is broken on gen7 when the array pitch is not tile aligned.");
+      mesa_logw_once("Layered DPB is broken on gen7 when the array pitch is not tile aligned.");
 #else
    const bool gen7_layered_clamp = false;
 #endif
 
-   if (INTEL_DEBUG(DEBUG_PERF)) {
+   if (ANV_DEBUG(VIDEO_DEBUG)) {
       const StdVideoDecodeH264PictureInfo *p = h264_pic_info->pStdPictureInfo;
-      mesa_logw("hasvk/video: VID f_num=%d poc=%d/%d field=%u bot=%u idr=%u ref=%u "
+      mesa_logi("f_num=%d poc=%d/%d field=%u bot=%u idr=%u ref=%u "
                 "slices=%u refs=%u dst_layer=%u img=%p layers=%u",
                 p->frame_num, p->PicOrderCnt[0], p->PicOrderCnt[1],
                 p->flags.field_pic_flag, p->flags.bottom_field_flag,
@@ -271,7 +271,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       for (uint32_t i = 0; i < frame_info->referenceSlotCount; i++) {
          const struct anv_image_view *r =
             anv_image_view_from_handle(frame_info->pReferenceSlots[i].pPictureResource->imageViewBinding);
-         mesa_logw("hasvk/video:    ref[%u] slot=%d layer=%u img=%p same_as_dst=%d",
+         mesa_logi("ref[%u] slot=%d layer=%u img=%p same_as_dst=%d",
                    i, frame_info->pReferenceSlots[i].slotIndex,
                    frame_info->pReferenceSlots[i].pPictureResource->baseArrayLayer,
                    (void *)r->image, r->image == img);
@@ -291,7 +291,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
    if (!sps->flags.frame_mbs_only_flag)
       frame_height_mbs *= 2;
    if (frame_width_mbs > 256 || frame_height_mbs > 255)
-      mesa_logw_once("hasvk/video: frame %ux%u MBs exceeds hardware limits - clamping.",
+      mesa_logw_once("Frame %ux%u MBs exceeds hardware limits - clamping.",
                      frame_width_mbs, frame_height_mbs);
    frame_width_mbs  = MIN2(frame_width_mbs,  256u);
    frame_height_mbs = MIN2(frame_height_mbs, 255u);
@@ -301,16 +301,16 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
        img->planes[0].primary_surface.memory_range.offset) /
        img->planes[0].primary_surface.isl.row_pitch_B;
 
-   if (INTEL_DEBUG(DEBUG_PERF)) {
-       fprintf(stderr, "hasvk/video: dst extent=%ux%u tiling=%u pitch=%u "
-               "plane0_off=%"PRIu64" plane1_off=%"PRIu64" phys_h=%u y_cb_offset=%u\n",
-               img->vk.extent.width, img->vk.extent.height,
-               img->planes[0].primary_surface.isl.tiling,
-               img->planes[0].primary_surface.isl.row_pitch_B,
-               img->planes[0].primary_surface.memory_range.offset,
-               img->planes[1].primary_surface.memory_range.offset,
-               img->planes[0].primary_surface.isl.phys_level0_sa.h,
-               y_cb_offset);
+   if (ANV_DEBUG(VIDEO_DEBUG)) {
+       mesa_logi("dst extent=%ux%u tiling=%u pitch=%u "
+                 "plane0_off=%"PRIu64" plane1_off=%"PRIu64" phys_h=%u y_cb_offset=%u\n",
+                 img->vk.extent.width, img->vk.extent.height,
+                 img->planes[0].primary_surface.isl.tiling,
+                 img->planes[0].primary_surface.isl.row_pitch_B,
+                 img->planes[0].primary_surface.memory_range.offset,
+                 img->planes[1].primary_surface.memory_range.offset,
+                 img->planes[0].primary_surface.isl.phys_level0_sa.h,
+                 y_cb_offset);
    }
 
    anv_batch_emit(&cmd_buffer->batch, GENX(MFX_SURFACE_STATE), ss) {
@@ -463,7 +463,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
        pps->pic_init_qp_minus26 < -26 || pps->pic_init_qp_minus26 > 25 ||
        sps->log2_max_frame_num_minus4 > 12 ||
        sps->log2_max_pic_order_cnt_lsb_minus4 > 12) {
-      mesa_logw_once("hasvk/video: out-of-range H.264 SPS/PPS parameter "
+      mesa_logw_once("Out of range H.264 SPS/PPS parameter "
                      "(sps_id=%u pps_id=%u chroma_qp=%d/%d init_qp_m26=%d "
                      "log2_frame=%u log2_poc=%u) - clamping.",
                      pps->seq_parameter_set_id, pps->pic_parameter_set_id,
@@ -514,10 +514,10 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       avc_img.CurrentPictureFrameNumber = h264_pic_info->pStdPictureInfo->frame_num;
    }
 
-   if (INTEL_DEBUG(DEBUG_PERF) &&
+   if (ANV_DEBUG(VIDEO_DEBUG) &&
        h264_pic_info->pStdPictureInfo->flags.field_pic_flag) {
       const StdVideoDecodeH264PictureInfo *p = h264_pic_info->pStdPictureInfo;
-      mesa_logw("hasvk/img: field_pic=%u bottom=%u mb_adaptive=%u frame_mbs_only=%u "
+      mesa_logi("field_pic=%u bottom=%u mb_adaptive=%u frame_mbs_only=%u "
                 "mbaff_frame_flag=%u width_mbs=%u height_mbs=%u chroma_idc=%u entropy=%u "
                 "8x8=%u chroma_qp=%d/%d init_qp_m26=%d wp=%u wbi=%u frame_num=%u poc=%d/%d "
                 "constr_intra=%u num_ref=%u nact_l0=%u nact_l1=%u",
@@ -921,7 +921,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
             ss.SliceID = s & (uint32_t)((1u << 4) - 1);
          }
 
-         if (INTEL_DEBUG(DEBUG_PERF) && field_pic && cur) {
+         if (ANV_DEBUG(VIDEO_DEBUG) && field_pic && cur) {
             char l0[128] = {0}, l1[128] = {0};
             for (int e = 0; e < 8; e++) {
                char t[16];
@@ -930,7 +930,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                snprintf(t, sizeof(t), "%d ", (int8_t)cur->ref_list1[e]);
                strncat(l1, t, sizeof(l1) - strlen(l1) - 1);
             }
-            mesa_logw("hasvk/slice[%u]: type=%d first_mb=%u qp=%d cabac_init=%d "
+            mesa_logi("slice[%u]: type=%d first_mb=%u qp=%d cabac_init=%d "
                       "disable_dblk=%d spatial_direct=%d nref_l0=%d nref_l1=%d "
                       "hor=%u ver=%u next_hor=%u next_ver=%u last=%d | L0: %s| L1: %s",
                       s, st, cur_fmb,

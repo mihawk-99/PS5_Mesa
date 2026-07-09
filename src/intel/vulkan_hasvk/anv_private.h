@@ -930,6 +930,7 @@ struct anv_instance {
 /* Parsed from the HASVK_DEBUG environment variable. */
 enum anv_debug {
    ANV_DEBUG_VIDEO_DECODE               = BITFIELD_BIT(0),
+   ANV_DEBUG_VIDEO_DEBUG                = BITFIELD_BIT(1),
 };
 
 extern enum anv_debug anv_debug;
