@@ -3,6 +3,7 @@
 
 mod api;
 mod assign_regs;
+mod assign_reuse_flags;
 mod builder;
 mod calc_instr_deps;
 mod const_tracker;

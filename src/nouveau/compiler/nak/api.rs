@@ -546,6 +546,7 @@ fn nak_compile_shader_internal(
 
     pass!(s, opt_instr_sched_postpass);
     pass!(s, calc_instr_deps);
+    pass!(s, assign_reuse_flags);
 
     s.gather_info();
 
