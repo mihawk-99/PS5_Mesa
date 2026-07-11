@@ -84,12 +84,43 @@ enum SSAUse {
 
 struct SSAUseMap {
     ssa_map: FxHashMap<SSAValue, Vec<(usize, SSAUse)>>,
+    /// Scalar GPR values read together by some instruction, feeding
+    /// the Maxwell bank-aware allocation preference.  Left empty when
+    /// the preference is disabled.
+    bank_prefs: bool,
+    co_reads: FxHashMap<SSAValue, Vec<SSAValue>>,
 }
 
 impl SSAUseMap {
     fn add_fixed_reg_use(&mut self, ip: usize, ssa: SSAValue, reg: u32) {
         let v = self.ssa_map.entry(ssa).or_default();
         v.push((ip, SSAUse::FixedReg(reg)));
+    }
+
+    fn add_co_reads(&mut self, instr: &Instr) {
+        let mut gprs: Vec<SSAValue> = Vec::new();
+        for src in instr.srcs() {
+            if let Some(ssa) = src_ssa_ref(src) {
+                if ssa.len() == 1 && ssa[0].file() == RegFile::GPR {
+                    gprs.push(ssa[0]);
+                }
+            }
+        }
+        for i in 0..gprs.len() {
+            for j in (i + 1)..gprs.len() {
+                if gprs[i] == gprs[j] {
+                    continue;
+                }
+                let v = self.co_reads.entry(gprs[i]).or_default();
+                if !v.contains(&gprs[j]) {
+                    v.push(gprs[j]);
+                }
+                let v = self.co_reads.entry(gprs[j]).or_default();
+                if !v.contains(&gprs[i]) {
+                    v.push(gprs[i]);
+                }
+            }
+        }
     }
 
     fn add_vec_use(&mut self, ip: usize, vec: &[SSAValue]) {
@@ -136,14 +167,19 @@ impl SSAUseMap {
                             self.add_vec_use(ip, ssa);
                         }
                     }
+                    if self.bank_prefs {
+                        self.add_co_reads(instr);
+                    }
                 }
             }
         }
     }
 
-    pub fn for_block(b: &BasicBlock) -> SSAUseMap {
+    pub fn for_block(b: &BasicBlock, bank_prefs: bool) -> SSAUseMap {
         let mut am = SSAUseMap {
             ssa_map: Default::default(),
+            bank_prefs,
+            co_reads: Default::default(),
         };
         am.add_block(b);
         am
@@ -402,6 +438,43 @@ impl RegAllocator {
         )
     }
 
+    /// Maxwell GPRs live in 4 single-ported banks (bank = reg % 4): an
+    /// instruction reading several operands from the same bank stalls
+    /// for the extra fetch cycles.  Returns the lowest free register
+    /// whose bank differs from every already-assigned value this one
+    /// is co-read with, staying within the register budget the
+    /// allocator was given (so the preference never raises the
+    /// shader's GPR count).
+    fn try_find_bank_pref_reg(
+        &self,
+        sum: &SSAUseMap,
+        ssa: SSAValue,
+    ) -> Option<u32> {
+        if self.file != RegFile::GPR {
+            return None;
+        }
+        let partners = sum.co_reads.get(&ssa)?;
+        let mut avoid = 0_u8;
+        for p in partners {
+            if let Some(r) = self.try_get_reg(*p) {
+                avoid |= 1 << (r % 4);
+            }
+        }
+        if avoid == 0 || avoid == 0xf {
+            return None;
+        }
+        let mut best: Option<u32> = None;
+        for b in 0..4_u8 {
+            if avoid & (1 << b) != 0 {
+                continue;
+            }
+            if let Some(r) = self.try_find_unused_reg_range(0, 1, 4, b) {
+                best = Some(best.map_or(r, |cur| cur.min(r)));
+            }
+        }
+        best
+    }
+
     pub fn alloc_scalar(
         &mut self,
         ip: usize,
@@ -471,6 +544,12 @@ impl RegAllocator {
                     }
                 }
             }
+        }
+
+        // Prefer a register bank not used by co-read values (Maxwell)
+        if let Some(reg) = self.try_find_bank_pref_reg(sum, ssa) {
+            self.assign_reg(ssa, reg);
+            return reg;
         }
 
         let reg = self
@@ -928,17 +1007,23 @@ impl PerRegFile<RegAllocator> {
 struct AssignRegsBlock {
     ra: PerRegFile<RegAllocator>,
     pcopy_tmp_gprs: u8,
+    bank_prefs: bool,
     live_in: Vec<LiveValue>,
     phi_out: FxHashMap<Phi, SrcRef>,
 }
 
 impl AssignRegsBlock {
-    fn new(num_regs: &PerRegFile<u32>, pcopy_tmp_gprs: u8) -> AssignRegsBlock {
+    fn new(
+        num_regs: &PerRegFile<u32>,
+        pcopy_tmp_gprs: u8,
+        bank_prefs: bool,
+    ) -> AssignRegsBlock {
         AssignRegsBlock {
             ra: PerRegFile::new_with(|file| {
                 RegAllocator::new(file, num_regs[file])
             }),
             pcopy_tmp_gprs: pcopy_tmp_gprs,
+            bank_prefs,
             live_in: Vec::new(),
             phi_out: Default::default(),
         }
@@ -1300,7 +1385,7 @@ impl AssignRegsBlock {
             }
         }
 
-        let sum = SSAUseMap::for_block(b);
+        let sum = SSAUseMap::for_block(b, self.bank_prefs);
 
         let mut instrs = Vec::new();
         let mut srcs_killed = KillSet::new();
@@ -1523,6 +1608,10 @@ impl Shader<'_> {
 
         let mut phi_webs = PhiWebs::new(f);
 
+        // GPR banks are 4-way on Maxwell and Pascal (bank = reg % 4):
+        // steer co-read values into different banks there
+        let bank_prefs = self.sm.sm() >= 50 && self.sm.sm() < 70;
+
         let mut blocks: Vec<AssignRegsBlock> = Vec::new();
         for b_idx in 0..f.blocks.len() {
             let pred = f.blocks.pred_indices(b_idx);
@@ -1535,7 +1624,7 @@ impl Shader<'_> {
 
             let bl = live.block_live(b_idx);
 
-            let mut arb = AssignRegsBlock::new(&limit, tmp_gprs);
+            let mut arb = AssignRegsBlock::new(&limit, tmp_gprs, bank_prefs);
             arb.first_pass(&mut f.blocks[b_idx], bl, pred_ra, &mut phi_webs);
 
             assert!(blocks.len() == b_idx);
