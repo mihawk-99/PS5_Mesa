@@ -251,9 +251,10 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
    const struct anv_image *img = iv->image;
 
 #if GFX_VER < 8
-   const bool gen7_layered_clamp = img->vk.array_layers > 1;
+   const bool gen7_layered_clamp =
+      img->vk.array_layers > 1 && !img->vid_layered_interleaved;
    if (gen7_layered_clamp)
-      mesa_logw_once("Layered DPB is broken on gen7 when the array pitch is not tile aligned.");
+      mesa_logw_once("Layered DPB is broken on GFX 7 when the array pitch is not tile aligned.");
 #else
    const bool gen7_layered_clamp = false;
 #endif

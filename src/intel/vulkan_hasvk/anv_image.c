@@ -137,20 +137,11 @@ image_binding_grow(const struct anv_device *device,
                           "VkImageDrmFormatModifierExplicitCreateInfoEXT::"
                           "pPlaneLayouts[]::offset is misaligned");
       }
-
-      /* We require that surfaces be added in memory-order. This simplifies the
-       * layout validation required by
-       * VkImageDrmFormatModifierExplicitCreateInfoEXT,
-       */
-      if (unlikely(offset < container->size)) {
-         return vk_errorf(device,
-                          VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT,
-                          "VkImageDrmFormatModifierExplicitCreateInfoEXT::"
-                          "pPlaneLayouts[]::offset is too small");
-      }
    }
 
-   if (__builtin_add_overflow(offset, size, &container->size)) {
+   /* Track the end of each memory plane instead of assuming an append order. */
+   uint64_t memory_range_end;
+   if (__builtin_add_overflow(offset, size, &memory_range_end)) {
       if (has_implicit_offset) {
          assert(!"overflow");
          return vk_errorf(device, VK_ERROR_UNKNOWN,
@@ -163,6 +154,7 @@ image_binding_grow(const struct anv_device *device,
       }
    }
 
+   container->size = MAX2(container->size, memory_range_end);
    container->alignment = MAX2(container->alignment, alignment);
 
    *out_range = (struct anv_image_memory_range) {
@@ -1107,6 +1099,8 @@ add_all_surfaces_implicit_interleaved_arrays_layout(
          return result;
    }
 
+   image->vid_layered_interleaved = true;
+
    return VK_SUCCESS;
 }
 
@@ -1126,8 +1120,7 @@ add_all_surfaces_implicit_layout(
    const struct intel_device_info *devinfo = device->info;
    VkResult result;
 
-   /* XXX: Based on what I could glean from !35651. */
-   if (devinfo->ver == 8 && image->n_planes > 1 && !image->disjoint &&
+   if (devinfo->ver >= 7 && image->n_planes > 1 && !image->disjoint &&
        image->vk.array_layers > 1 &&
        (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
                            VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR))) {

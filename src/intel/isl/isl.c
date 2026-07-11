@@ -2356,7 +2356,10 @@ isl_calc_array_pitch_el_rows_gfx4_2d(
        * image size to accomodate that pitch.
        */
       if (info->array_pitch_B) {
-         assert(ISL_GFX_VER(dev) >= 8);
+         /* GFX 7 can use ARYSPC_LOD0 for video decode. */
+         assert(ISL_GFX_VER(dev) >= 8 ||
+                (ISL_GFX_VER(dev) >= 7 &&
+                 (info->usage & ISL_SURF_USAGE_VIDEO_DECODE_BIT)));
          uint32_t tiled_aligned_row_pitch_B =
             align((fmtl->bpb / 8) * phys_slice0_sa->w, tile_info->phys_extent_B.width);
          assert(info->array_pitch_B % tiled_aligned_row_pitch_B == 0);
@@ -3778,8 +3781,12 @@ isl_surf_init_interleaved_arrays(const struct isl_device *dev,
                                  uint32_t *surfs_offsets,
                                  const struct isl_surf_init_info *infos)
 {
-   /* Adjusting the array pitch is only supported on GFX 8+ */
-   assert(ISL_GFX_VER(dev) >= 8);
+   /* Adjusting the array pitch is only supported on GFX 8+.
+    * However, GFX 7 can use ARYSPC_LOD0 here for layered DPB.
+    */
+   assert(ISL_GFX_VER(dev) >= 8 ||
+          (ISL_GFX_VER(dev) >= 7 && total_surf > 0 &&
+           (infos[0].usage & ISL_SURF_USAGE_VIDEO_DECODE_BIT)));
    assert(total_surf <= ISL_SURF_MAX_INTERLEAVED_ARRAYS);
 
    /* Do a first pass to gather uninterleave surface layouts */
