@@ -9708,6 +9708,15 @@ pub trait ShaderModel {
     /// Latency before another non-NOP can execute
     fn exec_latency(&self, op: &Op) -> u32;
 
+    /// Whether `first` may dual-issue with the immediately following
+    /// `second` (a delay of 0, both dispatched in the same cycle).
+    /// Only the structural pairing rules belong here: data hazards
+    /// between the two keep their full latencies in the delay model,
+    /// which prevents the pairing on its own.
+    fn can_dual_issue(&self, _first: &Instr, _second: &Instr) -> bool {
+        false
+    }
+
     /// Read-after-read latency
     fn raw_latency(
         &self,
@@ -9809,6 +9818,10 @@ impl ShaderModel for ShaderModelInfo {
     /// Latency before another non-NOP can execute
     fn exec_latency(&self, op: &Op) -> u32 {
         sm_match!(self, |sm| sm.exec_latency(op))
+    }
+
+    fn can_dual_issue(&self, first: &Instr, second: &Instr) -> bool {
+        sm_match!(self, |sm| sm.can_dual_issue(first, second))
     }
 
     /// Read-after-read latency

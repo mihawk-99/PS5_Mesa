@@ -805,11 +805,27 @@ impl BlockDelayScheduler<'_> {
         }
     }
 
-    fn process_instr(&mut self, loc: InstrIdx, reg_uses: &mut DelayRegTracker) {
+    fn process_instr(
+        &mut self,
+        loc: InstrIdx,
+        next: Option<&Instr>,
+        reg_uses: &mut DelayRegTracker,
+    ) {
         let instr = &self.f[loc];
 
-        let mut min_start =
-            self.current_cycle + self.sm.exec_latency(&instr.op);
+        // A dual-issue pair dispatches in the same cycle (delay 0).
+        // Only the structural rules live in can_dual_issue(): any data
+        // hazard between the two gets its full latency below and lifts
+        // min_start past the pairing anyway.
+        let dual_issue =
+            next.is_some_and(|n| self.sm.can_dual_issue(instr, n));
+
+        let mut min_start = self.current_cycle
+            + if dual_issue {
+                0
+            } else {
+                self.sm.exec_latency(&instr.op)
+            };
 
         // Wait on rd/wr barriers
         if let Some(bar) = instr.deps.rd_bar() {
@@ -952,7 +968,8 @@ fn calc_delays(f: &mut Function, sm: &ShaderModelInfo) -> u64 {
 
             for ip in (0..block.instrs.len()).rev() {
                 let loc = InstrIdx::new(block_idx, ip);
-                sched.process_instr(loc, &mut uses);
+                let next = block.instrs.get(ip + 1);
+                sched.process_instr(loc, next, &mut uses);
             }
 
             // Update accumulated delay
@@ -1010,7 +1027,14 @@ fn calc_delays(f: &mut Function, sm: &ShaderModelInfo) -> u64 {
         for (ip, i) in b.instrs.iter_mut().enumerate() {
             let delay = cycles[ip] - cycles.get(ip + 1).copied().unwrap_or(0);
             let delay: u8 = delay.try_into().expect("Delay overflow");
-            i.deps.delay = delay.max(MIN_INSTR_DELAY);
+            // A delay of 0 only arises from a dual-issue pairing in
+            // process_instr(); everything else stalls at least
+            // MIN_INSTR_DELAY.
+            i.deps.delay = if delay == 0 {
+                0
+            } else {
+                delay.max(MIN_INSTR_DELAY)
+            };
         }
     }
 

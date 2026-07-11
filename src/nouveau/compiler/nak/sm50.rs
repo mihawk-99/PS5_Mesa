@@ -112,6 +112,45 @@ impl ShaderModel for ShaderModel50 {
         }
     }
 
+    fn can_dual_issue(&self, first: &Instr, second: &Instr) -> bool {
+        // Each Maxwell warp scheduler has two dispatch units: it can
+        // issue a core-ALU op together with the next instruction when
+        // that one goes to a different functional unit (the load/store
+        // unit here).  Data hazards between the two are not checked by
+        // the hardware, but the delay model applies its full latencies
+        // to adjacent instructions too, so a hazardous pair never gets
+        // a delay of 0 in the first place.
+        //
+        // Conservative structural rules for the pair:
+        // - first is a single-dispatch fixed-latency ALU op (no fp64,
+        //   which shares its unit with the core ALU on GM10x);
+        // - second is an LSU op (it may still set its scoreboards);
+        // - neither waits on a scoreboard (a wait would stall the
+        //   whole dual-issued slot) and first doesn't yield.
+        if first.deps.yld
+            || first.deps.wt_bar_mask != 0
+            || second.deps.wt_bar_mask != 0
+        {
+            return false;
+        }
+
+        let first_is_alu = matches!(
+            &first.op,
+            Op::FAdd(_)
+                | Op::FMul(_)
+                | Op::FFma(_)
+                | Op::FMnMx(_)
+                | Op::IAdd2(_)
+                | Op::IMnMx(_)
+                | Op::ISetP(_)
+                | Op::Lop2(_)
+                | Op::Mov(_)
+                | Op::Sel(_)
+        );
+        first_is_alu
+            && matches!(&second.op, Op::Ld(_) | Op::Ldc(_) | Op::St(_))
+    }
+
     fn raw_latency(
         &self,
         write: &Op,

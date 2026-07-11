@@ -86,7 +86,10 @@ impl Shader<'_> {
                     let a = &mut head[i];
                     let b = &tail[0];
 
-                    if a.deps.yld {
+                    // No reuse across a yield (the cache doesn't
+                    // survive a warp switch) nor within a dual-issued
+                    // pair (both fetch operands in the same cycle)
+                    if a.deps.yld || a.deps.delay == 0 {
                         continue;
                     }
 
