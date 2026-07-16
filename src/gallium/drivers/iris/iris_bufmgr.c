@@ -1029,21 +1029,14 @@ alloc_bo_from_slabs(struct iris_bufmgr *bufmgr,
 }
 
 static struct iris_bo *
-alloc_bo_from_cache(struct iris_bufmgr *bufmgr,
-                    struct bo_cache_bucket *bucket,
-                    uint32_t alignment,
-                    enum iris_memory_zone memzone,
-                    enum iris_mmap_mode mmap_mode,
-                    enum bo_alloc_flags flags,
-                    bool match_zone)
+get_bo_from_bucket(struct iris_bufmgr *bufmgr,
+                   struct bo_cache_bucket *bucket,
+                   uint32_t alignment,
+                   enum iris_memory_zone memzone,
+                   enum iris_mmap_mode mmap_mode,
+                   enum bo_alloc_flags flags,
+                   bool match_zone)
 {
-   if (!bucket)
-      return NULL;
-
-   struct iris_bo *bo = NULL;
-
-   simple_mtx_assert_locked(&bufmgr->lock);
-
    list_for_each_entry_safe(struct iris_bo, cur, &bucket->head, head) {
       assert(iris_bo_is_real(cur));
 
@@ -1111,9 +1104,29 @@ alloc_bo_from_cache(struct iris_bufmgr *bufmgr,
          cur->address = 0ull;
       }
 
-      bo = cur;
-      break;
+      return cur;
    }
+
+   return NULL;
+}
+
+static struct iris_bo *
+alloc_bo_from_cache(struct iris_bufmgr *bufmgr,
+                    struct bo_cache_bucket *bucket,
+                    uint32_t alignment,
+                    enum iris_memory_zone memzone,
+                    enum iris_mmap_mode mmap_mode,
+                    enum bo_alloc_flags flags,
+                    bool match_zone)
+{
+   if (!bucket)
+      return NULL;
+
+   struct iris_bo *bo = NULL;
+
+   simple_mtx_assert_locked(&bufmgr->lock);
+
+   bo = get_bo_from_bucket(bufmgr, bucket, alignment, memzone, mmap_mode, flags, match_zone);
 
    if (!bo)
       return NULL;
