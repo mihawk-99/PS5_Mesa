@@ -227,6 +227,12 @@ struct iris_bo_screen_deps {
    struct iris_syncobj *read_syncobjs[IRIS_BATCH_COUNT];
 };
 
+enum iris_bo_state {
+   IRIS_BO_STATE_IN_USE = 0,
+   IRIS_BO_STATE_NOT_IN_USE_BUT_ALIVE,
+   IRIS_BO_STATE_NOT_IN_USE_MAYBE_PURGED
+};
+
 struct iris_bo {
    /**
     * Size in bytes of the buffer object.
@@ -357,6 +363,15 @@ struct iris_bo {
 
          /** Boolean of whether this buffer can be scanout to display */
          bool scanout;
+
+         /** State of bo, mainly used to reduce madvise call.
+          * When bo is not needed first for 1sec we put it on bo cache but don't
+          * tell anything to KMD.
+          * Then if after that time it was not used, we tell KMD that it can be
+          * purged.
+          * Then after another second if not used we free it.
+          */
+         enum iris_bo_state bo_state;
       } real;
       struct {
          struct pb_slab_entry entry;

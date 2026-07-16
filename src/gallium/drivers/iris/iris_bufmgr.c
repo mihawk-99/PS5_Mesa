@@ -1035,7 +1035,8 @@ get_bo_from_bucket(struct iris_bufmgr *bufmgr,
                    enum iris_memory_zone memzone,
                    enum iris_mmap_mode mmap_mode,
                    enum bo_alloc_flags flags,
-                   bool match_zone)
+                   bool match_zone,
+                   enum iris_bo_state bo_state)
 {
    list_for_each_entry_safe(struct iris_bo, cur, &bucket->head, head) {
       assert(iris_bo_is_real(cur));
@@ -1059,6 +1060,9 @@ get_bo_from_bucket(struct iris_bufmgr *bufmgr,
             continue;
       }
 
+      if (cur->real.bo_state != bo_state)
+         continue;
+
       /* If the last BO in the cache is busy, there are no idle BOs.  Bail,
        * either falling back to a non-matching memzone, or if that fails,
        * allocating a fresh buffer.
@@ -1068,11 +1072,13 @@ get_bo_from_bucket(struct iris_bufmgr *bufmgr,
 
       list_del(&cur->head);
 
-      /* Tell the kernel we need this BO and check if it still exist */
-      if (!iris_bo_madvise(cur, IRIS_MADVICE_WILL_NEED)) {
-         /* This BO was purged, throw it out and keep looking. */
-         bo_free(cur);
-         continue;
+      if (bo_state == IRIS_BO_STATE_NOT_IN_USE_MAYBE_PURGED) {
+         /* Tell the kernel we need this BO and check if it still exist */
+         if (!iris_bo_madvise(cur, IRIS_MADVICE_WILL_NEED)) {
+            /* This BO was purged, throw it out and keep looking. */
+            bo_free(cur);
+            continue;
+         }
       }
 
       if (cur->aux_map_address) {
@@ -1104,6 +1110,7 @@ get_bo_from_bucket(struct iris_bufmgr *bufmgr,
          cur->address = 0ull;
       }
 
+      cur->real.bo_state = IRIS_BO_STATE_IN_USE;
       return cur;
    }
 
@@ -1126,8 +1133,12 @@ alloc_bo_from_cache(struct iris_bufmgr *bufmgr,
 
    simple_mtx_assert_locked(&bufmgr->lock);
 
-   bo = get_bo_from_bucket(bufmgr, bucket, alignment, memzone, mmap_mode, flags, match_zone);
-
+   /* First try to get a bo known to be alive; if that fails, try to get one
+    * that may have been purged by the kmd.
+    */
+   bo = get_bo_from_bucket(bufmgr, bucket, alignment, memzone, mmap_mode, flags, match_zone, IRIS_BO_STATE_NOT_IN_USE_BUT_ALIVE);
+   if (!bo)
+      bo = get_bo_from_bucket(bufmgr, bucket, alignment, memzone, mmap_mode, flags, match_zone, IRIS_BO_STATE_NOT_IN_USE_MAYBE_PURGED);
    if (!bo)
       return NULL;
 
@@ -1656,9 +1667,23 @@ cleanup_bo_cache(struct iris_bufmgr *bufmgr, time_t time)
             if (time - bo->real.free_time <= 1)
                break;
 
-            list_del(&bo->head);
-
-            bo_free(bo);
+            switch (bo->real.bo_state) {
+            case IRIS_BO_STATE_NOT_IN_USE_BUT_ALIVE:
+               if (iris_bo_madvise(bo, IRIS_MADVICE_DONT_NEED)) {
+                  bo->real.free_time = time;
+                  bo->real.bo_state = IRIS_BO_STATE_NOT_IN_USE_MAYBE_PURGED;
+               } else {
+                  list_del(&bo->head);
+                  bo_free(bo);
+               }
+               break;
+            case IRIS_BO_STATE_NOT_IN_USE_MAYBE_PURGED:
+               list_del(&bo->head);
+               bo_free(bo);
+               break;
+            default:
+               UNREACHABLE("not expected state");
+            }
          }
       }
    }
@@ -1690,9 +1715,10 @@ bo_unreference_final(struct iris_bo *bo, time_t time)
       bucket_for_size(bufmgr, bo->size, bo->real.heap, 0);
 
    /* Put the buffer into our internal cache for reuse if we can. */
-   if (bucket && iris_bo_madvise(bo, IRIS_MADVICE_DONT_NEED)) {
+   if (bucket) {
       bo->real.free_time = time;
       bo->name = NULL;
+      bo->real.bo_state = IRIS_BO_STATE_NOT_IN_USE_BUT_ALIVE;
 
       list_addtail(&bo->head, &bucket->head);
    } else {
