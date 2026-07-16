@@ -3163,8 +3163,6 @@ struct anv_image {
 
    bool vid_neutral_chroma_init;
 
-   bool vid_layered_interleaved;
-
    /**
     * The memory bindings created by vkCreateImage and vkBindImageMemory.
     *

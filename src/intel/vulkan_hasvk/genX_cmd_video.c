@@ -163,31 +163,6 @@ anv_h264_sane_field_pocs(const int32_t poc[2], int32_t *top, int32_t *bottom)
    *top = t; *bottom = b;
 }
 
-static inline struct anv_address
-anv_h264_dpb_addr(const struct anv_image_view *iv, uint32_t layer, bool clamp0)
-{
-   if (clamp0)
-      return anv_image_address(iv->image,
-                               &iv->image->planes[0].primary_surface.memory_range);
-   return anv_image_dpb_address(iv, layer);
-}
-
-static inline struct anv_address
-anv_h264_dmv_top(const struct anv_image_view *iv, uint32_t layer, bool clamp0)
-{
-   if (clamp0)
-      return anv_image_address(iv->image, &iv->image->vid_dmv_top_surface);
-   return anv_image_dmv_top_address(iv, layer);
-}
-
-static inline struct anv_address
-anv_h264_dmv_bottom(const struct anv_image_view *iv, uint32_t layer, bool clamp0)
-{
-   if (clamp0)
-      return anv_image_address(iv->image, &iv->image->vid_dmv_bottom_surface);
-   return anv_image_dmv_bottom_address(iv, layer);
-}
-
 static void
 anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                       const VkVideoDecodeInfoKHR *frame_info)
@@ -249,15 +224,6 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 
    const struct anv_image_view *iv = anv_image_view_from_handle(frame_info->dstPictureResource.imageViewBinding);
    const struct anv_image *img = iv->image;
-
-#if GFX_VER < 8
-   const bool gen7_layered_clamp =
-      img->vk.array_layers > 1 && !img->vid_layered_interleaved;
-   if (gen7_layered_clamp)
-      mesa_logw_once("Layered DPB is broken on GFX 7 when the array pitch is not tile aligned.");
-#else
-   const bool gen7_layered_clamp = false;
-#endif
 
    if (ANV_DEBUG(VIDEO_DEBUG)) {
       const StdVideoDecodeH264PictureInfo *p = h264_pic_info->pStdPictureInfo;
@@ -342,7 +308,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       buf.CommandType = 3;
 
       struct anv_address dst_addr =
-         anv_h264_dpb_addr(iv, frame_info->dstPictureResource.baseArrayLayer, gen7_layered_clamp);
+         anv_image_dpb_address(iv, frame_info->dstPictureResource.baseArrayLayer);
 #if GFX_VERx10 == 70
       buf.PostDeblockingDestinationAddress = dst_addr;
       buf.PostDeblockingDestinationCacheabilityControl = 2;
@@ -394,9 +360,8 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
             continue;
          const struct anv_image_view *ref_iv = anv_image_view_from_handle(frame_info->pReferenceSlots[i].pPictureResource->imageViewBinding);
          struct anv_address ref_addr =
-            anv_h264_dpb_addr(ref_iv,
-                              frame_info->pReferenceSlots[i].pPictureResource->baseArrayLayer,
-                              gen7_layered_clamp);
+            anv_image_dpb_address(ref_iv,
+                                  frame_info->pReferenceSlots[i].pPictureResource->baseArrayLayer);
          buf.ReferencePictureAddress[hw] = ref_addr;
 
 #if GFX_VERx10 == 70
@@ -675,7 +640,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
             uint32_t ref_layer =
                frame_info->pReferenceSlots[i].pPictureResource->baseArrayLayer;
             if (i == 0)
-               dmv_bo = anv_h264_dmv_top(ref_iv, ref_layer, gen7_layered_clamp).bo;
+               dmv_bo = anv_image_dmv_top_address(ref_iv, ref_layer).bo;
 #if GFX_VERx10 == 70
             {
                bool ref_is_field = ref_info &&
@@ -683,16 +648,16 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                bool ref_dmv_bottom = ref_is_field &&
                   !sps->flags.direct_8x8_inference_flag;
                avc_directmode.DirectMVBufferAddress[hw * 2] =
-                  anv_h264_dmv_top(ref_iv, ref_layer, gen7_layered_clamp);
+                  anv_image_dmv_top_address(ref_iv, ref_layer);
                avc_directmode.DirectMVBufferAddress[hw * 2 + 1] = ref_dmv_bottom ?
-                  anv_h264_dmv_bottom(ref_iv, ref_layer, gen7_layered_clamp) :
-                  anv_h264_dmv_top(ref_iv, ref_layer, gen7_layered_clamp);
+                  anv_image_dmv_bottom_address(ref_iv, ref_layer) :
+                  anv_image_dmv_top_address(ref_iv, ref_layer);
             }
             avc_directmode.DirectMVBufferCacheabilityControl[hw * 2] = 2;
             avc_directmode.DirectMVBufferCacheabilityControl[hw * 2 + 1] = 2;
 #elif GFX_VERx10 == 75
             {
-               struct anv_address dmv_addr = anv_h264_dmv_top(ref_iv, ref_layer, gen7_layered_clamp);
+               struct anv_address dmv_addr = anv_image_dmv_top_address(ref_iv, ref_layer);
                if (hw == 0) {
                   avc_directmode.DirectMVBuffer0Address = dmv_addr;
                   avc_directmode.DirectMVBufferMOCS = anv_mocs(cmd_buffer->device, dmv_addr.bo, 0);
@@ -702,7 +667,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                }
             }
 #elif GFX_VERx10 == 80
-            avc_directmode.DirectMVBufferAddress[hw] = anv_h264_dmv_top(ref_iv, ref_layer, gen7_layered_clamp);
+            avc_directmode.DirectMVBufferAddress[hw] = anv_image_dmv_top_address(ref_iv, ref_layer);
 #endif
             {
                int32_t ref_top, ref_bot;
@@ -716,21 +681,21 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
          {
             bool cur_dmv_bottom = field_pic && !sps->flags.direct_8x8_inference_flag;
             avc_directmode.DirectMVBufferWriteAddress[0] =
-               anv_h264_dmv_top(iv, dst_layer, gen7_layered_clamp);
+               anv_image_dmv_top_address(iv, dst_layer);
             avc_directmode.DirectMVBufferWriteAddress[1] = cur_dmv_bottom ?
-               anv_h264_dmv_bottom(iv, dst_layer, gen7_layered_clamp) :
-               anv_h264_dmv_top(iv, dst_layer, gen7_layered_clamp);
+               anv_image_dmv_bottom_address(iv, dst_layer) :
+               anv_image_dmv_top_address(iv, dst_layer);
          }
          avc_directmode.DirectMVBufferWriteCacheabilityControl[0] = 2;
          avc_directmode.DirectMVBufferWriteCacheabilityControl[1] = 2;
 #elif GFX_VERx10 == 75
-         avc_directmode.DirectMVBufferWriteAddress = anv_h264_dmv_top(iv, dst_layer, gen7_layered_clamp);
+         avc_directmode.DirectMVBufferWriteAddress = anv_image_dmv_top_address(iv, dst_layer);
          avc_directmode.DirectMVBufferWriteMOCS = anv_mocs(cmd_buffer->device, avc_directmode.DirectMVBufferWriteAddress.bo, 0);
          if (!avc_directmode.DirectMVBufferMOCS)
             avc_directmode.DirectMVBufferMOCS = anv_mocs(cmd_buffer->device, avc_directmode.DirectMVBufferWriteAddress.bo, 0);
 #elif GFX_VERx10 == 80
          avc_directmode.DirectMVBufferAttributes.TargetCache = 2; /* LLC/eLLC */
-         avc_directmode.DirectMVBufferWriteAddress = anv_h264_dmv_top(iv, dst_layer, gen7_layered_clamp);
+         avc_directmode.DirectMVBufferWriteAddress = anv_image_dmv_top_address(iv, dst_layer);
          avc_directmode.DirectMVBufferWriteAttributes.TargetCache = 2;
 #endif
          {

@@ -1023,7 +1023,6 @@ static VkResult
 add_all_surfaces_implicit_interleaved_arrays_layout(
    struct anv_device *device,
    struct anv_image *image,
-   const VkImageFormatListCreateInfo *format_list_info,
    isl_tiling_flags_t isl_tiling_flags,
    isl_surf_usage_flags_t isl_extra_usage_flags)
 {
@@ -1099,8 +1098,6 @@ add_all_surfaces_implicit_interleaved_arrays_layout(
          return result;
    }
 
-   image->vid_layered_interleaved = true;
-
    return VK_SUCCESS;
 }
 
@@ -1126,7 +1123,7 @@ add_all_surfaces_implicit_layout(
                            VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR))) {
       assert(stride == 0);
       return add_all_surfaces_implicit_interleaved_arrays_layout(
-                device, image, format_list_info, isl_tiling_flags,
+                device, image, isl_tiling_flags,
                 isl_extra_usage_flags);
    }
 
