@@ -149,6 +149,7 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
         Op::Out(_) => DecoupledAgu,
         Op::OutFinal(_) => DecoupledAgu,
         Op::Ld(_) => DecoupledAgu,
+        Op::Ldg256(_) => DecoupledAgu,
         Op::St(_) => DecoupledAgu,
         Op::Atom(_) => DecoupledAgu,
         //CCtl.i,c are coupled
@@ -190,6 +191,7 @@ fn op_pred_latency(op: &Op) -> PredLatencySM100 {
         Op::ISetP(_) => Dualalu,
 
         Op::Ld(_) => Decoupled,
+        Op::Ldg256(_) => Decoupled,
 
         Op::Lea(_) | Op::LeaX(_) => Coupled,
         Op::PixLd(_) => Decoupled,
@@ -255,6 +257,7 @@ fn op_ureg_latency(
         | Op::ASt(_)
         | Op::Ld(_)
         | Op::Ldcg(_)
+        | Op::Ldg256(_)
         | Op::Ldsm(_)
         | Op::St(_)
         | Op::Atom(_) => decoupled,

@@ -172,6 +172,7 @@ pub fn side_effect_type(op: &Op) -> SideEffect {
         // Memory ops
         Op::Ipa(_) | Op::Ldc(_) | Op::Ldcg(_) => SideEffect::None,
         Op::Ld(_)
+        | Op::Ldg256(_)
         | Op::Ldsm(_)
         | Op::LdSharedLock(_)
         | Op::St(_)
@@ -303,6 +304,7 @@ pub fn estimate_variable_latency(sm: &ShaderModelInfo, op: &Op) -> u32 {
         Op::Ldc(_) | Op::Ldcg(_) => 4,
 
         Op::Ld(_)
+        | Op::Ldg256(_)
         | Op::Ldsm(_)
         | Op::Movm(_)
         | Op::LdSharedLock(_)

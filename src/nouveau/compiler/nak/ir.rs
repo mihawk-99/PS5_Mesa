@@ -6517,6 +6517,41 @@ impl DisplayOp for OpLd {
 }
 impl_display_for_op!(OpLd);
 
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpLdg256 {
+    pub dsts: [Dst; 2],
+
+    #[src_type(GPR)]
+    pub addr: Src,
+
+    #[src_type(GPR)]
+    pub uniform_addr: Src,
+
+    /// On false the load returns 0
+    #[src_type(Pred)]
+    pub pred: Src,
+
+    pub offset: i32,
+    pub order: MemOrder,
+    pub eviction_priority: MemEvictionPriority,
+}
+
+impl DisplayOp for OpLdg256 {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ld.global.b256{}{} [{}+{}",
+            self.order, self.eviction_priority, self.addr, self.uniform_addr
+        )?;
+        if self.offset > 0 {
+            write!(f, "+{:#x}", self.offset)?;
+        }
+        write!(f, "], {}", self.pred)
+    }
+}
+impl_display_for_op!(OpLdg256);
+
 #[allow(dead_code)]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum LdcMode {
@@ -8154,6 +8189,7 @@ pub enum Op {
     SuLdGa(Box<OpSuLdGa>),
     SuStGa(Box<OpSuStGa>),
     Ld(Box<OpLd>),
+    Ldg256(Box<OpLdg256>),
     Ldc(Box<OpLdc>),
     Ldcg(Box<OpLdcg>),
     LdSharedLock(Box<OpLdSharedLock>),
@@ -8331,6 +8367,7 @@ impl Op {
 
             // Memory ops
             Op::Ld(_)
+            | Op::Ldg256(_)
             | Op::Ldc(_)
             | Op::Ldcg(_)
             | Op::LdSharedLock(_)
@@ -8519,6 +8556,7 @@ impl Op {
 
             // Memory ops
             Op::Ld(_)
+            | Op::Ldg256(_)
             | Op::Ldc(_)
             | Op::Ldcg(_)
             | Op::LdSharedLock(_)
@@ -8909,7 +8947,8 @@ impl Instr {
             Op::Atom(op) => op.mem_space != MemSpace::Local,
             Op::Ld(op) => op.access.space != MemSpace::Local,
             Op::St(op) => op.access.space != MemSpace::Local,
-            Op::SuAtom(_)
+            Op::Ldg256(_)
+            | Op::SuAtom(_)
             | Op::SuLd(_)
             | Op::SuSt(_)
             | Op::SuLdGa(_)
@@ -9066,6 +9105,7 @@ impl Instr {
             | Op::SuLdGa(_)
             | Op::SuStGa(_)
             | Op::Ld(_)
+            | Op::Ldg256(_)
             | Op::Ldc(_)
             | Op::Ldcg(_)
             | Op::LdSharedLock(_)

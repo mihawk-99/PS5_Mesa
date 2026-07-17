@@ -233,6 +233,7 @@ impl RegLatencySM80 {
             Op::Out(_) => DecoupledAgu,
             Op::OutFinal(_) => DecoupledAgu,
             Op::Ld(_) => DecoupledAgu,
+            Op::Ldg256(_) => DecoupledAgu,
             Op::St(_) => DecoupledAgu,
             Op::Atom(_) => DecoupledAgu,
             //CCtl.i,c are coupled
@@ -878,6 +879,7 @@ impl PredLatencySM80 {
             Op::ISetP(_) => PredLatencySM80::Coupled,
 
             Op::Ld(_) => PredLatencySM80::Decoupled,
+            Op::Ldg256(_) => PredLatencySM80::Decoupled,
 
             Op::Lea(_) | Op::LeaX(_) => PredLatencySM80::Coupled,
             Op::PixLd(_) => PredLatencySM80::Decoupled,
@@ -1086,6 +1088,7 @@ impl URegLatencySM80 {
             Op::ALd(_)
             | Op::ASt(_)
             | Op::Ld(_)
+            | Op::Ldg256(_)
             | Op::Ldsm(_)
             | Op::St(_)
             | Op::Atom(_) => vdecoupled,

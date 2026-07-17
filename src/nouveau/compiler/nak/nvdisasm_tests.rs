@@ -298,6 +298,8 @@ pub fn test_ld_st_atom() {
     let r4_64 = RegRef::new(RegFile::GPR, 4, 2);
     let r2 = RegRef::new(RegFile::GPR, 2, 1);
     let r3 = RegRef::new(RegFile::GPR, 3, 1);
+    let r8_128 = RegRef::new(RegFile::GPR, 8, 4);
+    let r12_128 = RegRef::new(RegFile::GPR, 12, 4);
     let p4 = RegRef::new(RegFile::Pred, 4, 1);
     let ur2_64 = RegRef::new(RegFile::UGPR, 2, 2);
 
@@ -410,6 +412,25 @@ pub fn test_ld_st_atom() {
                         }
                     };
                     c.push(instr, expected);
+
+                    if (sm == 89 || sm >= 100)
+                        && matches!(space, MemSpace::Global(_))
+                        && addr_offset % 0x20 == 0
+                    {
+                        let instr = OpLdg256 {
+                            dsts: [Dst::Reg(r8_128), Dst::Reg(r12_128)],
+                            addr: SrcRef::Reg(r4_64).into(),
+                            uniform_addr: urz.clone(),
+                            pred: SrcRef::Reg(p4).into(),
+                            offset: addr_offset,
+                            order: order,
+                            eviction_priority: pri,
+                        };
+                        let expected = format!(
+                            "ldg.e.ef.enl2.256.strong.{cta} r12, r8, [{r4_64_str}{uniform_addr}+{addr_offset_str}], p4;"
+                        );
+                        c.push(instr, expected);
+                    }
 
                     let instr = OpSt {
                         addr: SrcRef::Reg(r4_64).into(),

@@ -159,6 +159,16 @@ impl SM70Encoder<'_> {
         }
     }
 
+    fn set_ureg_addr64(&mut self, start: usize, src: &Src) {
+        assert!(src.src_mod.is_none());
+        match src.src_ref {
+            SrcRef::Zero => (),
+            SrcRef::Reg(reg) => assert!(reg.comps() == 2),
+            _ => panic!("Not a register"),
+        }
+        self.set_ureg_src(start, src);
+    }
+
     fn set_pred_dst(&mut self, range: Range<usize>, dst: &Dst) {
         match dst {
             Dst::None => self.set_pred_reg(range, self.true_reg(RegFile::Pred)),
@@ -3088,6 +3098,19 @@ impl SM70Encoder<'_> {
         );
     }
 
+    fn set_l2_eviction_priority(&mut self, pri: &MemEvictionPriority) {
+        self.set_field(
+            81..83,
+            match pri {
+                MemEvictionPriority::First => 0_u8,
+                MemEvictionPriority::Normal => 1_u8,
+                MemEvictionPriority::Last => 2_u8,
+                // RML2 (invalidate without write-back) => 3,
+                _ => panic!("Unsupported L2 eviction priority"),
+            },
+        );
+    }
+
     fn set_mem_type(&mut self, range: Range<usize>, mem_type: MemType) {
         assert!(range.len() == 3);
         self.set_field(
@@ -3292,6 +3315,57 @@ impl SM70Op for OpLd {
         // which source it applies to depending on it.
         // This way it always applies to the UGPR.
         e.set_bit(91, has_ugpr);
+    }
+}
+
+impl SM70Op for OpLdg256 {
+    fn legalize(&mut self, b: &mut LegalizeBuilder) {
+        legalize_load_store_address(
+            b,
+            &mut self.addr,
+            &mut self.uniform_addr,
+            None,
+        );
+        b.copy_src_if_uniform(&mut self.pred);
+    }
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        e.set_opcode(0x97e);
+        e.set_reg_addr(24..32, &self.addr, 75);
+        e.set_ureg_addr64(32, &self.uniform_addr);
+        e.set_rev_pred_src(87..90, 90, &self.pred);
+
+        e.set_dst(&self.dsts[0]);
+        if let Dst::Reg(reg) = self.dsts[1] {
+            e.set_reg(64..72, reg);
+        } else {
+            unreachable!();
+        }
+
+        match e.sm {
+            89 => {
+                assert_eq!(self.offset % 0x20, 0);
+                e.set_field(40..59, self.offset / 0x20);
+
+                e.set_field(59..64, -1); // mask
+                e.set_field(38..40, -1);
+                e.set_field(72..73, -1);
+            }
+            100.. => {
+                assert_eq!(self.offset % 0x20, 0);
+                e.set_field(40..57, self.offset / 0x20);
+
+                e.set_field(57..64, -1); // mask
+                e.set_field(72..73, -1);
+            }
+            _ => panic!(),
+        }
+        e.set_bit(91, true);
+
+        e.set_mem_order(&self.order);
+        e.set_eviction_priority(&self.eviction_priority);
+        // ptxas leaves this at normal for .cs, so let's use that for now
+        e.set_l2_eviction_priority(&MemEvictionPriority::Normal);
     }
 }
 
@@ -4545,6 +4619,7 @@ macro_rules! sm70_op_match {
             Op::SuSt($x) => $y,
             Op::SuAtom($x) => $y,
             Op::Ld($x) => $y,
+            Op::Ldg256($x) => $y,
             Op::Ldc($x) => $y,
             Op::Ldcg($x) => $y,
             Op::St($x) => $y,
