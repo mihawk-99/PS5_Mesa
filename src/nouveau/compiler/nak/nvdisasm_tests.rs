@@ -327,8 +327,12 @@ pub fn test_ld_st_atom() {
     for &sm in sm_list() {
         let mut c = DisasmCheck::new();
         for space in spaces {
-            for (addr_offset, addr_offset_str) in [(0x12, "0x12"), (-1, "-0x1")]
-            {
+            for addr_offset in [0x12, 0x40, -1, -0x80] {
+                let addr_offset_str = if addr_offset >= 0 {
+                    format!("{:#x}", addr_offset)
+                } else {
+                    format!("-{:#x}", -addr_offset)
+                };
                 for addr_stride in [OffsetStride::X1, OffsetStride::X8] {
                     let cta = if sm >= 80 { "sm" } else { "cta" };
                     let r4_64_str =
