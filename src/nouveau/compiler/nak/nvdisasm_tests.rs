@@ -14,9 +14,8 @@ use std::sync::OnceLock;
 
 static FILE_NUM: AtomicUsize = AtomicUsize::new(0);
 
-fn run_nvdisasm(s: &Shader) -> String {
+fn run_nvdisasm(s: &Shader) -> (String, Vec<u32>) {
     let code = s.sm.encode_shader(s);
-    // println!("{code:x?}");
 
     let slice_u8: &[u8] = unsafe {
         slice::from_raw_parts(
@@ -44,10 +43,10 @@ fn run_nvdisasm(s: &Shader) -> String {
     assert!(out.status.success());
     let stdout = std::str::from_utf8(&out.stdout).unwrap();
     std::fs::remove_file(tmp_file).unwrap();
-    stdout.into()
+    (stdout.into(), code)
 }
 
-fn disassemble_instrs(instrs: Vec<Instr>, sm: u8) -> Vec<String> {
+fn disassemble_instrs(instrs: Vec<Instr>, sm: u8) -> (Vec<String>, Vec<u32>) {
     let mut label_alloc = LabelAllocator::new();
     let block = BasicBlock {
         label: label_alloc.alloc(),
@@ -93,7 +92,7 @@ fn disassemble_instrs(instrs: Vec<Instr>, sm: u8) -> Vec<String> {
         info: info,
         functions: vec![f],
     };
-    let out = run_nvdisasm(&s);
+    let (out, code) = run_nvdisasm(&s);
     let out: Vec<String> = out
         .lines()
         .map(|line| {
@@ -112,7 +111,7 @@ fn disassemble_instrs(instrs: Vec<Instr>, sm: u8) -> Vec<String> {
         })
         .collect();
 
-    out
+    (out, code)
 }
 
 struct DisasmCheck {
@@ -135,13 +134,15 @@ impl DisasmCheck {
 
     fn check(mut self, sm: u8) {
         assert!(self.expected.len() > 0);
-        let actual = disassemble_instrs(std::mem::take(&mut self.instrs), sm);
+        let (actual, code) =
+            disassemble_instrs(std::mem::take(&mut self.instrs), sm);
         assert_eq!(actual.len(), self.expected.len());
 
         let mut any_different = false;
-        for (a, e) in actual
+        for (i, (a, e)) in actual
             .into_iter()
             .zip(std::mem::take(&mut self.expected).into_iter())
+            .enumerate()
         {
             if a != e {
                 if !any_different {
@@ -149,7 +150,13 @@ impl DisasmCheck {
                     any_different = true;
                 }
                 eprintln!("actual: {a}");
-                eprintln!("expect: {e}\n");
+                eprintln!("expect: {e}");
+
+                eprint!("hex: ");
+                for j in i * 4..i * 4 + 4 {
+                    eprint!("{:08x} ", code[j]);
+                }
+                eprint!("\n\n");
             }
         }
         if any_different {
