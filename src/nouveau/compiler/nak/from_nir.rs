@@ -3308,27 +3308,43 @@ impl<'a> ShaderFromNir<'a> {
                 } else {
                     MemOrder::Strong(MemScope::GPU)
                 };
-                let access = MemAccess {
-                    mem_type: MemType::from_size(size_B, false),
-                    space: MemSpace::Global(MemAddrType::A64),
-                    order: order,
-                    eviction_priority: self
-                        .get_eviction_priority(intrin.access()),
-                };
+                let eviction_priority =
+                    self.get_eviction_priority(intrin.access());
                 let addr = self.get_src(&srcs[0]);
                 let uaddr = self.get_src(&srcs[1]);
                 let pred = self.get_src(&srcs[2]);
                 let dst = b.alloc_ssa_vec(RegFile::GPR, size_B.div_ceil(4));
 
-                b.push_op(OpLd {
-                    dst: dst.clone().into(),
-                    addr: addr,
-                    uniform_addr: uaddr,
-                    pred: pred,
-                    offset: intrin.base(),
-                    stride: OffsetStride::X1,
-                    access: access,
-                });
+                if size_B == 32 {
+                    b.push_op(OpLdg256 {
+                        dsts: [
+                            SSARef::try_from(&dst[0..4]).unwrap().into(),
+                            SSARef::try_from(&dst[4..8]).unwrap().into(),
+                        ],
+                        addr: addr,
+                        uniform_addr: uaddr,
+                        pred: pred,
+                        offset: intrin.base(),
+                        order,
+                        eviction_priority,
+                    });
+                } else {
+                    let access = MemAccess {
+                        mem_type: MemType::from_size(size_B, false),
+                        space: MemSpace::Global(MemAddrType::A64),
+                        order,
+                        eviction_priority,
+                    };
+                    b.push_op(OpLd {
+                        dst: dst.clone().into(),
+                        addr: addr,
+                        uniform_addr: uaddr,
+                        pred: pred,
+                        offset: intrin.base(),
+                        stride: OffsetStride::X1,
+                        access: access,
+                    });
+                }
                 self.set_dst(&intrin.def, dst);
             }
             nir_intrinsic_ldtram_nv => {
@@ -3839,28 +3855,44 @@ impl<'a> ShaderFromNir<'a> {
                 b.push_op(OpSrcBar { src });
             }
             nir_intrinsic_store_global_nv => {
-                let data = self.get_src(&srcs[0]);
+                let data = self.get_ssa_ref(&srcs[0]);
                 let size_B =
                     (srcs[0].bit_size() / 8) * srcs[0].num_components();
                 assert!(u32::from(size_B) <= intrin.align());
-                let access = MemAccess {
-                    mem_type: MemType::from_size(size_B, false),
-                    space: MemSpace::Global(MemAddrType::A64),
-                    order: MemOrder::Strong(MemScope::GPU),
-                    eviction_priority: self
-                        .get_eviction_priority(intrin.access()),
-                };
+                let order = MemOrder::Strong(MemScope::GPU);
+                let eviction_priority =
+                    self.get_eviction_priority(intrin.access());
                 let addr = self.get_src(&srcs[1]);
                 let uaddr = self.get_src(&srcs[2]);
 
-                b.push_op(OpSt {
-                    addr: addr,
-                    uniform_addr: uaddr,
-                    data: data,
-                    offset: intrin.base(),
-                    stride: OffsetStride::X1,
-                    access: access,
-                });
+                if size_B == 32 {
+                    b.push_op(OpStg256 {
+                        addr: addr,
+                        uniform_addr: uaddr,
+                        data: [
+                            SSARef::try_from(&data[0..4]).unwrap().into(),
+                            SSARef::try_from(&data[4..8]).unwrap().into(),
+                        ],
+                        offset: intrin.base(),
+                        order,
+                        eviction_priority,
+                    });
+                } else {
+                    let access = MemAccess {
+                        mem_type: MemType::from_size(size_B, false),
+                        space: MemSpace::Global(MemAddrType::A64),
+                        order,
+                        eviction_priority,
+                    };
+                    b.push_op(OpSt {
+                        addr: addr,
+                        uniform_addr: uaddr,
+                        data: data.into(),
+                        offset: intrin.base(),
+                        stride: OffsetStride::X1,
+                        access: access,
+                    });
+                }
             }
             nir_intrinsic_fs_out_nv => {
                 let data = self.get_ssa(srcs[0].as_def());
