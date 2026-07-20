@@ -235,6 +235,7 @@ impl RegLatencySM80 {
             Op::Ld(_) => DecoupledAgu,
             Op::Ldg256(_) => DecoupledAgu,
             Op::St(_) => DecoupledAgu,
+            Op::Stg256(_) => DecoupledAgu,
             Op::Atom(_) => DecoupledAgu,
             //CCtl.i,c are coupled
             Op::CCtl(_) => DecoupledAgu,
@@ -1091,6 +1092,7 @@ impl URegLatencySM80 {
             | Op::Ldg256(_)
             | Op::Ldsm(_)
             | Op::St(_)
+            | Op::Stg256(_)
             | Op::Atom(_) => vdecoupled,
             Op::SuLd(_) | Op::SuSt(_) | Op::SuAtom(_) => vdecoupled,
             Op::Ldc(_) => {

@@ -3565,6 +3565,49 @@ impl SM70Op for OpSt {
     }
 }
 
+impl SM70Op for OpStg256 {
+    fn legalize(&mut self, b: &mut LegalizeBuilder) {
+        b.copy_src_if_uniform(&mut self.data[0]);
+        b.copy_src_if_uniform(&mut self.data[1]);
+        legalize_load_store_address(
+            b,
+            &mut self.addr,
+            &mut self.uniform_addr,
+            None,
+        );
+    }
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        e.set_opcode(0x97f);
+        e.set_reg_src(16..24, &self.data[1]);
+        e.set_reg_addr(24..32, &self.addr, 75);
+        e.set_reg_src(32..40, &self.data[0]);
+
+        assert_eq!(self.offset % 0x20, 0);
+        e.set_field(40..59, self.offset / 0x20);
+
+        e.set_ureg_addr64(64, &self.uniform_addr);
+
+        match e.sm {
+            89 => {
+                e.set_field(59..64, -1); // mask
+                e.set_field(70..73, -1);
+            }
+            100.. => {
+                e.set_field(59..64, -1); // mask
+                e.set_field(88..91, -1);
+            }
+            _ => panic!(),
+        }
+
+        e.set_bit(91, true);
+
+        e.set_mem_order(&self.order);
+        e.set_eviction_priority(&self.eviction_priority);
+        e.set_l2_eviction_priority(&MemEvictionPriority::Normal);
+    }
+}
+
 impl SM70Encoder<'_> {
     fn set_atom_op(&mut self, range: Range<usize>, atom_op: AtomOp) {
         self.set_field(
@@ -4623,6 +4666,7 @@ macro_rules! sm70_op_match {
             Op::Ldc($x) => $y,
             Op::Ldcg($x) => $y,
             Op::St($x) => $y,
+            Op::Stg256($x) => $y,
             Op::Atom($x) => $y,
             Op::AL2P($x) => $y,
             Op::ALd($x) => $y,

@@ -6741,6 +6741,38 @@ impl DisplayOp for OpSt {
 }
 impl_display_for_op!(OpSt);
 
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpStg256 {
+    #[src_type(GPR)]
+    pub addr: Src,
+
+    #[src_type(SSA)]
+    pub data: [Src; 2],
+
+    #[src_type(GPR)]
+    pub uniform_addr: Src,
+
+    pub offset: i32,
+    pub order: MemOrder,
+    pub eviction_priority: MemEvictionPriority,
+}
+
+impl DisplayOp for OpStg256 {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "st.global.b256{}{} [{}+{}",
+            self.order, self.eviction_priority, self.addr, self.uniform_addr
+        )?;
+        if self.offset > 0 {
+            write!(f, "+{:#x}", self.offset)?;
+        }
+        write!(f, "] {} {}", self.data[0], self.data[1])
+    }
+}
+impl_display_for_op!(OpStg256);
+
 /// Used for Kepler to implement shared atomics.
 /// It checks that the address is still properly locked, performs the
 /// store operation and unlocks the previously unlocked address.
@@ -8194,6 +8226,7 @@ pub enum Op {
     Ldcg(Box<OpLdcg>),
     LdSharedLock(Box<OpLdSharedLock>),
     St(Box<OpSt>),
+    Stg256(Box<OpStg256>),
     StSCheckUnlock(Box<OpStSCheckUnlock>),
     Atom(Box<OpAtom>),
     AL2P(Box<OpAL2P>),
@@ -8372,6 +8405,7 @@ impl Op {
             | Op::Ldcg(_)
             | Op::LdSharedLock(_)
             | Op::St(_)
+            | Op::Stg256(_)
             | Op::StSCheckUnlock(_)
             | Op::Atom(_)
             | Op::AL2P(_)
@@ -8561,6 +8595,7 @@ impl Op {
             | Op::Ldcg(_)
             | Op::LdSharedLock(_)
             | Op::St(_)
+            | Op::Stg256(_)
             | Op::StSCheckUnlock(_)
             | Op::Atom(_)
             | Op::AL2P(_)
@@ -8948,6 +8983,7 @@ impl Instr {
             Op::Ld(op) => op.access.space != MemSpace::Local,
             Op::St(op) => op.access.space != MemSpace::Local,
             Op::Ldg256(_)
+            | Op::Stg256(_)
             | Op::SuAtom(_)
             | Op::SuLd(_)
             | Op::SuSt(_)
@@ -8961,7 +8997,7 @@ impl Instr {
         match &self.op {
             Op::Atom(op) => matches!(op.mem_space, MemSpace::Global(_)),
             Op::St(op) => matches!(op.access.space, MemSpace::Global(_)),
-            Op::SuAtom(_) | Op::SuSt(_) | Op::SuStGa(_) => true,
+            Op::Stg256(_) | Op::SuAtom(_) | Op::SuSt(_) | Op::SuStGa(_) => true,
             _ => false,
         }
     }
@@ -8974,6 +9010,7 @@ impl Instr {
             | Op::SuAtom(_)
             | Op::LdSharedLock(_)
             | Op::St(_)
+            | Op::Stg256(_)
             | Op::StSCheckUnlock(_)
             | Op::Atom(_)
             | Op::CCtl(_)
@@ -9110,6 +9147,7 @@ impl Instr {
             | Op::Ldcg(_)
             | Op::LdSharedLock(_)
             | Op::St(_)
+            | Op::Stg256(_)
             | Op::StSCheckUnlock(_)
             | Op::Atom(_)
             | Op::AL2P(_)

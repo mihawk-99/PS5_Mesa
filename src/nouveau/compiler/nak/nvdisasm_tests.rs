@@ -459,6 +459,27 @@ pub fn test_ld_st_atom() {
                     };
                     c.push(instr, expected);
 
+                    if (sm == 89 || sm >= 100)
+                        && matches!(space, MemSpace::Global(_))
+                        && addr_offset % 0x20 == 0
+                    {
+                        let instr = OpStg256 {
+                            addr: SrcRef::Reg(r4_64).into(),
+                            uniform_addr: urz.clone(),
+                            data: [
+                                SrcRef::Reg(r8_128).into(),
+                                SrcRef::Reg(r12_128).into(),
+                            ],
+                            offset: addr_offset,
+                            order: order,
+                            eviction_priority: pri,
+                        };
+                        let expected = format!(
+                            "stg.e.ef.enl2.256.strong.{cta} [{r4_64_str}{uniform_addr}+{addr_offset_str}], r8, r12;"
+                        );
+                        c.push(instr, expected);
+                    }
+
                     for (atom_type, atom_type_str) in atom_types {
                         let active_atom_ops = if atom_type.is_float() {
                             &atom_ops[0..3]
