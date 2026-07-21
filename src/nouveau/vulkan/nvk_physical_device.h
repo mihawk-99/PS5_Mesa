@@ -8,6 +8,7 @@
 #include "nvk_private.h"
 
 #include "nvk_debug.h"
+#include "nvk_instance.h"
 #include "nv_device_info.h"
 
 #include "vk_physical_device.h"
@@ -62,6 +63,12 @@ static inline uint32_t
 nvk_min_cbuf_alignment(const struct nv_device_info *info)
 {
    return info->cls_eng3d >= 0xC597 /* TURING_A */ ? 64 : 256;
+}
+
+static inline uint32_t
+nvk_min_ssbo_alignment(const struct nvk_instance *instance)
+{
+   return instance->drirc.misc.ssbo_align_4b ? 4 : 16;
 }
 
 VK_DEFINE_HANDLE_CASTS(nvk_physical_device,

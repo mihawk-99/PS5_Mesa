@@ -25,10 +25,4 @@ struct nvk_instance {
 
 VK_DEFINE_HANDLE_CASTS(nvk_instance, vk.base, VkInstance, VK_OBJECT_TYPE_INSTANCE)
 
-static inline uint32_t
-nvk_min_ssbo_alignment(const struct nvk_instance *instance)
-{
-   return instance->drirc.misc.ssbo_align_4b ? 4 : 16;
-}
-
 #endif
