@@ -1041,12 +1041,15 @@ nak_nir_lower_f16vec4_atomics(nir_shader *nir, const struct nak_compiler *nak)
 }
 
 static unsigned
-nak_intrin_max_bytes(nir_intrinsic_op intrin)
+nak_intrin_max_bytes(const struct nak_compiler *nak, nir_intrinsic_op intrin)
 {
    switch (intrin) {
    case nir_intrinsic_ldc_nv:
    case nir_intrinsic_ldcx_nv:
       return 64u / 8u;
+   case nir_intrinsic_load_global:
+   case nir_intrinsic_store_global:
+      return (nak->sm == 89 || nak->sm >= 100) ? 256u / 8u : 128u / 8u;
    default:
       return 128u / 8u;
    }
@@ -1058,6 +1061,7 @@ nak_mem_vectorize_cb(unsigned align_mul, unsigned align_offset,
                      int64_t hole_size, nir_intrinsic_instr *low,
                      nir_intrinsic_instr *high, void *cb_data)
 {
+   const struct nak_compiler *nak = cb_data;
    /*
     * Since we legalize these later with nir_lower_mem_access_bit_sizes,
     * we can optimistically combine anything that might be profitable
@@ -1071,7 +1075,7 @@ nak_mem_vectorize_cb(unsigned align_mul, unsigned align_offset,
    if (num_components > 4 && !util_is_power_of_two_nonzero(num_components))
       return false;
 
-   const unsigned max_bytes = nak_intrin_max_bytes(low->intrinsic);
+   const unsigned max_bytes = nak_intrin_max_bytes(nak, low->intrinsic);
    unsigned byte_load = num_components * (bit_size / 8);
    unsigned combined_align = nir_combined_align(align_mul, align_offset);
    return byte_load <= combined_align && byte_load <= max_bytes;
@@ -1084,6 +1088,7 @@ nak_mem_access_size_align(nir_intrinsic_op intrin,
                           bool offset_is_const, enum gl_access_qualifier access,
                           const void *cb_data)
 {
+   const struct nak_compiler *nak = cb_data;
    const uint32_t align = nir_combined_align(align_mul, align_offset);
    assert(util_is_power_of_two_nonzero(align));
 
@@ -1095,7 +1100,7 @@ nak_mem_access_size_align(nir_intrinsic_op intrin,
       bytes_pow2 = 1 << (util_last_bit(bytes) - 1);
    }
 
-   const unsigned max_bytes = nak_intrin_max_bytes(intrin);
+   const unsigned max_bytes = nak_intrin_max_bytes(nak, intrin);
    const unsigned chunk_bytes = MIN3(bytes_pow2, align, max_bytes);
    assert(util_is_power_of_two_nonzero(chunk_bytes));
 
@@ -1670,6 +1675,7 @@ nak_postprocess_nir(nir_shader *nir,
                           nir_var_mem_task_payload |
                           nir_var_shader_temp;
    vectorize_opts.callback = nak_mem_vectorize_cb;
+   vectorize_opts.cb_data = (void*) nak;
    vectorize_opts.robust_modes = robust2_modes;
    OPT(nir, nir_opt_load_store_vectorize, &vectorize_opts);
 
@@ -1678,6 +1684,7 @@ nak_postprocess_nir(nir_shader *nir,
                nir_var_mem_task_payload,
       .callback = mesa_shader_stage_is_mesh(nir->info.stage) ? nak_mesh_mem_access_size_align
                                                              : nak_mem_access_size_align,
+      .cb_data = (void*) nak,
    };
    OPT(nir, nir_lower_mem_access_bit_sizes, &mem_bit_size_options);
    OPT(nir, nir_lower_bit_size, lower_bit_size_cb, (void *)nak);
