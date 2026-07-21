@@ -153,7 +153,7 @@ nvk_get_spirv_options(struct vk_physical_device *vk_pdev,
       .phys_ssbo_addr_format = nir_address_format_64bit_global,
       .ubo_addr_format = nvk_ubo_addr_format(pdev, rs),
       .shared_addr_format = nir_address_format_32bit_offset,
-      .min_ssbo_alignment = nvk_min_ssbo_alignment(instance),
+      .min_ssbo_alignment = nvk_min_ssbo_alignment(instance, &pdev->info),
       .min_ubo_alignment = nvk_min_cbuf_alignment(&pdev->info),
    };
 }

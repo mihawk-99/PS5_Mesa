@@ -66,9 +66,16 @@ nvk_min_cbuf_alignment(const struct nv_device_info *info)
 }
 
 static inline uint32_t
-nvk_min_ssbo_alignment(const struct nvk_instance *instance)
+nvk_min_ssbo_alignment(const struct nvk_instance *instance,
+                       const struct nv_device_info *info)
 {
-   return instance->drirc.misc.ssbo_align_4b ? 4 : 16;
+   if (instance->drirc.misc.ssbo_align_4b) {
+      return 4;
+   } else if (info->sm == 89 || info->sm >= 100) {
+      return 32;
+   } else {
+      return 16;
+   }
 }
 
 VK_DEFINE_HANDLE_CASTS(nvk_physical_device,

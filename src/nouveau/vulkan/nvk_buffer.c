@@ -28,7 +28,7 @@ nvk_get_buffer_alignment(const struct nvk_physical_device *pdev,
       alignment = MAX2(alignment, nvk_min_cbuf_alignment(&pdev->info));
 
    if (usage_flags & VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT_KHR)
-      alignment = MAX2(alignment, nvk_min_ssbo_alignment(instance));
+      alignment = MAX2(alignment, nvk_min_ssbo_alignment(instance, &pdev->info));
 
    if (usage_flags & (VK_BUFFER_USAGE_2_UNIFORM_TEXEL_BUFFER_BIT_KHR |
                       VK_BUFFER_USAGE_2_STORAGE_TEXEL_BUFFER_BIT_KHR))
