@@ -1040,6 +1040,18 @@ nak_nir_lower_f16vec4_atomics(nir_shader *nir, const struct nak_compiler *nak)
                                      NULL);
 }
 
+static unsigned
+nak_intrin_max_bytes(nir_intrinsic_op intrin)
+{
+   switch (intrin) {
+   case nir_intrinsic_ldc_nv:
+   case nir_intrinsic_ldcx_nv:
+      return 64u / 8u;
+   default:
+      return 128u / 8u;
+   }
+}
+
 static bool
 nak_mem_vectorize_cb(unsigned align_mul, unsigned align_offset,
                      unsigned bit_size, unsigned num_components,
@@ -1059,11 +1071,7 @@ nak_mem_vectorize_cb(unsigned align_mul, unsigned align_offset,
    if (num_components > 4 && !util_is_power_of_two_nonzero(num_components))
       return false;
 
-   unsigned max_bytes = 128u / 8u;
-   if (low->intrinsic == nir_intrinsic_ldc_nv ||
-       low->intrinsic == nir_intrinsic_ldcx_nv)
-      max_bytes = 64u / 8u;
-
+   const unsigned max_bytes = nak_intrin_max_bytes(low->intrinsic);
    unsigned byte_load = num_components * (bit_size / 8);
    unsigned combined_align = nir_combined_align(align_mul, align_offset);
    return byte_load <= combined_align && byte_load <= max_bytes;
@@ -1087,11 +1095,9 @@ nak_mem_access_size_align(nir_intrinsic_op intrin,
       bytes_pow2 = 1 << (util_last_bit(bytes) - 1);
    }
 
-   unsigned chunk_bytes = MIN3(bytes_pow2, align, 16);
+   const unsigned max_bytes = nak_intrin_max_bytes(intrin);
+   const unsigned chunk_bytes = MIN3(bytes_pow2, align, max_bytes);
    assert(util_is_power_of_two_nonzero(chunk_bytes));
-   if (intrin == nir_intrinsic_ldc_nv ||
-       intrin == nir_intrinsic_ldcx_nv)
-      chunk_bytes = MIN2(chunk_bytes, 8);
 
    if ((intrin == nir_intrinsic_ldc_nv ||
         intrin == nir_intrinsic_ldcx_nv) && align < 4) {
