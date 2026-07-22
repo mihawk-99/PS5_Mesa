@@ -46,7 +46,6 @@ zink_create_vertex_elements_state(struct pipe_context *pctx,
    struct zink_vertex_elements_state *ves = CALLOC_STRUCT(zink_vertex_elements_state);
    if (!ves)
       return NULL;
-   ves->hw_state.hash = _mesa_hash_pointer(ves);
 
    int buffer_map[PIPE_MAX_ATTRIBS];
    for (int j = 0; j < ARRAY_SIZE(buffer_map); ++j)
@@ -174,6 +173,9 @@ zink_create_vertex_elements_state(struct pipe_context *pctx,
          }
       }
    }
+
+   ves->hw_state.hash = _mesa_hash_data(ves, sizeof(*ves));
+
    return ves;
 }
 
@@ -283,7 +285,6 @@ zink_create_blend_state(struct pipe_context *pctx,
    struct zink_blend_state *cso = CALLOC_STRUCT(zink_blend_state);
    if (!cso)
       return NULL;
-   cso->hash = _mesa_hash_pointer(cso);
 
    if (blend_state->logicop_enable) {
       cso->logicop_enable = VK_TRUE;
@@ -343,6 +344,8 @@ zink_create_blend_state(struct pipe_context *pctx,
       cso->ds3.wrmask[i] = att.colorWriteMask;
    }
    cso->dual_src_blend = util_blend_state_is_dual(blend_state, 0);
+
+   cso->hash = _mesa_hash_data(cso, sizeof(*cso));
 
    return cso;
 }
