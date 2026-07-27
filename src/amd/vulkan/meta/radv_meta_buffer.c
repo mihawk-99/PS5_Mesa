@@ -17,7 +17,66 @@
 
 #include "radv_cs.h"
 
+#include "ac_nir_meta.h"
 #include "vk_command_pool.h"
+
+struct radv_fill_or_copy_memory_key {
+   enum radv_meta_object_key_type type;
+   union ac_cs_clear_copy_buffer_key ac;
+};
+
+static VkResult
+get_fill_or_copy_memory_pipeline(struct radv_device *device,
+                                 const struct ac_cs_clear_copy_buffer_options *const options,
+                                 const struct ac_cs_clear_copy_buffer_dispatch *const dispatch,
+                                 VkPipeline *pipeline_out, VkPipelineLayout *layout_out)
+{
+   struct radv_fill_or_copy_memory_key key;
+   VkResult result;
+
+   memset(&key, 0, sizeof(key));
+   key.type = RADV_META_OBJECT_KEY_FILL_OR_COPY_MEMORY;
+   key.ac.key = dispatch->shader_key.key;
+
+   const VkPushConstantRange pc_range = {
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      .size = dispatch->num_user_data * sizeof(uint32_t),
+   };
+
+   result = vk_meta_get_pipeline_layout(&device->vk, &device->meta_state.device, NULL, &pc_range, &key, sizeof(key),
+                                        layout_out);
+   if (result != VK_SUCCESS)
+      return result;
+
+   VkPipeline pipeline_from_cache = vk_meta_lookup_pipeline(&device->meta_state.device, &key, sizeof(key));
+   if (pipeline_from_cache != VK_NULL_HANDLE) {
+      *pipeline_out = pipeline_from_cache;
+      return VK_SUCCESS;
+   }
+
+   nir_shader *cs = ac_create_clear_copy_buffer_cs(options, &key.ac);
+
+   const VkPipelineShaderStageCreateInfo stage_info = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+      .module = vk_shader_module_handle_from_nir(cs),
+      .pName = "main",
+      .pSpecializationInfo = NULL,
+   };
+
+   const VkComputePipelineCreateInfo pipeline_info = {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .stage = stage_info,
+      .flags = 0,
+      .layout = *layout_out,
+   };
+
+   result = vk_meta_create_compute_pipeline(&device->vk, &device->meta_state.device, &pipeline_info, &key, sizeof(key),
+                                            pipeline_out);
+
+   ralloc_free(cs);
+   return result;
+}
 
 struct fill_constants {
    uint64_t addr;
