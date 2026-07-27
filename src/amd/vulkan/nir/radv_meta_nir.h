@@ -30,9 +30,6 @@ nir_def *radv_meta_nir_get_global_ids(nir_builder *b, unsigned num_components);
 
 void radv_meta_nir_break_on_count(nir_builder *b, nir_variable *var, nir_def *count);
 
-nir_shader *radv_meta_nir_build_fill_memory_shader(uint32_t bytes_per_invocation);
-nir_shader *radv_meta_nir_build_copy_memory_shader(uint32_t bytes_per_invocation);
-
 nir_shader *radv_meta_nir_build_blit_vertex_shader(void);
 nir_shader *radv_meta_nir_build_blit_copy_fragment_shader(enum glsl_sampler_dim tex_dim);
 nir_shader *radv_meta_nir_build_blit_copy_fragment_shader_depth(enum glsl_sampler_dim tex_dim);

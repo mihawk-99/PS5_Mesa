@@ -291,9 +291,8 @@ radv_cp_dma_copy_memory(struct radv_cmd_buffer *cmd_buffer, uint64_t src_va, uin
           * Also enable on GFX9 so we can use L2 at rest on GFX9+. On Raven
           * this didn't seem to be worse.
           *
-          * Note that we only use CP DMA for sizes < RADV_BUFFER_OPS_CS_THRESHOLD,
-          * which is 4k at the moment, so this is really unlikely to cause
-          * significant thrashing.
+          * Note that we only use CP DMA for small copies and fills
+          * so this is really unlikely to cause significant thrashing.
           */
          dma_flags |= CP_DMA_USE_L2;
       }

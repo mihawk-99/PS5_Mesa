@@ -42,18 +42,6 @@
 #define MAX_FRAMEBUFFER_WIDTH          (1u << 14)
 #define MAX_FRAMEBUFFER_HEIGHT         (1u << 14)
 
-/*
- * This is the point we switch from using CP to compute shader
- * for certain buffer operations.
- */
-#define RADV_BUFFER_OPS_CS_THRESHOLD 4096
-
-/* On dGPUs, GTT/host-memory copies use CP DMA up to this size and a compute
- * shader above it (CP DMA is a serial engine that underperforms compute for
- * large transfers).
- */
-#define RADV_BUFFER_OPS_GTT_CP_DMA_MAX_BYTES 65536
-
 #define RADV_BUFFER_UPDATE_THRESHOLD 1024
 
 /* descriptor index into scratch ring offsets */
