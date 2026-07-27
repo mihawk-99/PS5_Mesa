@@ -247,14 +247,16 @@ radv_clear_copy_buffer_info(const struct radv_cmd_buffer *const cmd_buffer, cons
 }
 
 static void
-radv_compute_fill_memory(struct radv_cmd_buffer *cmd_buffer, uint64_t va, uint64_t size, uint32_t data)
+radv_compute_fill_memory(struct radv_cmd_buffer *cmd_buffer,
+                         const struct ac_cs_clear_copy_buffer_options *const options,
+                         const struct ac_cs_clear_copy_buffer_dispatch *const dispatch)
 {
    struct radv_device *device = radv_cmd_buffer_device(cmd_buffer);
    VkPipelineLayout layout;
    VkPipeline pipeline;
    VkResult result;
 
-   result = get_fill_memory_pipeline(device, size, &pipeline, &layout);
+   result = get_fill_or_copy_memory_pipeline(device, options, dispatch, &pipeline, &layout);
    if (result != VK_SUCCESS) {
       vk_command_buffer_set_error(&cmd_buffer->vk, result);
       return;
@@ -262,25 +264,10 @@ radv_compute_fill_memory(struct radv_cmd_buffer *cmd_buffer, uint64_t va, uint64
 
    radv_meta_bind_compute_pipeline(cmd_buffer, pipeline);
 
-   assert(size <= UINT32_MAX);
+   radv_meta_push_constants(cmd_buffer, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, dispatch->num_user_data * 4,
+                            dispatch->user_data);
 
-   struct fill_constants fill_consts = {
-      .addr = va,
-      .data = data,
-   };
-   uint32_t dim_x;
-
-   if (size >= 16) {
-      fill_consts.max_offset = size - 16;
-      dim_x = DIV_ROUND_UP(size, 16);
-   } else {
-      fill_consts.max_offset = size - 4;
-      dim_x = DIV_ROUND_UP(size, 4);
-   }
-
-   radv_meta_push_constants(cmd_buffer, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(fill_consts), &fill_consts);
-
-   radv_unaligned_dispatch(cmd_buffer, dim_x, 1, 1);
+   radv_unaligned_dispatch(cmd_buffer, dispatch->num_threads, 1, 1);
 }
 
 static void
@@ -352,23 +339,25 @@ radv_fill_memory_internal(struct radv_cmd_buffer *cmd_buffer, const struct radv_
    assert(!(size & 3));
 
    const struct radv_device *const device = radv_cmd_buffer_device(cmd_buffer);
-   const struct radv_physical_device *const pdev = radv_device_physical(device);
 
    if (cmd_buffer->qf == RADV_QUEUE_TRANSFER) {
       radv_sdma_fill_memory(device, cmd_buffer->cs, dst_va, size, value);
       return 0;
    }
 
-   const enum radv_buffer_copy_fill_mode preferred_mode = pdev->drirc.performance.buffer_fill_mode;
+   const struct ac_cs_clear_copy_buffer_options options = radv_clear_copy_buffer_options(cmd_buffer, true);
+   struct ac_cs_clear_copy_buffer_dispatch dispatch = {0};
+   struct ac_cs_clear_copy_buffer_info info =
+      radv_clear_copy_buffer_info(cmd_buffer, 0, dst_va, size, 0, dst_copy_flags);
 
-   const bool use_compute = preferred_mode == RADV_BUFFER_COPY_FILL_MODE_COMPUTE ||
-                            radv_is_compute_required(device, dst_copy_flags, dst_copy_flags) ||
-                            (preferred_mode == RADV_BUFFER_COPY_FILL_MODE_AUTO &&
-                             radv_prefer_compute_or_cp_dma(device, size, dst_copy_flags, dst_copy_flags));
+   info.clear_value[0] = value;
+   info.clear_value_size = sizeof(uint32_t);
+
+   const bool use_compute = ac_prepare_cs_clear_copy_buffer(&options, &info, &dispatch);
    uint32_t flush_bits = 0;
 
    if (use_compute) {
-      radv_compute_fill_memory(cmd_buffer, dst_va, size, value);
+      radv_compute_fill_memory(cmd_buffer, &options, &dispatch);
 
       flush_bits = RADV_CMD_FLAG_CS_PARTIAL_FLUSH | RADV_CMD_FLAG_INV_VCACHE |
                    radv_src_access_flush(cmd_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
