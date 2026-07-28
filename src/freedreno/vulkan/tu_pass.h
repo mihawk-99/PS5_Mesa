@@ -24,6 +24,13 @@ enum tu_gmem_layout
 
 constexpr uint32_t TU_GMEM_LAYOUT_DIVISOR_MAX = 6; /* 1x (no divisor), 2 (1/2), 3 (1/3) */
 
+bool
+tu_dependency_is_potential_feedback_loop(VkDependencyFlags dependency_flags,
+                                         VkPipelineStageFlags2 src_stage_mask,
+                                         VkAccessFlags2 src_access_mask,
+                                         VkPipelineStageFlags2 dst_stage_mask,
+                                         VkAccessFlags2 dst_access_mask);
+
 struct tu_subpass_barrier {
    VkPipelineStageFlags2 src_stage_mask;
    VkPipelineStageFlags2 dst_stage_mask;
@@ -34,6 +41,7 @@ struct tu_subpass_barrier {
    bool incoherent_ccu_color, incoherent_ccu_depth;
    bool non_fb_local;
    bool read_only_input_attachments;
+   bool potential_feedback_loop;
 };
 
 struct tu_subpass_attachment

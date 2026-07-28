@@ -19,6 +19,33 @@
 #define XXH_INLINE_ALL
 #include "util/xxhash.h"
 
+bool
+tu_dependency_is_potential_feedback_loop(VkDependencyFlags dependency_flags,
+                                         VkPipelineStageFlags2 src_stage_mask,
+                                         VkAccessFlags2 src_access_mask,
+                                         VkPipelineStageFlags2 dst_stage_mask,
+                                         VkAccessFlags2 dst_access_mask)
+{
+   const VkPipelineStageFlags2 framebuffer_space_stages =
+      VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+      VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+   const VkPipelineStageFlags2 src_framebuffer_space_stages =
+      framebuffer_space_stages | VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+   const VkPipelineStageFlags2 dst_framebuffer_space_stages =
+      framebuffer_space_stages | VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+
+   if (!(dependency_flags & VK_DEPENDENCY_BY_REGION_BIT) || (src_stage_mask & ~src_framebuffer_space_stages) ||
+       (dst_stage_mask & ~dst_framebuffer_space_stages))
+      return false;
+
+   const VkAccessFlags2 attachment_writes = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                                            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                                            VK_ACCESS_2_MEMORY_WRITE_BIT;
+   const VkAccessFlags2 input_attachment_reads = VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+   return (src_access_mask & attachment_writes) && (dst_access_mask & input_attachment_reads);
+}
+
 static void
 tu_render_pass_add_subpass_dep(struct tu_render_pass *pass,
                                const VkSubpassDependency2 *dep)
@@ -93,6 +120,11 @@ tu_render_pass_add_subpass_dep(struct tu_render_pass *pass,
          pass->gmem_pixels[i] = 0;
    }
 
+   bool potential_feedback_loop =
+      src != VK_SUBPASS_EXTERNAL && dst != VK_SUBPASS_EXTERNAL &&
+      tu_dependency_is_potential_feedback_loop(dep->dependencyFlags, src_stage_mask, src_access_mask, dst_stage_mask,
+                                               dst_access_mask);
+
    struct tu_subpass_barrier *dst_barrier;
    if (src == VK_SUBPASS_EXTERNAL) {
       dst_barrier = &pass->subpasses[0].start_barrier;
@@ -109,6 +141,7 @@ tu_render_pass_add_subpass_dep(struct tu_render_pass *pass,
    dst_barrier->src_access_mask2 |= src_access_mask2;
    dst_barrier->dst_access_mask2 |= dst_access_mask2;
    dst_barrier->non_fb_local |= non_fb_local;
+   dst_barrier->potential_feedback_loop |= potential_feedback_loop;
 
    /* Check if INPUT_ATTACHMENT_READ_BIT in the barrier could refer to a
     * read-only input attachment, i.e. an input attachment which does not come

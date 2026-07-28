@@ -3210,9 +3210,13 @@ tu_emit_disable_fs(struct tu_disable_fs *disable_fs,
 /* Return true if the blend state reads the color attachments. */
 static tu_lrz_blend_status
 tu6_calc_blend_lrz(const struct vk_color_blend_state *cb,
-                   const struct vk_render_pass_state *rp)
+                   const struct vk_render_pass_state *rp,
+                   bool raster_order_attachment_access)
 {
    if (cb->logic_op_enable && tu_logic_op_reads_dst((VkLogicOp)cb->logic_op))
+      return TU_LRZ_BLEND_READS_DEST_OR_PARTIAL_WRITE;
+
+   if (raster_order_attachment_access)
       return TU_LRZ_BLEND_READS_DEST_OR_PARTIAL_WRITE;
 
    uint32_t written_color_attachments = 0;
@@ -3267,9 +3271,10 @@ static const enum mesa_vk_dynamic_graphics_state tu_blend_lrz_state[] = {
 static void
 tu_emit_blend_lrz(struct tu_lrz_blend *lrz,
                   const struct vk_color_blend_state *cb,
-                  const struct vk_render_pass_state *rp)
+                  const struct vk_render_pass_state *rp,
+                  bool raster_order_attachment_access)
 {
-   lrz->lrz_blend_status = tu6_calc_blend_lrz(cb, rp);
+   lrz->lrz_blend_status = tu6_calc_blend_lrz(cb, rp, raster_order_attachment_access);
    lrz->valid = true;
 }
 
@@ -4007,6 +4012,18 @@ tu_pipeline_builder_emit_state(struct tu_pipeline_builder *builder,
               builder->graphics_state.ms->sample_locations);
    DRAW_STATE(depth_bias, TU_DYNAMIC_STATE_DEPTH_BIAS,
               builder->graphics_state.rs);
+   bool has_raster_order_state = false;
+   if (pipeline->type == TU_PIPELINE_GRAPHICS) {
+      has_raster_order_state = true;
+   } else {
+      struct tu_graphics_lib_pipeline *lib =
+         tu_pipeline_to_graphics_lib(pipeline);
+      has_raster_order_state =
+         (lib->state &
+          VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT) &&
+         (lib->state &
+          VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT);
+   }
    bool attachments_valid =
       builder->graphics_state.rp &&
       vk_render_pass_state_has_attachment_info(builder->graphics_state.rp);
@@ -4036,9 +4053,11 @@ tu_pipeline_builder_emit_state(struct tu_pipeline_builder *builder,
                    builder->graphics_state.ms->alpha_to_coverage_enable,
                    builder->graphics_state.ms->alpha_to_one_enable,
                    builder->graphics_state.ms->sample_mask);
-   if (EMIT_STATE(blend_lrz, attachments_valid))
+   if (EMIT_STATE(blend_lrz, attachments_valid && has_raster_order_state))
       tu_emit_blend_lrz(&pipeline->lrz_blend, cb,
-                        builder->graphics_state.rp);
+                        builder->graphics_state.rp,
+                        pipeline->output.raster_order_attachment_access ||
+                        pipeline->ds.raster_order_attachment_access);
    if (EMIT_STATE(bandwidth, attachments_valid))
       tu_calc_bandwidth(&pipeline->bandwidth, cb,
                         builder->graphics_state.rp);
@@ -4092,17 +4111,6 @@ tu_pipeline_builder_emit_state(struct tu_pipeline_builder *builder,
                    pipeline->shaders[MESA_SHADER_TESS_EVAL],
                    &pipeline->program,
                    builder->graphics_state.ts->patch_control_points);
-   bool has_raster_order_state = false;
-   if (pipeline->type == TU_PIPELINE_GRAPHICS) {
-      has_raster_order_state = true;
-   } else {
-      struct tu_graphics_lib_pipeline *lib =
-         tu_pipeline_to_graphics_lib(pipeline);
-      has_raster_order_state =
-         (lib->state & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT) &&
-         (lib->state &
-          VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT);
-   }
    if (!builder->device->physical_device->info->props.has_coherent_ubwc_flag_caches) {
       DRAW_STATE_COND(prim_mode_sysmem,
                       TU_DYNAMIC_STATE_PRIM_MODE_SYSMEM,
@@ -4293,9 +4301,10 @@ tu_emit_draw_state(struct tu_cmd_buffer *cmd)
                    cmd->vk.dynamic_graphics_state.ms.alpha_to_one_enable,
                    cmd->vk.dynamic_graphics_state.ms.sample_mask);
    if (!cmd->state.pipeline_blend_lrz &&
-       (EMIT_STATE(blend_lrz) || (cmd->state.dirty & TU_CMD_DIRTY_SUBPASS))) {
+       (EMIT_STATE(blend_lrz) || (cmd->state.dirty & (TU_CMD_DIRTY_SUBPASS | TU_CMD_DIRTY_RAST_ORDER)))) {
       tu_lrz_blend_status blend_status = tu6_calc_blend_lrz(
-         &cmd->vk.dynamic_graphics_state.cb, &cmd->state.vk_rp);
+         &cmd->vk.dynamic_graphics_state.cb, &cmd->state.vk_rp,
+         cmd->state.raster_order_attachment_access);
       if (blend_status != cmd->state.lrz_blend_status) {
          cmd->state.lrz_blend_status = blend_status;
          cmd->state.dirty |= TU_CMD_DIRTY_LRZ;
