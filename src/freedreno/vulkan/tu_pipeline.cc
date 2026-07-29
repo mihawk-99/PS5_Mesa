@@ -2211,6 +2211,10 @@ tu_pipeline_builder_parse_libraries(struct tu_pipeline_builder *builder,
          pipeline->lrz_blend.valid |= library->base.lrz_blend.valid;
       }
 
+      if (library->state & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT) {
+         pipeline->ds = library->base.ds;
+      }
+
       if ((library->state &
            VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT) &&
           (library->state &
