@@ -202,7 +202,9 @@ bool si_compute_clear_copy_buffer(struct si_context *sctx, struct pipe_resource 
       _mesa_hash_table_u64_insert(sctx->cs_dma_shaders, dispatch.shader_key.key, shader);
    }
 
-   memcpy(sctx->cs_user_data, dispatch.user_data, sizeof(dispatch.user_data));
+   const uint32_t user_data_bytes = dispatch.num_user_data * sizeof(uint32_t);
+   assert(user_data_bytes <= sizeof(sctx->cs_user_data));
+   memcpy(sctx->cs_user_data, dispatch.user_data, user_data_bytes);
    sctx->compute_dispatch_interleave = dispatch.dispatch_interleave;
 
    struct pipe_grid_info grid = {};

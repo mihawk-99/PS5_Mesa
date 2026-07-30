@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "ac_descriptors.h"
 #include "ac_nir_meta.h"
 #include "ac_nir_helpers.h"
 #include "nir_builder.h"
@@ -14,6 +15,12 @@ store_buffer(nir_builder *b, const union ac_cs_clear_copy_buffer_key *const key,
              nir_def *store_val, nir_def *buf, nir_def *offset,
              const enum gl_access_qualifier access)
 {
+   if (key->addr_user_data) {
+      nir_store_global_amd(b, store_val, buf, offset,
+                           .access = access);
+      return;
+   }
+
    nir_store_ssbo(b, store_val, buf, offset,
                   .access = access);
 }
@@ -24,6 +31,11 @@ load_buffer(nir_builder *b, const union ac_cs_clear_copy_buffer_key *const key,
             nir_def *offset, const enum gl_access_qualifier access, const unsigned align_mul,
             const unsigned align_offset)
 {
+   if (key->addr_user_data) {
+      return nir_load_global_amd(b, num_components, bit_size, buf, offset,
+                                 .access = access);
+   }
+
    return nir_load_ssbo(b, num_components, bit_size, buf, offset,
                         .access = access,
                         .align_mul = align_mul,
@@ -61,6 +73,15 @@ load_buffer_sparse(nir_builder *b, const union ac_cs_clear_copy_buffer_key *cons
    return load_buffer(b, key, num_components, bit_size, buf, offset, access, align_mul, align_offset);
 }
 
+static nir_def *
+load_buffer_addr_from_user_data(nir_builder *b,
+                nir_def *user_data, const unsigned user_data_index)
+{
+   nir_def *addr_lo = nir_channel(b, user_data, user_data_index);
+   nir_def *addr_hi = nir_channel(b, user_data, user_data_index + 1);
+   return nir_pack_64_2x32_split(b, addr_lo, addr_hi);
+}
+
 /* Create a compute shader implementing clear_buffer or copy_buffer. */
 nir_shader *
 ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *const options,
@@ -69,6 +90,7 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
    if (options->print_key) {
       fprintf(stderr, "Internal shader: dma\n");
       fprintf(stderr, "   key.is_clear = %u\n", key->is_clear);
+      fprintf(stderr, "   key.addr_user_data = %u\n", key->addr_user_data);
       fprintf(stderr, "   key.dwords_per_thread = %u\n", key->dwords_per_thread);
       fprintf(stderr, "   key.clear_value_size_is_12 = %u\n", key->clear_value_size_is_12);
       fprintf(stderr, "   key.src_scalarize_for_sparse = %u\n", key->src_scalarize_for_sparse);
@@ -99,8 +121,17 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
    b.shader->info.workgroup_size[0] = 64;
    b.shader->info.workgroup_size[1] = 1;
    b.shader->info.workgroup_size[2] = 1;
-   b.shader->info.num_ssbos = key->is_clear ? 1 : 2;
+   if (!key->addr_user_data)
+      b.shader->info.num_ssbos = key->is_clear ? 1 : 2;
    b.shader->info.cs.user_data_components_amd = 0;
+
+   unsigned src_va_user_data_index = b.shader->info.cs.user_data_components_amd;
+   if (key->addr_user_data && !key->is_clear)
+      b.shader->info.cs.user_data_components_amd += 2;
+
+   unsigned dst_va_user_data_index = b.shader->info.cs.user_data_components_amd;
+   if (key->addr_user_data)
+      b.shader->info.cs.user_data_components_amd += 2;
 
    unsigned clear_value_user_data_index = b.shader->info.cs.user_data_components_amd;
    if (key->is_clear) {
@@ -180,7 +211,12 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
       unsigned num_comps = key->dwords_per_thread * 4 / alignment;
       nir_if *if_first_thread = NULL;
       nir_def *value0 = NULL;
-      nir_def *src_buf = nir_imm_int(&b, 0);
+      nir_def *src_buf;
+
+      if (key->addr_user_data)
+         src_buf = load_buffer_addr_from_user_data(&b, user_data, src_va_user_data_index);
+      else
+         src_buf = nir_imm_int(&b, 0);
 
       if (realign_offset < 0) {
          /* if src_align_offset is less than dst_align_offset, realign_offset is
@@ -215,9 +251,9 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
          nir_push_else(&b, if_first_thread);
       }
 
-
       value = load_buffer_sparse(&b, key, num_comps, bit_size, src_buf, nir_iadd_imm(&b, offset, realign_offset),
                                  ACCESS_RESTRICT, 4, (unsigned)realign_offset % 4, key->src_scalarize_for_sparse);
+
       if (if_first_thread) {
          nir_pop_if(&b, if_first_thread);
          value = nir_if_phi(&b, value0, value);
@@ -228,7 +264,13 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
          value = nir_extract_bits(&b, &value, 1, 0, key->dwords_per_thread, 32);
    }
 
-   nir_def *dst_buf = nir_imm_int(&b, !key->is_clear);
+   nir_def *dst_buf;
+
+   if (key->addr_user_data)
+      dst_buf = load_buffer_addr_from_user_data(&b, user_data, dst_va_user_data_index);
+   else
+      dst_buf = nir_imm_int(&b, !key->is_clear);
+
    nir_if *if_first_thread = NULL, *if_last_thread = NULL;
 
    if (!key->dst_single_thread_unaligned) {
@@ -647,6 +689,10 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
    uint64_t dst_offset_bound = info->dst_offset - dst_align_offset;
    uint64_t src_align_offset = is_copy ? info->src_offset % 4 : 0;
    unsigned num_user_data_terms = 0;
+   unsigned addr_user_data_offset = 0;
+
+   if (options->addr_user_data)
+      num_user_data_terms += is_copy ? 4 : 2;
 
    /* Set the clear value in user data SGPRs. */
    if (!is_copy) {
@@ -657,6 +703,7 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
 
    out->shader_key.key = 0;
 
+   out->shader_key.addr_user_data = options->addr_user_data;
    out->shader_key.is_clear = !is_copy;
    assert(dwords_per_thread && dwords_per_thread <= 4);
    out->shader_key.dwords_per_thread = dwords_per_thread;
@@ -705,21 +752,39 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
    /* We need to bind whole dwords because of how we compute voffset. The bytes that shouldn't
     * be written are not written by the shader.
     */
-   out->ssbo[is_copy].offset = dst_offset_bound;
-   out->ssbo[is_copy].size = align(dst_align_offset + info->size, 4);
+   const uint64_t dst_buf_offset = dst_offset_bound;
+   const uint64_t dst_buf_size = align(dst_align_offset + info->size, 4);
+
+   if (!options->addr_user_data) {
+      out->ssbo[is_copy].offset = dst_buf_offset;
+      out->ssbo[is_copy].size = dst_buf_size;
+   } else {
+      out->user_data[addr_user_data_offset + 0 + !!is_copy * 2] = dst_buf_offset;
+      out->user_data[addr_user_data_offset + 1 + !!is_copy * 2] = dst_buf_offset >> 32ull;
+   }
 
    if (is_copy) {
       /* Since unaligned copies use 32-bit loads, any dword that's partially covered by the copy
        * range must be fully covered, so that the 32-bit loads succeed.
        */
-      out->ssbo[0].offset = info->src_offset - src_align_offset;
-      out->ssbo[0].size = align(src_align_offset + info->size, 4);
-      assert(out->ssbo[0].offset % 4 == 0 && out->ssbo[0].size % 4 == 0);
+      const uint64_t src_buf_offset = info->src_offset - src_align_offset;
+      const uint64_t src_buf_size = align(src_align_offset + info->size, 4);
+      assert(src_buf_offset % 4 == 0 && src_buf_size % 4 == 0);
+
+      if (!options->addr_user_data) {
+         out->ssbo[0].offset = src_buf_offset;
+         out->ssbo[0].size = src_buf_size;
+      } else {
+         out->user_data[addr_user_data_offset + 0] = src_buf_offset;
+         out->user_data[addr_user_data_offset + 1] = src_buf_offset >> 32ull;
+      }
    }
 
-   out->num_ssbos = is_copy ? 2 : 1;
+   out->num_user_data = num_user_data_terms;
    out->workgroup_size = 64;
    out->num_threads = start_thread + num_threads;
+   if (!options->addr_user_data)
+      out->num_ssbos = is_copy ? 2 : 1;
 
    /* Determine optimal COMPUTE_DISPATCH_INTERLEAVE.INTERLEAVE/INTERLEAVE_1D.
     * Verified on Navi48.
