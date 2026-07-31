@@ -22,6 +22,7 @@
  * IN THE SOFTWARE.
  */
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "util/macros.h"
@@ -143,6 +144,8 @@ anv_h264_gather_frefs(
 
       int32_t poc_top = ri->PicOrderCnt[0];
       int32_t poc_bot = ri->PicOrderCnt[1];
+      if (poc_top == INT32_MAX) poc_top = poc_bot;
+      if (poc_bot == INT32_MAX) poc_bot = poc_top;
       if (parities == ANV_H264_PAR_TOP)
          f.frame_poc = poc_top;
       else if (parities == ANV_H264_PAR_BOTTOM)
@@ -208,6 +211,86 @@ anv_h264_sort_ltidx_asc(struct anv_h264_fref *a, int n)
       while (j >= 0 && a[j].lt_idx > v.lt_idx) { a[j+1] = a[j]; j--; }
       a[j+1] = v;
    }
+}
+
+static void
+anv_h264_sort_poc_desc(struct anv_h264_fref *a, int n)
+{
+   for (int i = 1; i < n; i++) {
+      struct anv_h264_fref v = a[i];
+      int j = i - 1;
+      while (j >= 0 && a[j].frame_poc < v.frame_poc) { a[j+1] = a[j]; j--; }
+      a[j+1] = v;
+   }
+}
+
+static void
+anv_h264_sort_poc_asc(struct anv_h264_fref *a, int n)
+{
+   for (int i = 1; i < n; i++) {
+      struct anv_h264_fref v = a[i];
+      int j = i - 1;
+      while (j >= 0 && a[j].frame_poc > v.frame_poc) { a[j+1] = a[j]; j--; }
+      a[j+1] = v;
+   }
+}
+
+/* 8.2.4.2.3 and 8.2.4.2.4 */
+static void
+anv_h264_swap_identical_l1(uint8_t *l0, uint8_t *l0b,
+                           uint8_t *l1, uint8_t *l1b, int count)
+{
+   if (count < 2)
+      return;
+   if (memcmp(l0, l1, ANV_H264_MAX_REF_FRAMES))
+      return;
+   if (l0b && l1b && memcmp(l0b, l1b, ANV_H264_MAX_REF_FRAMES))
+      return;
+
+   uint8_t t = l1[0]; l1[0] = l1[1]; l1[1] = t;
+   if (l1b) { t = l1b[0]; l1b[0] = l1b[1]; l1b[1] = t; }
+}
+
+/* 8.2.4.3.1 */
+static void
+anv_h264_ref_list_insert(uint8_t *list, uint8_t *listb, int active_count,
+                         int refIdx, uint8_t slot, uint8_t bottom)
+{
+   uint8_t tmp[ANV_H264_MAX_REF_FRAMES + 1];
+   uint8_t tmpb[ANV_H264_MAX_REF_FRAMES + 1];
+
+   if (refIdx < 0 || refIdx >= active_count ||
+       active_count > ANV_H264_MAX_REF_FRAMES)
+      return;
+
+   memcpy(tmp, list, ANV_H264_MAX_REF_FRAMES);
+   tmp[ANV_H264_MAX_REF_FRAMES] = ANV_H264_INVALID_SLOT;
+   if (listb) {
+      memcpy(tmpb, listb, ANV_H264_MAX_REF_FRAMES);
+      tmpb[ANV_H264_MAX_REF_FRAMES] = 0;
+   } else {
+      memset(tmpb, 0, sizeof(tmpb));
+   }
+
+   for (int k = active_count; k > refIdx; k--) {
+      tmp[k] = tmp[k - 1];
+      tmpb[k] = tmpb[k - 1];
+   }
+   tmp[refIdx] = slot;
+   tmpb[refIdx] = bottom;
+
+   int w = refIdx + 1;
+   for (int k = refIdx + 1; k <= active_count; k++) {
+      if (tmp[k] == slot && tmpb[k] == bottom)
+         continue;
+      tmp[w] = tmp[k];
+      tmpb[w] = tmpb[k];
+      w++;
+   }
+
+   memcpy(list, tmp, active_count);
+   if (listb)
+      memcpy(listb, tmpb, active_count);
 }
 
 static void
@@ -284,12 +367,17 @@ anv_h264_build_field_ref_lists(
    anv_h264_emit_field_list(l0, l0b, ANV_H264_MAX_REF_FRAMES, &idx0, lt, nlt, sel);
    anv_h264_emit_field_list(l1, l1b, ANV_H264_MAX_REF_FRAMES, &idx1, o1, no1, sel);
    anv_h264_emit_field_list(l1, l1b, ANV_H264_MAX_REF_FRAMES, &idx1, lt, nlt, sel);
+
+   anv_h264_swap_identical_l1(l0, l0b, l1, l1b, idx1);
 }
 
+/* 8.2.4.2.1 and 8.2.4.2.3 */
 static void
 anv_h264_build_default_ref_list(
    int slice_type,
    int32_t curr_poc,
+   uint32_t cur_frame_num,
+   uint32_t MaxFrameNum,
    uint32_t ref_slot_count,
    const VkVideoReferenceSlotInfoKHR *ref_slots,
    uint8_t list0[ANV_H264_MAX_REF_FRAMES],
@@ -301,95 +389,54 @@ anv_h264_build_default_ref_list(
    if (slice_type == ANV_H264_SLICE_I || slice_type == ANV_H264_SLICE_SI)
       return;
 
-   uint8_t st_slots[ANV_H264_MAX_REF_FRAMES];
-   int32_t st_poc[ANV_H264_MAX_REF_FRAMES];
-   int st_count = 0;
+   struct anv_h264_fref st[ANV_H264_MAX_REF_FRAMES];
+   struct anv_h264_fref lt[ANV_H264_MAX_REF_FRAMES];
+   int nst = 0, nlt = 0;
+   anv_h264_gather_frefs(ref_slot_count, ref_slots, cur_frame_num, MaxFrameNum,
+                         st, &nst, lt, &nlt);
 
-   uint8_t lt_slots[ANV_H264_MAX_REF_FRAMES];
-   uint32_t lt_idx[ANV_H264_MAX_REF_FRAMES];
-   int lt_count = 0;
-
-   for (uint32_t i = 0; i < ref_slot_count; i++) {
-      const VkVideoDecodeH264DpbSlotInfoKHR *dpb =
-         vk_find_struct_const(ref_slots[i].pNext,
-                              VIDEO_DECODE_H264_DPB_SLOT_INFO_KHR);
-      if (!dpb) continue;
-      const StdVideoDecodeH264ReferenceInfo *ri = dpb->pStdReferenceInfo;
-      if (!ri) continue;
-      int slot = ref_slots[i].slotIndex;
-      if (ri->flags.used_for_long_term_reference) {
-         lt_slots[lt_count] = (uint8_t)slot;
-         lt_idx[lt_count] = ri->FrameNum;
-         lt_count++;
-      } else {
-         st_slots[st_count] = (uint8_t)slot;
-         st_poc[st_count] = ri->PicOrderCnt[0];
-         st_count++;
-      }
-   }
-
-   for (int i = 1; i < st_count; i++) {
-      uint8_t si = st_slots[i]; int32_t pi = st_poc[i];
-      int j = i - 1;
-      while (j >= 0 && st_poc[j] < pi) {
-         st_slots[j+1] = st_slots[j]; st_poc[j+1] = st_poc[j]; j--;
-      }
-      st_slots[j+1] = si; st_poc[j+1] = pi;
-   }
-
-   for (int i = 1; i < lt_count; i++) {
-      uint8_t si = lt_slots[i]; uint32_t li = lt_idx[i];
-      int j = i - 1;
-      while (j >= 0 && lt_idx[j] > li) {
-         lt_slots[j+1] = lt_slots[j]; lt_idx[j+1] = lt_idx[j]; j--;
-      }
-      lt_slots[j+1] = si; lt_idx[j+1] = li;
-   }
+   anv_h264_sort_ltidx_asc(lt, nlt);
 
    if (slice_type == ANV_H264_SLICE_P || slice_type == ANV_H264_SLICE_SP) {
+      /* 8.2.4.2.1 */
+      anv_h264_sort_fnwrap_desc(st, nst);
       int p = 0;
-      for (int i = 0; i < st_count && p < ANV_H264_MAX_REF_FRAMES; i++)
-         list0[p++] = st_slots[i];
-      for (int i = 0; i < lt_count && p < ANV_H264_MAX_REF_FRAMES; i++)
-         list0[p++] = lt_slots[i];
+      for (int i = 0; i < nst && p < ANV_H264_MAX_REF_FRAMES; i++)
+         list0[p++] = st[i].slot;
+      for (int i = 0; i < nlt && p < ANV_H264_MAX_REF_FRAMES; i++)
+         list0[p++] = lt[i].slot;
       return;
    }
 
-   uint8_t past_slots[ANV_H264_MAX_REF_FRAMES];
-   int32_t past_poc[ANV_H264_MAX_REF_FRAMES];
-   int past_cnt = 0;
-   uint8_t fut_slots[ANV_H264_MAX_REF_FRAMES];
-   int32_t fut_poc[ANV_H264_MAX_REF_FRAMES];
-   int fut_cnt = 0;
+   struct anv_h264_fref past[ANV_H264_MAX_REF_FRAMES];
+   struct anv_h264_fref fut[ANV_H264_MAX_REF_FRAMES];
+   int past_cnt = 0, fut_cnt = 0;
 
-   for (int i = 0; i < st_count; i++) {
-      if (st_poc[i] < curr_poc) {
-         past_slots[past_cnt] = st_slots[i];
-         past_poc[past_cnt++] = st_poc[i];
-      }
+   for (int i = 0; i < nst; i++) {
+      if (st[i].frame_poc < curr_poc)
+         past[past_cnt++] = st[i];
+      else
+         fut[fut_cnt++] = st[i];
    }
-   for (int i = st_count - 1; i >= 0; i--) {
-      if (st_poc[i] >= curr_poc) {
-         fut_slots[fut_cnt] = st_slots[i];
-         fut_poc[fut_cnt++] = st_poc[i];
-      }
-   }
-   (void)past_poc; (void)fut_poc;
+   anv_h264_sort_poc_desc(past, past_cnt);
+   anv_h264_sort_poc_asc(fut, fut_cnt);
 
    int p0 = 0, p1 = 0;
    for (int i = 0; i < past_cnt && p0 < ANV_H264_MAX_REF_FRAMES; i++)
-      list0[p0++] = past_slots[i];
+      list0[p0++] = past[i].slot;
    for (int i = 0; i < fut_cnt  && p0 < ANV_H264_MAX_REF_FRAMES; i++)
-      list0[p0++] = fut_slots[i];
-   for (int i = 0; i < lt_count && p0 < ANV_H264_MAX_REF_FRAMES; i++)
-      list0[p0++] = lt_slots[i];
+      list0[p0++] = fut[i].slot;
+   for (int i = 0; i < nlt     && p0 < ANV_H264_MAX_REF_FRAMES; i++)
+      list0[p0++] = lt[i].slot;
 
    for (int i = 0; i < fut_cnt  && p1 < ANV_H264_MAX_REF_FRAMES; i++)
-      list1[p1++] = fut_slots[i];
+      list1[p1++] = fut[i].slot;
    for (int i = 0; i < past_cnt && p1 < ANV_H264_MAX_REF_FRAMES; i++)
-      list1[p1++] = past_slots[i];
-   for (int i = 0; i < lt_count && p1 < ANV_H264_MAX_REF_FRAMES; i++)
-      list1[p1++] = lt_slots[i];
+      list1[p1++] = past[i].slot;
+   for (int i = 0; i < nlt     && p1 < ANV_H264_MAX_REF_FRAMES; i++)
+      list1[p1++] = lt[i].slot;
+
+   anv_h264_swap_identical_l1(list0, NULL, list1, NULL, p1);
 }
 
 static void
@@ -415,6 +462,8 @@ anv_h264_apply_ref_pic_list_mod(
       if (idc == 3) break;
       if (idc > 3) { st->error = true; return; }
 
+      uint8_t found_slot = ANV_H264_INVALID_SLOT;
+
       if (idc == 0 || idc == 1) {
          unsigned diff = anv_h264_rbsp_ue(st) + 1;
          if (st->error) return;
@@ -423,7 +472,6 @@ anv_h264_apply_ref_pic_list_mod(
          else
             picNumL = (picNumL + diff) % MaxFrameNum;
 
-         uint8_t found_slot = ANV_H264_INVALID_SLOT;
          for (uint32_t j = 0; j < ref_slot_count; j++) {
             const VkVideoDecodeH264DpbSlotInfoKHR *dpb =
                vk_find_struct_const(ref_slots[j].pNext,
@@ -435,25 +483,29 @@ anv_h264_apply_ref_pic_list_mod(
                break;
             }
          }
-         if (found_slot == ANV_H264_INVALID_SLOT) continue;
-
-         for (int k = active_count - 1; k > refIdxL; k--)
-            list[k] = list[k - 1];
-         list[refIdxL] = found_slot;
-
-         int w = refIdxL + 1;
-         for (int k = refIdxL + 1; k < active_count + 1 && w < ANV_H264_MAX_REF_FRAMES; k++) {
-            if (list[k] != found_slot)
-               list[w++] = list[k];
-         }
-         if (w < ANV_H264_MAX_REF_FRAMES)
-            list[w] = ANV_H264_INVALID_SLOT;
-
-         refIdxL++;
-      } else if (idc == 2) {
-         anv_h264_rbsp_ue(st);
+      } else {
+         uint32_t ltpn = anv_h264_rbsp_ue(st);
          if (st->error) return;
+
+         for (uint32_t j = 0; j < ref_slot_count; j++) {
+            const VkVideoDecodeH264DpbSlotInfoKHR *dpb =
+               vk_find_struct_const(ref_slots[j].pNext,
+                                    VIDEO_DECODE_H264_DPB_SLOT_INFO_KHR);
+            if (!dpb || !dpb->pStdReferenceInfo) continue;
+            if (dpb->pStdReferenceInfo->flags.used_for_long_term_reference &&
+                dpb->pStdReferenceInfo->FrameNum == ltpn) {
+               found_slot = (uint8_t)ref_slots[j].slotIndex;
+               break;
+            }
+         }
       }
+
+      if (found_slot == ANV_H264_INVALID_SLOT) continue;
+      if (refIdxL >= active_count) continue;
+
+      anv_h264_ref_list_insert(list, NULL, active_count, refIdxL,
+                               found_slot, 0);
+      refIdxL++;
    } while (idc != 3);
 }
 
@@ -531,29 +583,10 @@ anv_h264_apply_ref_pic_list_mod_field(
       }
 
       if (found_slot == ANV_H264_INVALID_SLOT) continue;
+      if (refIdx >= active_count) continue;
 
-      for (int k = active_count - 1; k > refIdx && k < ANV_H264_MAX_REF_FRAMES; k--) {
-         list[k] = list[k - 1];
-         listb[k] = listb[k - 1];
-      }
-      if (refIdx < ANV_H264_MAX_REF_FRAMES) {
-         list[refIdx] = found_slot;
-         listb[refIdx] = found_bottom;
-      }
-
-      int w = refIdx + 1;
-      for (int k = refIdx + 1;
-           k < active_count + 1 && k < ANV_H264_MAX_REF_FRAMES &&
-           w < ANV_H264_MAX_REF_FRAMES; k++) {
-         if (!(list[k] == found_slot && listb[k] == found_bottom)) {
-            list[w] = list[k];
-            listb[w] = listb[k];
-            w++;
-         }
-      }
-      if (w < ANV_H264_MAX_REF_FRAMES)
-         list[w] = ANV_H264_INVALID_SLOT;
-
+      anv_h264_ref_list_insert(list, listb, active_count, refIdx,
+                               found_slot, found_bottom);
       refIdx++;
    } while (idc != 3);
 }
@@ -711,9 +744,14 @@ anv_h264_parse_slice_header(
    uint32_t cur_frame_num = pic_info->pStdPictureInfo->frame_num;
    uint32_t MaxFrameNumForList = 1u << (sps->log2_max_frame_num_minus4 + 4);
 
-   int32_t curr_poc = cur_field_pic && cur_bottom ?
-                      pic_info->pStdPictureInfo->PicOrderCnt[1] :
-                      pic_info->pStdPictureInfo->PicOrderCnt[0];
+   int32_t poc_top = pic_info->pStdPictureInfo->PicOrderCnt[0];
+   int32_t poc_bot = pic_info->pStdPictureInfo->PicOrderCnt[1];
+   if (poc_top == INT32_MAX) poc_top = poc_bot;
+   if (poc_bot == INT32_MAX) poc_bot = poc_top;
+
+   /* 8.2.1 */
+   int32_t curr_poc = !cur_field_pic ? MIN2(poc_top, poc_bot) :
+                      (cur_bottom ? poc_bot : poc_top);
 
    if (cur_field_pic) {
       anv_h264_build_field_ref_lists(slice_type, cur_sel, curr_poc,
@@ -723,6 +761,7 @@ anv_h264_parse_slice_header(
                                      out->ref_list1, out->ref_list1_bottom);
    } else {
       anv_h264_build_default_ref_list(slice_type, curr_poc,
+                                      cur_frame_num, MaxFrameNumForList,
                                       ref_slot_count, ref_slots,
                                       out->ref_list0, out->ref_list1);
    }
