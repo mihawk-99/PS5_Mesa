@@ -887,7 +887,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
             ss.SliceID = s & (uint32_t)((1u << 4) - 1);
          }
 
-         if (ANV_DEBUG(VIDEO_DEBUG) && field_pic && cur) {
+         if (ANV_DEBUG(VIDEO_DEBUG) && cur) {
             char l0[128] = {0}, l1[128] = {0};
             for (int e = 0; e < 8; e++) {
                char t[16];
