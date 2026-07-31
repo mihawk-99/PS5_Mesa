@@ -219,6 +219,182 @@ mem_vectorize_cb(unsigned align_mul, unsigned align_offset, unsigned bit_size,
    return bytes <= combined_align;
 }
 
+/* Conservatively decide whether a 32-bit SSA value is always non-negative
+ * (bit 31 clear), i.e. lies in [0, 2^31). Only sound, cheap rules are used.
+ */
+static bool
+bi_i32_is_nonneg(nir_def *def, unsigned depth)
+{
+   if (def->bit_size != 32 || depth == 0)
+      return false;
+
+   nir_instr *parent = nir_def_instr(def);
+
+   switch (parent->type) {
+   case nir_instr_type_load_const: {
+      nir_load_const_instr *lc = nir_instr_as_load_const(parent);
+      return lc->value[0].i32 >= 0;
+   }
+   case nir_instr_type_phi: {
+      nir_phi_instr *phi = nir_instr_as_phi(parent);
+      bool saw_selfinc = false;
+      nir_foreach_phi_src(src, phi) {
+         nir_instr *si = nir_def_instr(src->src.ssa);
+         if (si->type == nir_instr_type_load_const) {
+            if (nir_instr_as_load_const(si)->value[0].i32 < 0)
+               return false;
+         } else if (si->type == nir_instr_type_alu) {
+            nir_alu_instr *sa = nir_instr_as_alu(si);
+            /* self-increment by a provably non-negative step */
+            if (sa->op == nir_op_iadd) {
+               if ((sa->src[0].src.ssa == def &&
+                    bi_i32_is_nonneg(sa->src[1].src.ssa, depth - 1)) ||
+                   (sa->src[1].src.ssa == def &&
+                    bi_i32_is_nonneg(sa->src[0].src.ssa, depth - 1)))
+                  saw_selfinc = true;
+               else
+                  return false;
+            }
+         } else {
+            return false;
+         }
+      }
+      return saw_selfinc;
+   }
+   case nir_instr_type_alu: {
+      nir_alu_instr *alu = nir_instr_as_alu(parent);
+      switch (alu->op) {
+      case nir_op_iand:
+         /* AND only clears bits: result non-negative if either operand is
+          * non-negative. */
+         return bi_i32_is_nonneg(alu->src[0].src.ssa, depth - 1) ||
+                bi_i32_is_nonneg(alu->src[1].src.ssa, depth - 1);
+      case nir_op_ushr:
+      case nir_op_extract_u16:
+      case nir_op_extract_u8:
+         return true;
+      default:
+         return false;
+      }
+   }
+   default:
+      return false;
+   }
+}
+
+static nir_def *
+bi_64bit_zext_of_32(nir_builder *b, nir_def *def, struct hash_table *range_ht)
+{
+   if (def->bit_size != 64)
+      return NULL;
+
+   nir_instr *parent = nir_def_instr(def);
+   if (parent->type != nir_instr_type_alu)
+      return NULL;
+
+   nir_alu_instr *alu = nir_instr_as_alu(parent);
+
+   switch (alu->op) {
+   case nir_op_u2u64: {
+      /* Zero-extension of any narrower unsigned value. */
+      nir_def *src = nir_ssa_for_alu_src(b, alu, 0);
+      return src->bit_size == 32 ? src : nir_u2u32(b, src);
+   }
+   case nir_op_i2i64: {
+      /* Sign-extension: the high 32 bits are zero if the 32-bit source is
+       * non-negative. 
+       */
+      nir_def *src = nir_ssa_for_alu_src(b, alu, 0);
+      if (src->bit_size != 32)
+         return NULL;
+      nir_scalar s = nir_scalar_resolved(src, 0);
+      uint32_t ub = nir_unsigned_upper_bound(b->shader, range_ht, s);
+      if (ub <= INT32_MAX || bi_i32_is_nonneg(src, 8))
+         return src;
+      return NULL;
+   }
+   case nir_op_pack_64_2x32_split: {
+      /* pack(lo, 0) is exactly a zero-extension of lo. */
+      nir_scalar hi = nir_scalar_resolved(alu->src[1].src.ssa,
+                                          alu->src[1].swizzle[0]);
+      if (nir_scalar_is_const(hi) && nir_scalar_as_uint(hi) == 0)
+         return nir_ssa_for_alu_src(b, alu, 0);
+      return NULL;
+   }
+   default:
+      return NULL;
+   }
+}
+
+/* Narrow 64-bit unsigned division/modulo to 32-bit when the numerator provably
+ * fits in 32 bits.
+ *
+ * When the numerator n < 2^32:
+ *   - if the divisor's high word is non-zero (d >= 2^32) then n / d == 0 and
+ *     n % d == n;
+ *   - otherwise the result is exactly the 32-bit n_lo / d_lo (resp. %).
+ */
+static bool
+bi_narrow_64bit_divmod_instr(nir_builder *b, nir_instr *instr, void *data)
+{
+   struct hash_table *range_ht = data;
+
+   if (instr->type != nir_instr_type_alu)
+      return false;
+
+   nir_alu_instr *alu = nir_instr_as_alu(instr);
+   if (alu->def.bit_size != 64)
+      return false;
+
+   if (alu->op != nir_op_udiv && alu->op != nir_op_umod)
+      return false;
+   bool is_mod = alu->op == nir_op_umod;
+
+   b->cursor = nir_before_instr(instr);
+
+   nir_def *numer = nir_ssa_for_alu_src(b, alu, 0);
+   nir_def *denom = nir_ssa_for_alu_src(b, alu, 1);
+
+   nir_def *n_lo = bi_64bit_zext_of_32(b, numer, range_ht);
+   if (!n_lo)
+      return false;
+
+   nir_def *d_lo = nir_unpack_64_2x32_split_x(b, denom);
+   nir_def *d_hi = nir_unpack_64_2x32_split_y(b, denom);
+   nir_def *d_fits32 = nir_ieq_imm(b, d_hi, 0);
+
+   nir_def *res32;
+   /* d >= 2^32 => n % d == n (since n < 2^32 <= d).
+    * d >= 2^32 => n / d == 0.
+    *
+    * When d_fits32 && d_lo == 0 the 32-bit udiv divides by zero, but this
+    * matches the original 64-bit umod: division by zero is undefined in
+    * both cases, so narrowing does not change the semantics.
+    */
+   if (is_mod) {
+      nir_def *mod32 = nir_umod(b, n_lo, d_lo);
+      res32 = nir_bcsel(b, d_fits32, mod32, n_lo);
+   } else {
+      nir_def *div32 = nir_udiv(b, n_lo, d_lo);
+      res32 = nir_bcsel(b, d_fits32, div32, nir_imm_int(b, 0));
+   }
+
+   nir_def *res64 = nir_u2u64(b, res32);
+   nir_def_replace(&alu->def, res64);
+   return true;
+}
+
+static bool
+bi_narrow_64bit_divmod(nir_shader *nir)
+{
+   struct hash_table *range_ht = _mesa_pointer_hash_table_create(NULL);
+   bool progress =
+      nir_shader_instructions_pass(nir, bi_narrow_64bit_divmod_instr,
+                                   nir_metadata_control_flow, range_ht);
+   _mesa_hash_table_destroy(range_ht, NULL);
+   return progress;
+}
+
 static void
 bi_optimize_loop(nir_shader *nir, uint64_t gpu_id, bool allow_copies)
 {
@@ -1105,6 +1281,11 @@ bifrost_postprocess_nir(nir_shader *nir,
 
    /* Lower constant idiv before we lower 64-bit integers */
    NIR_PASS(_, nir, nir_opt_idiv_const, 8);
+
+   /* Narrow 64-bit div/mod with a 32-bit-representable numerator to 32-bit
+    * before nir_lower_int64 expands it into a huge bit-serial sequence.
+    */
+   NIR_PASS(_, nir, bi_narrow_64bit_divmod);
 
    /* Lower 64-bit integers */
    NIR_PASS(_, nir, nir_lower_64bit_phis);
