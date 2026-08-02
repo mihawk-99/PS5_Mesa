@@ -107,6 +107,9 @@ android-minigbm-headers = [
 android-nativebase-headers = [
     { target_name = "libnativebase_headers" }
 ]
+venus-protocol = [
+    { target_name = "libvenus_protocol" }
+]
 
 [python_libraries]
 mako = "1.3"
