@@ -92,6 +92,8 @@ apt-get update
 apt-get install -y --no-remove "${DEPS[@]}" "${EPHEMERAL[@]}" \
         $EXTRA_LOCAL_PACKAGES
 
+. .gitlab-ci/container/build-msan-deps.sh
+
 . .gitlab-ci/container/build-llvm-spirv.sh
 
 . .gitlab-ci/container/build-libclc.sh

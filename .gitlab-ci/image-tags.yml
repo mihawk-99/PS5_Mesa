@@ -19,7 +19,7 @@ include:
   - .gitlab-ci/conditional-build-image-tags.yml
 
 variables:
-  DEBIAN_BUILD_BASE_TAG: "20260703-flatbuffers"
+  DEBIAN_BUILD_BASE_TAG: "20260703-msan"
   DEBIAN_BUILD_TAG: "20260621-sdl3"
 
   DEBIAN_TEST_BASE_TAG: "20260621-sdl3"

@@ -106,6 +106,9 @@ debian-x86_64-msan:
       -D b_lundef=false
       -D mesa-clc=system
       -D precomp-compiler=system
+      -D cpp_stdlib=libc++
+      -D cpp_args="-stdlib=libc++ -I/msan/include/c++/v1"
+      -D cpp_link_args="-stdlib=libc++ -L/msan/lib -Wl,-rpath,/msan/lib"
     S3_ARTIFACT_NAME: ""
     ARTIFACTS_DEBUG_SYMBOLS: 1
     # Don't run all the tests yet:
@@ -127,7 +130,7 @@ debian-x86_64-msan:
       -Wno-error=tautological-constant-out-of-range-compare
       -Wno-error=unused-private-field
       -Wno-error=deprecated-declarations
-    RUN_MESON_TESTS: "false"  # just too slow
+    RUN_MESON_TESTS: "true"
     # Do a host build for mesa-clc and precomp-compiler (msan complains about uninitialized
     # values in the LLVM libs)
     HOST_BUILD_OPTIONS: >
