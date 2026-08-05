@@ -379,9 +379,12 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
 #endif
    }
 
+   uint64_t bs_abs = src_buffer->address.offset + frame_info->srcBufferOffset;
+   struct anv_address bs_base =
+      { .bo = src_buffer->address.bo, .offset = bs_abs & ~4095ull };
+
    anv_batch_emit(&cmd_buffer->batch, GENX(MFX_IND_OBJ_BASE_ADDR_STATE), index_obj) {
-      index_obj.MFXIndirectBitstreamObjectAddress = anv_address_add(src_buffer->address,
-                                                                    frame_info->srcBufferOffset & ~4095);
+      index_obj.MFXIndirectBitstreamObjectAddress = bs_base;
 #if GFX_VERx10 == 70
       index_obj.MFXIndirectBitstreamObjectCacheabilityControl = 2;
 #elif GFX_VERx10 == 75
@@ -555,6 +558,9 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       }
    }
 
+   const uint8_t *bs_cpu = bs_map ? bs_map + (uintptr_t)(bs_abs & ~4095ull) : NULL;
+   uint32_t bs_page_off = (uint32_t)(bs_abs & 4095);
+
    uint32_t mb_width = sps->pic_width_in_mbs_minus1 + 1;
    uint32_t pic_height_in_map_units = sps->pic_height_in_map_units_minus1 + 1;
    uint32_t mb_height = sps->flags.frame_mbs_only_flag ?
@@ -577,22 +583,20 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
                              h264_pic_info->pSliceOffsets[s + 1] :
                              frame_info->srcBufferRange;
 
-         uint32_t bo_base = frame_info->srcBufferOffset & ~4095u;
-         uint32_t page_off = frame_info->srcBufferOffset & 4095u;
-
-         uint32_t bo_nalu = bs_map ?
-            anv_h264_find_slice_nal(bs_map + bo_base,
-                                    page_off + slice_off,
-                                    page_off + buf_end) :
-            page_off + slice_off + 3;
-         uint32_t nalu_size = (page_off + buf_end > bo_nalu) ?
-                              (page_off + buf_end - bo_nalu) : 0;
+         uint32_t bo_nalu = bs_cpu ?
+            anv_h264_find_slice_nal(bs_cpu,
+                                    bs_page_off + slice_off,
+                                    bs_page_off + buf_end) :
+            bs_page_off + slice_off + 3;
+         uint32_t nalu_size = (bs_page_off + buf_end > bo_nalu) ?
+                              (bs_page_off + buf_end - bo_nalu) : 0;
 
          bool ok = false;
-         if (bs_map && nalu_size > 0 &&
-             bo_base + bo_nalu + nalu_size <= src_buffer->address.bo->size) {
+         if (bs_cpu && nalu_size > 0 &&
+             (bs_abs & ~4095ull) + bo_nalu + nalu_size <=
+             src_buffer->address.bo->size) {
             ok = anv_h264_parse_slice_header(
-                    bs_map + bo_base, bo_nalu, nalu_size,
+                    bs_cpu, bo_nalu, nalu_size,
                     sps, pps, h264_pic_info,
                     frame_info->referenceSlotCount,
                     frame_info->pReferenceSlots,
@@ -615,7 +619,7 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
       }
    }
 
-   uint32_t buffer_offset = frame_info->srcBufferOffset & 4095;
+   uint32_t buffer_offset = bs_page_off;
 #define HEADER_OFFSET 3
    for (unsigned s = 0; s < h264_pic_info->sliceCount; s++) {
       bool last_slice = s == (h264_pic_info->sliceCount - 1);
@@ -909,9 +913,9 @@ anv_h264_decode_video(struct anv_cmd_buffer *cmd_buffer,
          }
       }
 
-      uint32_t bsd_nal = bs_map ?
+      uint32_t bsd_nal = bs_cpu ?
          anv_h264_find_slice_nal(
-            bs_map + (frame_info->srcBufferOffset & ~4095u),
+            bs_cpu,
             buffer_offset + current_offset,
             buffer_offset + this_end) :
          buffer_offset + current_offset + HEADER_OFFSET;
