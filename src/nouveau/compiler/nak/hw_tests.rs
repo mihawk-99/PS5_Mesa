@@ -191,7 +191,7 @@ impl<'a> TestShaderBuilder<'a> {
         });
     }
 
-    pub fn compile(mut self) -> Box<ShaderBin> {
+    fn do_compile(mut self, run_passes: bool) -> Box<ShaderBin> {
         self.b.push_op(OpExit {});
         let block = BasicBlock {
             label: self.label,
@@ -238,10 +238,13 @@ impl<'a> TestShaderBuilder<'a> {
             functions: vec![f],
         };
 
-        // We do run a few passes
-        s.opt_copy_prop();
-        s.opt_dce();
-        s.legalize();
+        if run_passes {
+            // We do run a few passes
+            s.opt_copy_prop();
+            s.opt_dce();
+
+            s.legalize();
+        }
 
         s.assign_regs();
         s.lower_par_copies();
@@ -257,6 +260,15 @@ impl<'a> TestShaderBuilder<'a> {
 
         let code = self.sm.encode_shader(&s);
         Box::new(ShaderBin::new(self.sm, &s.info, None, code, ""))
+    }
+
+    pub fn compile(self) -> Box<ShaderBin> {
+        self.do_compile(true)
+    }
+
+    /// Does not run any passes, just RA and copy lowering
+    pub fn compile_raw(self) -> Box<ShaderBin> {
+        self.do_compile(false)
     }
 }
 
@@ -2826,6 +2838,50 @@ fn test_qmd_hw_decrement_dependence() -> io::Result<()> {
     assert_eq!(written_data[1], 3);
     // We see the write of qmd_last
     assert_eq!(written_data[0], 500);
+
+    Ok(())
+}
+
+#[test]
+fn test_max_ugpr() -> io::Result<()> {
+    let run = &RunSingleton::get();
+    let mut b = TestShaderBuilder::new(&run.sm);
+    let num_ugprs = b.sm.num_regs(RegFile::UGPR);
+    if num_ugprs == 0 {
+        return Ok(());
+    }
+
+    // We write all the ugprs first in case the hardware truncates the UGPR id or something
+    let mut ugprs = Vec::new();
+    for ugpr_idx in 0..num_ugprs {
+        let ugpr = RegRef::new(RegFile::UGPR, ugpr_idx, 1);
+        b.copy_to(ugpr.into(), ugpr_idx.into());
+        ugprs.push(ugpr);
+    }
+
+    for ugpr_idx in 0..num_ugprs {
+        let ugpr = ugprs[ugpr_idx as usize];
+        let gpr = b.alloc_ssa(RegFile::GPR);
+        b.copy_to(gpr.into(), ugpr.into());
+        b.st_test_data(4 * ugpr_idx as u16, MemType::B32, gpr.into());
+    }
+
+    let bin = b.compile_raw();
+
+    let mut data: Vec<u32> = vec![0; num_ugprs as usize];
+    unsafe {
+        run.run.run_raw([RunConfig::new(
+            &bin,
+            1,
+            0,
+            data.as_mut_ptr().cast(),
+            4 * num_ugprs as usize,
+        )])?;
+    }
+
+    for ugpr in 0..num_ugprs {
+        assert_eq!(data[ugpr as usize], ugpr);
+    }
 
     Ok(())
 }
