@@ -28,6 +28,12 @@
 extern "C" {
 #endif
 
+enum radv_buffer_copy_fill_mode {
+   RADV_BUFFER_COPY_FILL_MODE_AUTO,
+   RADV_BUFFER_COPY_FILL_MODE_COMPUTE,
+   RADV_BUFFER_COPY_FILL_MODE_CP_DMA,
+};
+
 enum radv_meta_save_flags {
    RADV_META_SAVE_CONSTANTS = (1 << 0),
    RADV_META_SAVE_DESCRIPTOR_BUFFER_ADDR0 = (1 << 1),

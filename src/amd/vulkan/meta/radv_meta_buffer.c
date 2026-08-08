@@ -270,15 +270,20 @@ radv_fill_memory_internal(struct radv_cmd_buffer *cmd_buffer, const struct radv_
    assert(!(dst_va & 3));
    assert(!(size & 3));
 
-   struct radv_device *device = radv_cmd_buffer_device(cmd_buffer);
+   const struct radv_device *const device = radv_cmd_buffer_device(cmd_buffer);
+   const struct radv_physical_device *const pdev = radv_device_physical(device);
 
    if (cmd_buffer->qf == RADV_QUEUE_TRANSFER) {
       radv_sdma_fill_memory(device, cmd_buffer->cs, dst_va, size, value);
       return 0;
    }
 
-   const bool use_compute = radv_is_compute_required(device, dst_copy_flags, dst_copy_flags) ||
-                            radv_prefer_compute_or_cp_dma(device, size, dst_copy_flags, dst_copy_flags);
+   const enum radv_buffer_copy_fill_mode preferred_mode = pdev->drirc.performance.buffer_fill_mode;
+
+   const bool use_compute = preferred_mode == RADV_BUFFER_COPY_FILL_MODE_COMPUTE ||
+                            radv_is_compute_required(device, dst_copy_flags, dst_copy_flags) ||
+                            (preferred_mode == RADV_BUFFER_COPY_FILL_MODE_AUTO &&
+                             radv_prefer_compute_or_cp_dma(device, size, dst_copy_flags, dst_copy_flags));
    uint32_t flush_bits = 0;
 
    if (use_compute) {
@@ -371,7 +376,8 @@ void
 radv_copy_memory(struct radv_cmd_buffer *cmd_buffer, uint64_t src_va, uint64_t dst_va, uint64_t size,
                  VkAddressCopyFlagsKHR src_copy_flags, VkAddressCopyFlagsKHR dst_copy_flags)
 {
-   struct radv_device *device = radv_cmd_buffer_device(cmd_buffer);
+   const struct radv_device *const device = radv_cmd_buffer_device(cmd_buffer);
+   const struct radv_physical_device *const pdev = radv_device_physical(device);
 
    if (cmd_buffer->qf == RADV_QUEUE_TRANSFER) {
       radv_sdma_copy_memory(device, cmd_buffer->cs, src_va, dst_va, size,
@@ -379,9 +385,13 @@ radv_copy_memory(struct radv_cmd_buffer *cmd_buffer, uint64_t src_va, uint64_t d
       return;
    }
 
-   const bool use_compute = radv_is_compute_required(device, src_copy_flags, dst_copy_flags) ||
-                            (radv_is_copy_memory_4B_aligned(src_va, dst_va, size) &&
-                             radv_prefer_compute_or_cp_dma(device, size, src_copy_flags, dst_copy_flags));
+   const enum radv_buffer_copy_fill_mode preferred_mode = pdev->drirc.performance.buffer_copy_mode;
+
+   const bool use_compute = preferred_mode == RADV_BUFFER_COPY_FILL_MODE_COMPUTE ||
+                            radv_is_compute_required(device, src_copy_flags, dst_copy_flags) ||
+                            (preferred_mode == RADV_BUFFER_COPY_FILL_MODE_AUTO &&
+                             (radv_is_copy_memory_4B_aligned(src_va, dst_va, size) &&
+                              radv_prefer_compute_or_cp_dma(device, size, src_copy_flags, dst_copy_flags)));
 
    if (use_compute) {
       radv_compute_copy_memory(cmd_buffer, src_va, dst_va, size);

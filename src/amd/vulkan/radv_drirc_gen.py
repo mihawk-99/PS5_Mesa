@@ -114,6 +114,12 @@ def declare_options():
         B("radv_force_exclusive_image", False,
           description="Force using exclusive images for apps that incorrectly use concurrent for everything.",
           c_name="force_exclusive_image"),
+        I("radv_buffer_copy_mode", 0, 0, 2,
+          description="Choose how to copy buffers on graphics/compute queues: 0 = auto, 1 = compute, 2 = CP DMA",
+          c_name="buffer_copy_mode"),
+        I("radv_buffer_fill_mode", 0, 0, 2,
+          description="Choose how to fill buffers on graphics/compute queues: 0 = auto, 1 = compute, 2 = CP DMA",
+          c_name="buffer_fill_mode"),
     ]
 
     features_options = [
