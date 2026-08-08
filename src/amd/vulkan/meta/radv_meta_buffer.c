@@ -101,6 +101,16 @@ radv_clear_copy_buffer_info(const struct radv_cmd_buffer *const cmd_buffer, cons
                             const uint64_t dst_va, const uint64_t size, const VkAddressCopyFlagsKHR src_copy_flags,
                             const VkAddressCopyFlagsKHR dst_copy_flags)
 {
+   const struct radv_device *const device = radv_cmd_buffer_device(cmd_buffer);
+   const struct radv_physical_device *const pdev = radv_device_physical(device);
+
+   uint32_t dwords_per_thread =
+      src_va ? pdev->drirc.performance.buffer_copy_dw_per_thread : pdev->drirc.performance.buffer_fill_dw_per_thread;
+
+   /* Valid values: 0 (auto), 1, 2, 4 */
+   if (dwords_per_thread)
+      dwords_per_thread = util_next_power_of_two(dwords_per_thread);
+
    const struct ac_cs_clear_copy_buffer_info info = {
       .dst_offset = dst_va,
       .src_offset = src_va,
@@ -109,6 +119,7 @@ radv_clear_copy_buffer_info(const struct radv_cmd_buffer *const cmd_buffer, cons
       .src_is_vram = src_copy_flags & VK_ADDRESS_COPY_DEVICE_LOCAL_BIT_KHR,
       .dst_is_sparse = dst_copy_flags & VK_ADDRESS_COPY_SPARSE_BIT_KHR,
       .src_is_sparse = src_copy_flags & VK_ADDRESS_COPY_SPARSE_BIT_KHR,
+      .dwords_per_thread = dwords_per_thread,
    };
 
    return info;

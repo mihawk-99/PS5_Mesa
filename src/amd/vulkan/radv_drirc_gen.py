@@ -120,6 +120,12 @@ def declare_options():
         I("radv_buffer_fill_mode", 0, 0, 2,
           description="Choose how to fill buffers on graphics/compute queues: 0 = auto, 1 = compute, 2 = CP DMA",
           c_name="buffer_fill_mode"),
+        I("radv_buffer_copy_dw_per_thread", 0, 0, 4,
+          "Override number of dwords copied by each thread when using a compute shader for buffer copy. (0 = auto)",
+          c_name="buffer_copy_dw_per_thread"),
+        I("radv_buffer_fill_dw_per_thread", 0, 0, 4,
+          "Override number of dwords written by each thread when using a compute shader for buffer fill. (0 = auto)",
+          c_name="buffer_fill_dw_per_thread"),
     ]
 
     features_options = [
