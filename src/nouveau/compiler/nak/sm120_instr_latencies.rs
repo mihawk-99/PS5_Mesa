@@ -154,6 +154,7 @@ fn op_reg_latency(op: &Op, reader: bool, op_reg_idx: usize) -> RegLatencySM100 {
         //CCtl.i,c are coupled
         Op::CCtl(_) => DecoupledAgu,
         Op::MemBar(_) => Decoupled,
+        Op::TtuStore(_) | Op::TtuLoad(_) | Op::TtuOpBundle(_) => Decoupled,
         Op::SuLd(_) => Decoupled,
         Op::SuSt(_) => Decoupled,
         Op::SuAtom(_) => Decoupled,
@@ -209,6 +210,7 @@ fn op_pred_latency(op: &Op) -> PredLatencySM100 {
 
         Op::Vote(_) => DispDualAlu,
         Op::Match(_) => Decoupled,
+        Op::TtuStore(_) | Op::TtuLoad(_) | Op::TtuOpBundle(_) => Decoupled,
         _ => {
             panic!("Illegal op in sm120 pred latency {}", op);
         }

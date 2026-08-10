@@ -264,7 +264,6 @@ impl SM70Encoder<'_> {
     }
 
     fn set_pred(&mut self, pred: &Pred) {
-        assert!(!pred.is_false());
         self.set_pred_reg(
             12..15,
             match pred.pred_ref {
@@ -3876,6 +3875,82 @@ impl SM70Op for OpMemBar {
     }
 }
 
+impl SM70Op for OpTtuOpen {
+    fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        assert!(e.sm >= 120);
+        e.set_opcode(0x3d0);
+        e.set_bit(72, true);
+        e.set_bit(109, true);
+    }
+}
+
+impl SM70Op for OpTtuMacroFuse {
+    fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        assert!(e.sm >= 120);
+        e.set_opcode(0x9d4);
+        e.set_field(40..48, 0x0f_u8);
+    }
+}
+
+impl SM70Op for OpTtuStore {
+    fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        assert!(e.sm >= 120);
+        e.set_opcode(0x3d1);
+        e.set_bit(109, true);
+        e.set_reg_src(32..40, &self.pairs[1]);
+        e.set_field(44..52, self.slot);
+        e.set_reg_src(64..72, &self.pairs[0]);
+    }
+}
+
+impl SM70Op for OpTtuGo {
+    fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        assert!(e.sm >= 120);
+        e.set_opcode(0x3d3);
+        e.set_bit(109, true);
+    }
+}
+
+impl SM70Op for OpTtuLoad {
+    fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
+
+    fn encode(&self, e: &mut SM70Encoder<'_>) {
+        assert!(e.sm >= 120);
+        e.set_opcode(0x3d2);
+        e.set_bit(109, true);
+
+        let Dst::Reg(pair_a) = self.pairs[0] else {
+            panic!("TTULD pair A must be a register");
+        };
+        let Dst::Reg(pair_b) = self.pairs[1] else {
+            panic!("TTULD pair B must be a register");
+        };
+        assert!(pair_a.comps() == 2 && pair_b.comps() == 2);
+
+        e.set_reg(16..24, pair_b);
+        e.set_field(44..52, self.slot);
+        e.set_reg(64..72, pair_a);
+        e.set_field(81..84, 7_u8);
+        e.set_bit(74, self.close); // .CLOSE
+    }
+}
+
+impl SM70Op for OpTtuOpBundle {
+    fn legalize(&mut self, _b: &mut LegalizeBuilder) {}
+
+    fn encode(&self, _e: &mut SM70Encoder<'_>) {
+        unreachable!("TTU operation bundle must be lowered before encoding");
+    }
+}
+
 impl SM70Encoder<'_> {
     fn get_rel_offset(&mut self, label: &Label) -> i64 {
         let ip = u64::try_from(self.ip).unwrap();
@@ -4557,6 +4632,12 @@ macro_rules! sm70_op_match {
             Op::LdTram($x) => $y,
             Op::CCtl($x) => $y,
             Op::MemBar($x) => $y,
+            Op::TtuOpen($x) => $y,
+            Op::TtuMacroFuse($x) => $y,
+            Op::TtuStore($x) => $y,
+            Op::TtuGo($x) => $y,
+            Op::TtuLoad($x) => $y,
+            Op::TtuOpBundle($x) => $y,
             Op::BClear($x) => $y,
             Op::BMov($x) => $y,
             Op::Break($x) => $y,
@@ -4630,6 +4711,7 @@ pub fn encode_sm70_shader(sm: &ShaderModel70, s: &Shader<'_>) -> Vec<u32> {
                 labels: &labels,
                 inst: [0_u32; 4],
             };
+
             instr.op.encode(&mut e);
             e.set_pred(&instr.pred);
             e.set_instr_deps(&instr.deps);

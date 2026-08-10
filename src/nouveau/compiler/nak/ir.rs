@@ -7057,6 +7057,143 @@ impl DisplayOp for OpMemBar {
 }
 impl_display_for_op!(OpMemBar);
 
+/// Physical TTU instructions created when [`OpTtuOpBundle`] is expanded after
+/// optimization, scheduling, and register allocation.
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpTtuOpen {}
+
+impl DisplayOp for OpTtuOpen {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ttuopen")
+    }
+}
+impl_display_for_op!(OpTtuOpen);
+
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpTtuMacroFuse {}
+
+impl DisplayOp for OpTtuMacroFuse {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ttumacrofuse")
+    }
+}
+impl_display_for_op!(OpTtuMacroFuse);
+
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpTtuStore {
+    #[src_type(GPR)]
+    pub pairs: [Src; 2],
+    pub slot: u8,
+}
+
+impl DisplayOp for OpTtuStore {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ttust q[{:#04x}] {} {}",
+            self.slot, self.pairs[0], self.pairs[1]
+        )
+    }
+}
+impl_display_for_op!(OpTtuStore);
+
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpTtuGo {}
+
+impl DisplayOp for OpTtuGo {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ttugo")
+    }
+}
+impl_display_for_op!(OpTtuGo);
+
+#[repr(C)]
+#[derive(SrcsAsSlice, DstsAsSlice)]
+pub struct OpTtuLoad {
+    #[dst_type(Vec)]
+    pub pairs: [Dst; 2],
+    pub slot: u8,
+    pub close: bool,
+}
+
+impl DisplayOp for OpTtuLoad {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ttuld")?;
+        if self.close {
+            write!(f, ".close")?;
+        }
+        write!(
+            f,
+            " {} {} q[{:#04x}]",
+            self.pairs[0], self.pairs[1], self.slot
+        )
+    }
+}
+impl_display_for_op!(OpTtuLoad);
+
+/// Complete SM120 TTU operation bundle.
+///
+/// This virtual operation is the optimization- and allocation-level
+/// representation of the known-working operation sequence.  Keeping all
+/// inputs, predicates, and outputs on one operation preserves the sequence
+/// through generic passes and keeps every operand live until expansion.
+///
+/// `gpr_srcs` contains 14 GPR-pair sources and `pred_srcs` contains eight
+/// predicate sources.
+/// `dsts` contains the 12 GPR-pair destinations of the six output transfers.
+#[repr(C)]
+#[derive(SrcsAsSlice)]
+pub struct OpTtuOpBundle {
+    #[src_type(GPR)]
+    gpr_srcs: [Src; 14],
+    #[src_type(Pred)]
+    pred_srcs: [Src; 8],
+    dsts: [Dst; 12],
+}
+
+impl OpTtuOpBundle {
+    pub fn new(
+        gpr_srcs: [Src; 14],
+        pred_srcs: [Src; 8],
+        dsts: [Dst; 12],
+    ) -> Self {
+        Self {
+            gpr_srcs,
+            pred_srcs,
+            dsts,
+        }
+    }
+
+    pub fn into_parts(self) -> ([Src; 14], [Src; 8], [Dst; 12]) {
+        (self.gpr_srcs, self.pred_srcs, self.dsts)
+    }
+}
+
+impl DstsAsSlice for OpTtuOpBundle {
+    fn dsts_as_slice(&self) -> &[Dst] {
+        &self.dsts
+    }
+
+    fn dsts_as_mut_slice(&mut self) -> &mut [Dst] {
+        &mut self.dsts
+    }
+
+    fn dst_types(&self) -> DstTypeList {
+        DstTypeList::Uniform(DstType::Vec)
+    }
+}
+
+impl DisplayOp for OpTtuOpBundle {
+    fn fmt_op(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ttu.op.bundle")
+    }
+}
+impl_display_for_op!(OpTtuOpBundle);
+
 #[repr(C)]
 #[derive(SrcsAsSlice, DstsAsSlice)]
 pub struct OpBClear {
@@ -8171,6 +8308,11 @@ pub enum Op {
     LdTram(Box<OpLdTram>),
     CCtl(Box<OpCCtl>),
     MemBar(Box<OpMemBar>),
+    TtuOpen(Box<OpTtuOpen>),
+    TtuMacroFuse(Box<OpTtuMacroFuse>),
+    TtuStore(Box<OpTtuStore>),
+    TtuGo(Box<OpTtuGo>),
+    TtuLoad(Box<OpTtuLoad>),
     BClear(Box<OpBClear>),
     BMov(Box<OpBMov>),
     Break(Box<OpBreak>),
@@ -8207,6 +8349,7 @@ pub enum Op {
     Swap(Box<OpSwap>),
     ParCopy(Box<OpParCopy>),
     RegOut(Box<OpRegOut>),
+    TtuOpBundle(Box<OpTtuOpBundle>),
     Out(Box<OpOut>),
     OutFinal(Box<OpOutFinal>),
     Nanosleep(Box<OpNanosleep>),
@@ -8347,7 +8490,13 @@ impl Op {
             | Op::Ipa(_)
             | Op::CCtl(_)
             | Op::LdTram(_)
-            | Op::MemBar(_) => false,
+            | Op::MemBar(_)
+            | Op::TtuOpen(_)
+            | Op::TtuMacroFuse(_)
+            | Op::TtuStore(_)
+            | Op::TtuGo(_)
+            | Op::TtuLoad(_)
+            | Op::TtuOpBundle(_) => false,
 
             // Control-flow ops
             Op::BClear(_)
@@ -8421,6 +8570,9 @@ impl Op {
                 | Op::Bra(_)
                 | Op::Nanosleep(_)
                 | Op::Exit(_)
+                | Op::TtuOpen(_)
+                | Op::TtuMacroFuse(_)
+                | Op::TtuGo(_)
         )
     }
 
@@ -8535,7 +8687,13 @@ impl Op {
             | Op::Ipa(_)
             | Op::CCtl(_)
             | Op::LdTram(_)
-            | Op::MemBar(_) => false,
+            | Op::MemBar(_)
+            | Op::TtuOpen(_)
+            | Op::TtuMacroFuse(_)
+            | Op::TtuStore(_)
+            | Op::TtuGo(_)
+            | Op::TtuLoad(_)
+            | Op::TtuOpBundle(_) => false,
 
             // Control-flow ops
             Op::BClear(_)
@@ -8943,6 +9101,12 @@ impl Instr {
             | Op::Atom(_)
             | Op::CCtl(_)
             | Op::MemBar(_)
+            | Op::TtuOpen(_)
+            | Op::TtuMacroFuse(_)
+            | Op::TtuStore(_)
+            | Op::TtuGo(_)
+            | Op::TtuLoad(_)
+            | Op::TtuOpBundle(_)
             | Op::Kill(_)
             | Op::Nop(_)
             | Op::BSync(_)
@@ -9083,6 +9247,11 @@ impl Instr {
             | Op::LdTram(_)
             | Op::CCtl(_)
             | Op::MemBar(_)
+            | Op::TtuOpen(_)
+            | Op::TtuMacroFuse(_)
+            | Op::TtuStore(_)
+            | Op::TtuGo(_)
+            | Op::TtuLoad(_)
             | Op::BClear(_)
             | Op::BMov(_)
             | Op::Break(_)
@@ -9122,7 +9291,8 @@ impl Instr {
             | Op::Out(_)
             | Op::OutFinal(_)
             | Op::Nanosleep(_)
-            | Op::Annotate(_) => false,
+            | Op::Annotate(_)
+            | Op::TtuOpBundle(_) => false,
         }
     }
 }
