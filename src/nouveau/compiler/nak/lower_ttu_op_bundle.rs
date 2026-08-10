@@ -217,15 +217,54 @@ pub(crate) mod tests {
         last_predicate: Src,
         outputs: [u32; 12],
     ) -> OpTtuOpBundle {
-        let mut srcs: [Src; 22] = std::array::from_fn(|_| true.into());
+        let mut gpr_srcs: [Src; 14] = std::array::from_fn(|_| true.into());
         for i in 0..7 {
             let base = u32::try_from(i).unwrap() * 4;
-            srcs[i * 2] = SrcRef::Reg(gpr_pair(base)).into();
-            srcs[i * 2 + 1] = SrcRef::Reg(gpr_pair(base + 2)).into();
+            gpr_srcs[i * 2] = SrcRef::Reg(gpr_pair(base)).into();
+            gpr_srcs[i * 2 + 1] = SrcRef::Reg(gpr_pair(base + 2)).into();
         }
-        srcs[21] = last_predicate;
+        let mut pred_srcs = std::array::from_fn(|_| true.into());
+        pred_srcs[7] = last_predicate;
         let dsts = outputs.map(|reg| Dst::Reg(gpr_pair(reg)));
-        OpTtuOpBundle::new(srcs, dsts)
+        OpTtuOpBundle::new(gpr_srcs, pred_srcs, dsts)
     }
 
+    #[test]
+    fn lowers_false_predicate_in_packet() {
+        let sm = ShaderModelInfo::new(120, 0);
+        let outputs =
+            std::array::from_fn(|i| 32 + u32::try_from(i).unwrap() * 2);
+        let bundle =
+            Op::TtuOpBundle(Box::new(allocated_bundle(false.into(), outputs)));
+        assert!(!bundle.is_uniform());
+        let mut s = test_shader(&sm, vec![Instr::new(bundle)]);
+        s.lower_ttu_op_bundle();
+
+        let instrs = &s.functions[0].blocks[0].instrs;
+        assert_eq!(instrs.len(), 17);
+        assert!(matches!(
+            &instrs[16].op,
+            Op::TtuLoad(op) if op.close
+        ));
+        assert!(instrs[9].pred.is_false());
+    }
+
+    #[test]
+    fn preserves_packet_scheduling() {
+        let sm = ShaderModelInfo::new(120, 0);
+        let outputs =
+            std::array::from_fn(|i| 64 + u32::try_from(i).unwrap() * 2);
+        let bundle =
+            Op::TtuOpBundle(Box::new(allocated_bundle(true.into(), outputs)));
+        let mut s = test_shader(&sm, vec![Instr::new(bundle)]);
+        s.lower_ttu_op_bundle();
+        s.calc_instr_deps();
+
+        let instrs = &s.functions[0].blocks[0].instrs;
+        assert_eq!(instrs[0].deps.delay, 6);
+        assert_eq!(instrs[1].deps.delay, 4);
+        assert!(instrs[2..16].iter().all(|instr| instr.deps.delay == 1));
+        assert_eq!(instrs[16].deps.delay, 2);
+        assert_eq!(instrs[10].deps.wt_bar_mask, 0);
+    }
 }
