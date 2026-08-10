@@ -1618,6 +1618,11 @@ nak_postprocess_nir(nir_shader *nir,
    if (mesa_shader_stage_is_mesh(nir->info.stage))
       OPT(nir, nak_nir_lower_mesh_stages_shared_atomics);
 
+   if (nak->sm >= 120) {
+      /* Lower ray queries before deref lowering and variable splitting. */
+      OPT(nir, nak_nir_lower_ray_queries);
+   }
+
    nak_optimize_nir(nir, nak);
 
    const nir_lower_subgroups_options subgroups_options = {

@@ -2992,6 +2992,18 @@ intrinsic("subgroup_barrier_index_intel", dest_comp=1, src_comp=[],
           bit_sizes=[32], indices=[BASE])
 
 # NVIDIA-specific intrinsics
+
+# One complete SM120 TTU operation bundle.  The first seven sources are the
+# unique vec4 payloads for input slots 0x00, 0x04, 0x05, 0x08, 0x10, 0x18,
+# and 0x19.  Slot 0x20 reuses the slot 0x10 payload.  The last source is the
+# corresponding vec8 of lane predicates.
+#
+# Each 64-bit destination component represents one output GPR pair. Components
+# 0..11 contain the two pairs from slots 0x38, 0x3c, 0x3d, 0x32, 0x31, and 0x30;
+# components 12..15 are unused padding required by NIR's vector-size rules.
+intrinsic("ttu_op_bundle_nv", src_comp=[4, 4, 4, 4, 4, 4, 4, 8],
+          dest_comp=16, bit_sizes=[64])
+
 # src[] = { index, offset }.
 intrinsic("ldc_nv", dest_comp=0, src_comp=[1, 1],
           indices=[BASE, ACCESS, ALIGN_MUL, ALIGN_OFFSET],

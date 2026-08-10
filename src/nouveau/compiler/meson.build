@@ -25,6 +25,7 @@ libnak_c_files = files(
   'nak_nir_lower_image_addrs.c',
   'nak_nir_lower_mesh_intrinsics.c',
   'nak_nir_lower_non_uniform_ldcx.c',
+  'nak_nir_lower_ray_queries.c',
   'nak_nir_lower_scan_reduce.c',
   'nak_nir_lower_shared_atomics.c',
   'nak_nir_lower_tex.c',
@@ -113,36 +114,6 @@ _libnak_rs = static_library(
   ],
 )
 
-# TODO: Linking Rust executables (such as unit tests) doesn't play nicely
-# with the sanitizers because meson doesn't know to pass -fsanitize to the
-# Rust linker.  See also https://github.com/mesonbuild/meson/issues/11741
-#
-# Also, don't build on Android because we do cross-builds and, unlike most
-# tests, these depend on libdrm and that confuses the build system.
-if with_tests and get_option('b_sanitize') == 'none' and not with_platform_android
-  rust.test(
-    'nak',
-    _libnak_rs,
-    args : [
-      # Don't run HW or nvdisasm tests by default
-      '--skip', 'hw_tests::',
-      '--skip', 'nvdisasm_tests::',
-    ],
-    suite : ['nouveau'],
-    dependencies : [
-      dep_libdrm,
-      idep_nouveau_ws,
-      idep_compiler.partial_dependency(link_args : true, links : true),
-      idep_mesautil.partial_dependency(link_args : true, links : true),
-      idep_nv_push_rs,
-      idep_acorn_rs,
-    ],
-    # This is needed to ensure we link against glibc
-    # See also https://gitlab.freedesktop.org/mesa/mesa/-/issues/11632
-    rust_args: ['-C', 'default-linker-libraries'],
-  )
-endif
-
 nak_nir_algebraic_c = custom_target(
   'nak_nir_algebraic.c',
   input : 'nak_nir_algebraic.py',
@@ -169,3 +140,40 @@ idep_nak = declare_dependency(
   include_directories : include_directories('.'),
   link_with : _libnak,
 )
+
+# TODO: Linking Rust executables (such as unit tests) doesn't play nicely
+# with the sanitizers because meson doesn't know to pass -fsanitize to the
+# Rust linker.  See also https://github.com/mesonbuild/meson/issues/11741
+#
+# Also, don't build on Android because we do cross-builds and, unlike most
+# tests, these depend on libdrm and that confuses the build system.
+if with_tests and get_option('b_sanitize') == 'none' and not with_platform_android
+  _libnak_sm120_ray_query_test = static_library(
+    'nak_sm120_ray_query_test',
+    files('nak_sm120_ray_query_test.c'),
+    dependencies : libnak_deps,
+  )
+
+  rust.test(
+    'nak',
+    _libnak_rs,
+    args : [
+      # Don't run HW or nvdisasm tests by default
+      '--skip', 'hw_tests::',
+      '--skip', 'nvdisasm_tests::',
+    ],
+    suite : ['nouveau'],
+    dependencies : [
+      dep_libdrm,
+      idep_nouveau_ws,
+      idep_compiler.partial_dependency(link_args : true, links : true),
+      idep_mesautil.partial_dependency(link_args : true, links : true),
+      idep_nv_push_rs,
+      idep_acorn_rs,
+    ],
+    link_with : [_libnak_sm120_ray_query_test, _libnak, _libnir],
+    # This is needed to ensure we link against glibc
+    # See also https://gitlab.freedesktop.org/mesa/mesa/-/issues/11632
+    rust_args: ['-C', 'default-linker-libraries'],
+  )
+endif
