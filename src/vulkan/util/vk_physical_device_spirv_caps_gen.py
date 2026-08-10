@@ -57,8 +57,9 @@ NON_EXISTANT_CAPS = [
     #
     # https://gitlab.khronos.org/spirv/spirv-extensions/-/merge_requests/238
     'ClusterCullingShadingHUAWEI',
+]
 
-    # Exclude the one beta cap.
+BETA_CAPS = [
     'ShaderEnqueueAMDX',
 
     'ImageGatherLinearQCOM',
@@ -89,6 +90,9 @@ def get_capabilities(doc, beta):
     for cap in doc.findall('./spirvcapabilities/spirvcapability'):
         name = cap.attrib['name']
         if name in NON_EXISTANT_CAPS:
+            continue
+
+        if not beta and name in BETA_CAPS:
             continue
 
         enables = cap.findall('enable')
