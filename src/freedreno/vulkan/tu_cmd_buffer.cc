@@ -3352,7 +3352,7 @@ tu7_write_and_wait_onchip_timestamp(struct tu_cs *cs, enum tu_onchip_addr onchip
 
 static bool
 tu7_emit_concurrent_binning_gmem(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
-                                 bool use_hw_binning)
+                                 bool use_hw_binning, uint32_t tile_count)
 {
    /* xfb queries use data from the binning pass. If they are running outside
     * of a RP then we may have to deal with a mix of GMEM/sysmem renderpasses
@@ -3371,8 +3371,13 @@ tu7_emit_concurrent_binning_gmem(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
    tu7_cb_disable_reason(disable_cb, cmd,
       "xfb/prim-gen/prim-counters/vtx-stats query is running");
    tu7_cb_disable_reason(!use_hw_binning, cmd, "hw binning disabled");
+   /* With a single tile there's nothing for BV to bin ahead of BR while BR
+    * renders, so concurrent binning has no benefit.
+    */
+   tu7_cb_disable_reason(tile_count <= 1, cmd, "single tile");
 
-   if (!tu7_emit_concurrent_binning_start(cmd, cs, disable_cb || !use_hw_binning))
+   if (!tu7_emit_concurrent_binning_start(cmd, cs, disable_cb || !use_hw_binning ||
+                                          tile_count <= 1))
       return false;
 
    tu7_emit_concurrent_binning(cmd, cs);
@@ -3507,7 +3512,7 @@ tu6_tile_render_begin(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
 
    if (CHIP >= A7XX) {
       tu7_emit_tile_render_begin_regs<CHIP>(cs);
-      use_cb = tu7_emit_concurrent_binning_gmem(cmd, cs, use_binning);
+      use_cb = tu7_emit_concurrent_binning_gmem(cmd, cs, use_binning, tile_count);
    }
 
    if (!use_cb)
