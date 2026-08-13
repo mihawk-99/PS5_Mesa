@@ -250,11 +250,10 @@ struct ac_spm {
 
    /* Optional user-supplied counter config (loaded from
     * RADV_SPM_COUNTERS_CONFIG). When non-NULL, ac_spm_get_derived_trace
-    * emits user-named counters/groups into the derived SPM chunk. Not
-    * owned by ac_spm; the caller is responsible for keeping it alive
-    * until ac_destroy_spm() returns and for destroying it afterwards.
+    * emits user-named counters/groups into the derived SPM chunk. Owned
+    * by ac_spm and destroyed by ac_destroy_spm().
     */
-   const struct ac_spm_user_config *user_config;
+   struct ac_spm_user_config *user_config;
 };
 
 struct ac_spm_trace {

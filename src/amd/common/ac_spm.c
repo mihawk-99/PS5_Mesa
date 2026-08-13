@@ -867,6 +867,9 @@ void ac_destroy_spm(struct ac_spm *spm)
 
    FREE(spm->block_sel);
    FREE(spm->counters);
+
+   ac_spm_user_config_destroy(spm->user_config);
+   spm->user_config = NULL;
 }
 
 static uint32_t ac_spm_get_sample_size(const struct ac_spm *spm)
