@@ -8,9 +8,11 @@
 #include "si_query.h"
 #include "gfx/si_gfx.h"
 #include "util/u_memory.h"
+#include "util/os_misc.h"
 
 #include "ac_cmdbuf_cp.h"
 #include "ac_perfcounter.h"
+#include "ac_spm_config.h"
 
 struct si_query_group {
    struct si_query_group *next;
@@ -703,9 +705,18 @@ si_spm_init(struct si_context *sctx)
    sctx->screen->perfcounters->num_instance_cs_dwords = 3;
 
    struct ac_perfcounters *pc = &sctx->screen->perfcounters->base;
+   const char *config_path = os_get_option("AMD_SPM_COUNTERS_CONFIG");
 
    if (!ac_init_perfcounters(info, false, false, pc))
       return false;
+
+   if ((!config_path || !config_path[0]))
+      config_path = os_get_option("RADV_SPM_COUNTERS_CONFIG");
+
+   if (config_path && config_path[0]) {
+      if (!ac_spm_user_config_load(config_path, pc, &sctx->spm.user_config))
+         return false;
+   }
 
    if (!ac_init_spm(info, pc, &sctx->spm))
       return false;
