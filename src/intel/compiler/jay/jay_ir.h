@@ -859,11 +859,16 @@ jay_ugpr_per_grf(jay_shader *s)
 }
 
 static inline unsigned
-jay_grf_per_gpr(jay_shader *s)
+jay_grf_per_gpr_at_width(jay_shader *s, unsigned width)
 {
    assert(reg_unit(s->devinfo) == 1 || reg_unit(s->devinfo) == 2);
-   return reg_unit(s->devinfo) == 2 ? (s->dispatch_width / 16) :
-                                      (s->dispatch_width / 8);
+   return reg_unit(s->devinfo) == 2 ? (width / 16) : (width / 8);
+}
+
+static inline unsigned
+jay_grf_per_gpr(jay_shader *s)
+{
+   return jay_grf_per_gpr_at_width(s, s->dispatch_width);
 }
 
 static inline unsigned
