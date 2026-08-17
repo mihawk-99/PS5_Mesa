@@ -1000,6 +1000,14 @@ panfrost_get_timestamp(struct pipe_screen *pscreen)
    return pan_gpu_time_to_ns(dev, pan_kmod_query_timestamp(dev->kmod.dev));
 }
 
+static uint64_t
+panfrost_convert_timestamp(struct pipe_screen *pscreen, uint64_t raw_timestamp)
+{
+   struct panfrost_device *dev = pan_device(pscreen);
+
+   return pan_gpu_time_to_ns(dev, raw_timestamp);
+}
+
 static int
 get_core_mask(const struct panfrost_device *dev,
               const struct pipe_screen_config *config,
@@ -1123,6 +1131,7 @@ panfrost_create_screen(int fd, const struct pipe_screen_config *config,
    screen->base.get_cl_cts_version = panfrost_get_cl_cts_version;
    screen->base.get_driver_query_info = panfrost_get_driver_query_info;
    screen->base.get_timestamp = panfrost_get_timestamp;
+   screen->base.convert_timestamp = panfrost_convert_timestamp;
    screen->base.is_format_supported = panfrost_is_format_supported;
    screen->base.query_dmabuf_modifiers = panfrost_query_dmabuf_modifiers;
    screen->base.is_dmabuf_modifier_supported =

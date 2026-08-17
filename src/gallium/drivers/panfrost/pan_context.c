@@ -653,6 +653,7 @@ panfrost_create_query(struct pipe_context *pipe, unsigned type, unsigned index)
       size = sizeof(uint64_t) * dev->core_id_range;
       break;
    case PIPE_QUERY_TIMESTAMP:
+   case PIPE_QUERY_TIMESTAMP_RAW:
       size = sizeof(uint64_t);
       break;
    case PIPE_QUERY_TIME_ELAPSED:
@@ -728,6 +729,7 @@ panfrost_begin_query(struct pipe_context *pipe, struct pipe_query *q)
    }
 
    case PIPE_QUERY_TIMESTAMP:
+   case PIPE_QUERY_TIMESTAMP_RAW:
    case PIPE_QUERY_TIMESTAMP_DISJOINT:
       /* This is a no op on query start */
       break;
@@ -772,7 +774,8 @@ panfrost_end_query(struct pipe_context *pipe, struct pipe_query *q)
       ctx->occlusion_query = NULL;
       ctx->dirty |= PAN_DIRTY_OQ;
       break;
-   case PIPE_QUERY_TIMESTAMP: {
+   case PIPE_QUERY_TIMESTAMP:
+   case PIPE_QUERY_TIMESTAMP_RAW: {
       struct panfrost_resource *rsrc = pan_resource(query->rsrc);
       panfrost_emit_write_timestamp(ctx, rsrc, 0, "TIMESTAMP end_query");
       break;
@@ -843,6 +846,15 @@ panfrost_get_query_result(struct pipe_context *pipe, struct pipe_query *q,
       break;
    }
 
+   case PIPE_QUERY_TIMESTAMP_RAW: {
+      panfrost_flush_writer(ctx, rsrc, "Raw timestamp query");
+      panfrost_bo_wait(rsrc->bo, INT64_MAX, false);
+      uint64_t *timestamp = (uint64_t *)rsrc->bo->ptr.cpu;
+
+      vresult->u64 = *timestamp;
+      break;
+   }
+
    case PIPE_QUERY_TIMESTAMP_DISJOINT: {
       vresult->timestamp_disjoint.frequency =
          dev->kmod.dev->props.timestamp_frequency;
@@ -875,6 +887,33 @@ panfrost_get_query_result(struct pipe_context *pipe, struct pipe_query *q,
    }
 
    return true;
+}
+
+static void
+panfrost_get_query_result_resource(struct pipe_context *pipe,
+                                   struct pipe_query *q,
+                                   enum pipe_query_flags flags,
+                                   enum pipe_query_value_type result_type,
+                                   int index,
+                                   struct pipe_resource *resource,
+                                   unsigned offset)
+{
+   struct panfrost_query *query = (struct panfrost_query *)q;
+   struct panfrost_screen *screen = pan_screen(pipe->screen);
+
+   assert(query->type == PIPE_QUERY_TIMESTAMP_RAW);
+   assert(flags & PIPE_QUERY_WAIT);
+   assert(result_type == PIPE_QUERY_TYPE_U64);
+   assert(index == 0);
+   assert(screen->vtbl.compute_copy_buffer);
+
+   struct panfrost_resource *dst = pan_resource(resource);
+   struct panfrost_resource *src = pan_resource(query->rsrc);
+
+   screen->vtbl.compute_copy_buffer(pipe, dst, offset, src, 0,
+                                    sizeof(uint64_t));
+   util_range_add(&dst->base, &dst->valid_buffer_range, offset,
+                  offset + sizeof(uint64_t));
 }
 
 /*
@@ -1130,6 +1169,7 @@ panfrost_create_context(struct pipe_screen *screen, void *priv, unsigned flags)
    gallium->begin_query = panfrost_begin_query;
    gallium->end_query = panfrost_end_query;
    gallium->get_query_result = panfrost_get_query_result;
+   gallium->get_query_result_resource = panfrost_get_query_result_resource;
 
    gallium->create_stream_output_target = panfrost_create_stream_output_target;
    gallium->stream_output_target_destroy =
