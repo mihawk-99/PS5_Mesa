@@ -530,9 +530,13 @@ ac_clear_copy_calc_dwords_per_thread(const struct ac_cs_clear_copy_buffer_option
    case GFX10:
    case GFX10_3:
    case GFX11:
+      /* Optimal for Navi31, Navi21, Navi10. */
+      break;
+
    case GFX11_5:
    case GFX11_7:
-      /* Optimal for Navi31, Navi21, Navi10. */
+      /* Optimal for Strix Halo. */
+      dwords_per_thread = info->size <= 2 * 1024 ? 2 : 4;
       break;
 
    default:
