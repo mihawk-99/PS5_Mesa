@@ -93,6 +93,7 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
       fprintf(stderr, "   key.addr_user_data = %u\n", key->addr_user_data);
       fprintf(stderr, "   key.dwords_per_thread = %u\n", key->dwords_per_thread);
       fprintf(stderr, "   key.clear_value_size_is_12 = %u\n", key->clear_value_size_is_12);
+      fprintf(stderr, "   key.clear_value_size_is_4 = %u\n", key->clear_value_size_is_4);
       fprintf(stderr, "   key.src_scalarize_for_sparse = %u\n", key->src_scalarize_for_sparse);
       fprintf(stderr, "   key.src_align_offset = %u\n", key->src_align_offset);
       fprintf(stderr, "   key.dst_align_offset = %u\n", key->dst_align_offset);
@@ -109,7 +110,7 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
          options->nir_options,
          "%s%s%s_buffer_cs_dw%u_srcao_%u_dstao_%u_dstltb_%u_dststua_%u_hst_%u",
          key->is_clear ? "clear" : "copy",
-         key->clear_value_size_is_12 ? "12" : "",
+         key->clear_value_size_is_12 ? "12" : key->clear_value_size_is_4 ? "4" : "",
          key->src_scalarize_for_sparse ? "_sparse" : "",
          key->dwords_per_thread,
          key->src_align_offset,
@@ -136,7 +137,9 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
    unsigned clear_value_user_data_index = b.shader->info.cs.user_data_components_amd;
    if (key->is_clear) {
       b.shader->info.cs.user_data_components_amd +=
-         key->clear_value_size_is_12 ? 3 : key->dwords_per_thread;
+         key->clear_value_size_is_12 ? 3 :
+         key->clear_value_size_is_4 ? 1 :
+         key->dwords_per_thread;
    }
 
    /* Add the last thread ID value. */
@@ -168,7 +171,8 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
    nir_def *value;
 
    if (key->is_clear) {
-      value = nir_extract_bits(&b, &user_data, 1, clear_value_user_data_index * 32, key->dwords_per_thread, 32);
+      const unsigned userdata_dwords = key->clear_value_size_is_4 ? 1 : key->dwords_per_thread;
+      value = nir_extract_bits(&b, &user_data, 1, clear_value_user_data_index * 32, userdata_dwords, 32);
 
       /* We store 4 dwords per thread, but the clear value has 3 dwords. Swizzle it to 4 dwords.
        * Storing 4 dwords per thread is faster even when the ALU cost is worse.
@@ -188,6 +192,9 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
                                         nir_umod_imm(&b, nir_iadd_imm(&b, dw_offset, i), 3));
          }
          value = nir_vec4(&b, vec[0], vec[1], vec[2], vec[0]);
+      } else if (key->clear_value_size_is_4 && key->dwords_per_thread > 1) {
+         nir_def *arr[] = {value, value, value, value};
+         value = nir_vec(&b, arr, key->dwords_per_thread);
       }
    } else {
       /* The hw doesn't support unaligned 32-bit loads, and only supports single-component
@@ -630,6 +637,11 @@ ac_prepare_clear_value_user_data(const int clear_value_size,
                                  const uint32_t *const clear_value,
                                  uint32_t *user_data_clear_value)
 {
+   if (clear_value_size == 4) {
+      user_data_clear_value[0] = *clear_value;
+      return 1;
+   }
+
    assert(clear_value_size >= 4 && clear_value_size <= 16 &&
           (clear_value_size == 12 || util_is_power_of_two_or_zero(clear_value_size)));
 
@@ -708,6 +720,7 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
    assert(dwords_per_thread && dwords_per_thread <= 4);
    out->shader_key.dwords_per_thread = dwords_per_thread;
    out->shader_key.clear_value_size_is_12 = !is_copy && clear_value_size == 12;
+   out->shader_key.clear_value_size_is_4 = !is_copy && clear_value_size == 4;
    /* If the src load size is aligned to 2^n and the src load address in every invocation is aligned
     * to the load size, loads are guaranteed to never be partially non-resident, so we don't have to
     * scalarize them. Every sparse buffer is aligned to a page, so we don't need to check whether the
