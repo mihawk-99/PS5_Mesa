@@ -354,6 +354,108 @@ ac_create_clear_copy_buffer_cs(const struct ac_cs_clear_copy_buffer_options *con
    return b.shader;
 }
 
+static bool
+ac_clear_copy_can_use_cp_dma(const struct ac_cs_clear_copy_buffer_options *const options,
+                             const struct ac_cs_clear_copy_buffer_info *const info)
+{
+   bool can_use_cp_dma = options->info->has_cp_dma;
+
+   /* CP DMA doesn't support sparse on GFX6-9, so we must use compute for that. */
+   if (!options->info->cp_dma_supports_sparse)
+      can_use_cp_dma &= !info->src_is_sparse && !info->dst_is_sparse;
+
+   /* CP DMA only supports dword-aligned clears and small clear values. */
+   if (info->clear_value_size)
+      can_use_cp_dma &= info->clear_value_size <= 4 && info->dst_offset % 4 == 0 && info->size % 4 == 0;
+
+   /* CP DMA doesn't support the render condition (conditional rendering in Vulkan) */
+   if (info->render_condition_enabled)
+      can_use_cp_dma = false;
+
+   return can_use_cp_dma;
+}
+
+static bool
+ac_clear_copy_should_use_compute(const struct ac_cs_clear_copy_buffer_options *options,
+                                 const struct ac_cs_clear_copy_buffer_info *info)
+{
+   const bool is_copy = info->clear_value_size == 0;
+   const bool can_use_cp_dma = ac_clear_copy_can_use_cp_dma(options, info);
+
+   if (!can_use_cp_dma)
+      return true;
+
+   if (!options->fail_if_slow)
+      return true;
+
+   switch (options->info->gfx_level) {
+   /* GFX6-8: CP DMA clears are so slow that we risk getting a GPU timeout.
+    * CP DMA copies are also slow but less.
+    */
+   case GFX6:
+      /* Optimal for Tahiti. */
+      if (is_copy) {
+         if (!info->dst_is_vram || !info->src_is_vram ||
+               info->size <= (info->dst_offset % 4 ||
+                              (info->dst_offset == 4 && info->src_offset % 4) ? 32 * 1024 : 16 * 1024))
+            return false;
+      } else {
+         if (info->dst_is_vram && info->size <= 1024)
+            return false;
+      }
+      break;
+
+   case GFX7:
+      /* Optimal for Hawaii. */
+      if (is_copy && info->dst_is_vram && info->src_is_vram && info->size <= 512)
+         return false;
+      break;
+
+   case GFX8:
+      /* Optimal for Tonga. */
+      break;
+
+   case GFX9:
+      /* Optimal for Vega10. */
+      if (is_copy) {
+         if (info->src_is_vram) {
+            if (info->dst_is_vram) {
+               if (info->size < 4096)
+                  return false;
+            } else {
+               if (info->size < (info->dst_offset % 64 ? 8192 : 2048))
+                  return false;
+            }
+         } else {
+            /* GTT->VRAM and GTT->GTT. */
+            return false;
+         }
+      } else {
+         if (!info->dst_is_vram && (info->size < 2048 || info->size >= 8 << 20 /* 8 MB */))
+            return false;
+      }
+      break;
+
+   case GFX10:
+   case GFX10_3:
+      /* Optimal for Navi21, Navi10. */
+      break;
+
+   case GFX11:
+   default:
+      /* Optimal for Navi31. */
+      if (is_copy && info->size < 1024 && info->dst_offset % 256 && info->dst_is_vram && info->src_is_vram)
+         return false;
+      break;
+
+   case GFX12:
+      /* Optimal for Navi 48. */
+      break;
+   }
+
+   return true;
+}
+
 bool
 ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *options,
                                 const struct ac_cs_clear_copy_buffer_info *info,
@@ -375,82 +477,8 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
       assert(clear_value_size % 4 == 0);
    }
 
-   /* This doesn't fail very often because the only possible fallback is CP DMA, which doesn't
-    * support the render condition.
-    *
-    * CP DMA doesn't support sparse on GFX6-9, so we must use compute for that.
-    */
-   if (options->fail_if_slow && !info->render_condition_enabled && options->info->has_cp_dma &&
-       ((!info->src_is_sparse && !info->dst_is_sparse) || options->info->cp_dma_supports_sparse) &&
-       !options->info->cp_sdma_ge_use_system_memory_scope) {
-      switch (options->info->gfx_level) {
-      /* GFX6-8: CP DMA clears are so slow that we risk getting a GPU timeout. CP DMA copies
-       * are also slow but less.
-       */
-      case GFX6:
-         /* Optimal for Tahiti. */
-         if (is_copy) {
-            if (!info->dst_is_vram || !info->src_is_vram ||
-                info->size <= (info->dst_offset % 4 ||
-                               (info->dst_offset == 4 && info->src_offset % 4) ? 32 * 1024 : 16 * 1024))
-               return false;
-         } else {
-            /* CP DMA only supports dword-aligned clears and small clear values. */
-            if (clear_value_size <= 4 && info->dst_offset % 4 == 0 && info->size % 4 == 0 &&
-                info->dst_is_vram && info->size <= 1024)
-               return false;
-         }
-         break;
-
-      case GFX7:
-         /* Optimal for Hawaii. */
-         if (is_copy && info->dst_is_vram && info->src_is_vram && info->size <= 512)
-            return false;
-         break;
-
-      case GFX8:
-         /* Optimal for Tonga. */
-         break;
-
-      case GFX9:
-         /* Optimal for Vega10. */
-         if (is_copy) {
-            if (info->src_is_vram) {
-               if (info->dst_is_vram) {
-                  if (info->size < 4096)
-                     return false;
-               } else {
-                  if (info->size < (info->dst_offset % 64 ? 8192 : 2048))
-                     return false;
-               }
-            } else {
-               /* GTT->VRAM and GTT->GTT. */
-               return false;
-            }
-         } else {
-            /* CP DMA only supports dword-aligned clears and small clear values. */
-            if (clear_value_size <= 4 && info->dst_offset % 4 == 0 && info->size % 4 == 0 &&
-                !info->dst_is_vram && (info->size < 2048 || info->size >= 8 << 20 /* 8 MB */))
-               return false;
-         }
-         break;
-
-      case GFX10:
-      case GFX10_3:
-         /* Optimal for Navi21, Navi10. */
-         break;
-
-      case GFX11:
-      default:
-         /* Optimal for Navi31. */
-         if (is_copy && info->size < 1024 && info->dst_offset % 256 && info->dst_is_vram && info->src_is_vram)
-            return false;
-         break;
-
-      case GFX12:
-         UNREACHABLE("cp_sdma_ge_use_system_memory_scope should be true, so we should never get here");
-      }
-   }
+   if (!ac_clear_copy_should_use_compute(options, info))
+      return false;
 
    unsigned dwords_per_thread = info->dwords_per_thread;
 
