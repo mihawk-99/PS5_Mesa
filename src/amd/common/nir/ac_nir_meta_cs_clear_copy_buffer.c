@@ -456,6 +456,124 @@ ac_clear_copy_should_use_compute(const struct ac_cs_clear_copy_buffer_options *o
    return true;
 }
 
+static unsigned
+ac_clear_copy_calc_dwords_per_thread(const struct ac_cs_clear_copy_buffer_options *options,
+                                     const struct ac_cs_clear_copy_buffer_info *info,
+                                     const int clear_value_size)
+{
+   if (info->dwords_per_thread)
+      return info->dwords_per_thread;
+
+   const bool is_copy = clear_value_size == 0;
+
+   /* Determine optimal dwords_per_thread for performance.
+    * This is a good initial value to start with.
+    */
+   unsigned dwords_per_thread = info->size <= 64 * 1024 ? 2 : 4;
+
+   /* Clearing 4 dwords per thread with a 3-dword clear value is faster with big sizes. */
+   if (!is_copy && clear_value_size == 12)
+      dwords_per_thread = info->size <= 4096 ? 3 : 4;
+
+   switch (options->info->gfx_level) {
+   case GFX6:
+      /* Optimal for Tahiti. */
+      if (is_copy) {
+         if (info->dst_is_vram && info->src_is_vram)
+            dwords_per_thread = 2;
+      } else {
+         if (info->dst_is_vram && clear_value_size != 12)
+            dwords_per_thread = info->size <= 128 * 1024 || info->size >= 4 << 20 /* 4MB */ ? 2 : 4;
+
+         if (clear_value_size == 12)
+            dwords_per_thread = info->size <= (info->dst_is_vram ? 256 : 128) * 1024 ? 3 : 4;
+      }
+      break;
+
+   case GFX7:
+      /* Optimal for Hawaii. */
+      if (is_copy) {
+         if (info->dst_is_vram && info->src_is_vram && info->dst_offset % 4 == 0 &&
+               info->size >= 8 << 20 /* 8MB */)
+            dwords_per_thread = 2;
+      } else {
+         if (info->dst_is_vram && clear_value_size != 12)
+            dwords_per_thread = info->size <= 32 * 1024 ? 2 : 4;
+
+         if (clear_value_size == 12)
+            dwords_per_thread = info->size <= 256 * 1024 ? 3 : 4;
+      }
+      break;
+
+   case GFX8:
+      /* Optimal for Tonga. */
+      if (is_copy) {
+         dwords_per_thread = 2;
+      } else {
+         if (clear_value_size == 12 && info->size < (2 << 20) /* 2MB */)
+            dwords_per_thread = 3;
+      }
+      break;
+
+   case GFX9:
+      /* Optimal for Vega10. */
+      if (is_copy && info->src_is_vram && info->dst_is_vram && info->size >= 8 << 20 /* 8 MB */)
+         dwords_per_thread = 2;
+
+      if (!info->dst_is_vram)
+         dwords_per_thread = 2;
+      break;
+
+   case GFX10:
+   case GFX10_3:
+   case GFX11:
+   case GFX11_5:
+   case GFX11_7:
+      /* Optimal for Navi31, Navi21, Navi10. */
+      break;
+
+   default:
+   case GFX12:
+      /* Optimal for Navi48. */
+      if (!is_copy && clear_value_size == 12 && info->size <= 512 * 1024)
+         dwords_per_thread = 3;
+      break;
+   }
+
+   /* dwords_per_thread must be at least the size of the clear value. */
+   if (!is_copy)
+      dwords_per_thread = MAX2(dwords_per_thread, clear_value_size / 4);
+
+   if (info->dst_is_sparse) {
+      /* If dst is sparse, stores mustn't straddle a page boundary, which means the store size must
+       * be 2^n. It can only be a non-power-of-two and 3 with GL buffer clears because VK doesn't
+       * have 12-byte clear values.
+       */
+      if (dwords_per_thread == 3)
+         dwords_per_thread = 4;
+
+      assert(util_is_power_of_two_nonzero(dwords_per_thread));
+   }
+
+   /* Validate dwords_per_thread. */
+   if (dwords_per_thread > 4) {
+      assert(!"dwords_per_thread must be <= 4");
+      return 0; /* invalid value */
+   }
+
+   if (clear_value_size > dwords_per_thread * 4) {
+      assert(!"clear_value_size must be <= dwords_per_thread");
+      return 0; /* invalid value */
+   }
+
+   if (clear_value_size == 12 && info->dst_offset % 4) {
+      assert(!"if clear_value_size == 12, dst_offset must be aligned to 4");
+      return 0; /* invalid value */
+   }
+
+   return dwords_per_thread;
+}
+
 bool
 ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *options,
                                 const struct ac_cs_clear_copy_buffer_info *info,
@@ -480,113 +598,9 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
    if (!ac_clear_copy_should_use_compute(options, info))
       return false;
 
-   unsigned dwords_per_thread = info->dwords_per_thread;
-
-   /* Determine optimal dwords_per_thread for performance. */
-   if (!info->dwords_per_thread) {
-      /* This is a good initial value to start with. */
-      dwords_per_thread = info->size <= 64 * 1024 ? 2 : 4;
-
-      /* Clearing 4 dwords per thread with a 3-dword clear value is faster with big sizes. */
-      if (!is_copy && clear_value_size == 12)
-         dwords_per_thread = info->size <= 4096 ? 3 : 4;
-
-      switch (options->info->gfx_level) {
-      case GFX6:
-         /* Optimal for Tahiti. */
-         if (is_copy) {
-            if (info->dst_is_vram && info->src_is_vram)
-               dwords_per_thread = 2;
-         } else {
-            if (info->dst_is_vram && clear_value_size != 12)
-               dwords_per_thread = info->size <= 128 * 1024 || info->size >= 4 << 20 /* 4MB */ ? 2 : 4;
-
-            if (clear_value_size == 12)
-               dwords_per_thread = info->size <= (info->dst_is_vram ? 256 : 128) * 1024 ? 3 : 4;
-         }
-         break;
-
-      case GFX7:
-         /* Optimal for Hawaii. */
-         if (is_copy) {
-            if (info->dst_is_vram && info->src_is_vram && info->dst_offset % 4 == 0 &&
-                info->size >= 8 << 20 /* 8MB */)
-               dwords_per_thread = 2;
-         } else {
-            if (info->dst_is_vram && clear_value_size != 12)
-               dwords_per_thread = info->size <= 32 * 1024 ? 2 : 4;
-
-            if (clear_value_size == 12)
-               dwords_per_thread = info->size <= 256 * 1024 ? 3 : 4;
-         }
-         break;
-
-      case GFX8:
-         /* Optimal for Tonga. */
-         if (is_copy) {
-            dwords_per_thread = 2;
-         } else {
-            if (clear_value_size == 12 && info->size < (2 << 20) /* 2MB */)
-               dwords_per_thread = 3;
-         }
-         break;
-
-      case GFX9:
-         /* Optimal for Vega10. */
-         if (is_copy && info->src_is_vram && info->dst_is_vram && info->size >= 8 << 20 /* 8 MB */)
-            dwords_per_thread = 2;
-
-         if (!info->dst_is_vram)
-            dwords_per_thread = 2;
-         break;
-
-      case GFX10:
-      case GFX10_3:
-      case GFX11:
-      case GFX11_5:
-      case GFX11_7:
-         /* Optimal for Navi31, Navi21, Navi10. */
-         break;
-
-      default:
-      case GFX12:
-         /* Optimal for Navi48. */
-         if (!is_copy && clear_value_size == 12 && info->size <= 512 * 1024)
-            dwords_per_thread = 3;
-         break;
-      }
-   }
-
-   /* dwords_per_thread must be at least the size of the clear value. */
-   if (!is_copy)
-      dwords_per_thread = MAX2(dwords_per_thread, clear_value_size / 4);
-
-   if (info->dst_is_sparse) {
-      /* If dst is sparse, stores mustn't straddle a page boundary, which means the store size must
-       * be 2^n. It can only be a non-power-of-two and 3 with GL buffer clears because VK doesn't
-       * have 12-byte clear values.
-       */
-      if (dwords_per_thread == 3)
-         dwords_per_thread = 4;
-
-      assert(util_is_power_of_two_nonzero(dwords_per_thread));
-   }
-
-   /* Validate dwords_per_thread. */
-   if (dwords_per_thread > 4) {
-      assert(!"dwords_per_thread must be <= 4");
-      return false; /* invalid value */
-   }
-
-   if (clear_value_size > dwords_per_thread * 4) {
-      assert(!"clear_value_size must be <= dwords_per_thread");
-      return false; /* invalid value */
-   }
-
-   if (clear_value_size == 12 && info->dst_offset % 4) {
-      assert(!"if clear_value_size == 12, dst_offset must be aligned to 4");
-      return false; /* invalid value */
-   }
+   const unsigned dwords_per_thread = ac_clear_copy_calc_dwords_per_thread(options, info, clear_value_size);
+   if (!dwords_per_thread)
+      return false;
 
    uint64_t dst_align_offset = info->dst_offset % (dwords_per_thread * 4);
    uint64_t dst_offset_bound = info->dst_offset - dst_align_offset;
