@@ -574,6 +574,40 @@ ac_clear_copy_calc_dwords_per_thread(const struct ac_cs_clear_copy_buffer_option
    return dwords_per_thread;
 }
 
+static unsigned
+ac_prepare_clear_value_user_data(const int clear_value_size,
+                                 const unsigned dwords_per_thread,
+                                 const uint64_t dst_align_offset,
+                                 const uint32_t *const clear_value,
+                                 uint32_t *user_data_clear_value)
+{
+   assert(clear_value_size >= 4 && clear_value_size <= 16 &&
+          (clear_value_size == 12 || util_is_power_of_two_or_zero(clear_value_size)));
+
+   /* Since the clear value may start on an unaligned offset and we just pass user SGPRs
+    * to dword stores as-is, we need to byte-shift the clear value to that offset and
+    * replicate it because 1 invocation stores up to 4 dwords from user SGPRs regardless of
+    * the clear value size.
+    */
+   const unsigned num_clear_user_data_terms = clear_value_size == 12 ? 3 : dwords_per_thread;
+   const unsigned clear_user_data_size = num_clear_user_data_terms * 4;
+
+   memcpy((uint8_t *)user_data_clear_value,
+            (uint8_t*)clear_value + clear_value_size - dst_align_offset % clear_value_size,
+            dst_align_offset % clear_value_size);
+   unsigned offset = dst_align_offset % clear_value_size;
+
+   while (offset + clear_value_size <= clear_user_data_size) {
+      memcpy((uint8_t*)user_data_clear_value + offset, clear_value, clear_value_size);
+      offset += clear_value_size;
+   }
+
+   if (offset < clear_user_data_size)
+      memcpy((uint8_t*)user_data_clear_value + offset, clear_value, clear_user_data_size - offset);
+
+   return num_clear_user_data_terms;
+}
+
 bool
 ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *options,
                                 const struct ac_cs_clear_copy_buffer_info *info,
@@ -609,34 +643,9 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
 
    /* Set the clear value in user data SGPRs. */
    if (!is_copy) {
-      assert(clear_value_size >= 4 && clear_value_size <= 16 &&
-             (clear_value_size == 12 || util_is_power_of_two_or_zero(clear_value_size)));
-
-      /* Put clear data after previous user_data contents. */
-      const unsigned clear_user_data_offset = num_user_data_terms * 4;
-
-      /* Since the clear value may start on an unaligned offset and we just pass user SGPRs
-       * to dword stores as-is, we need to byte-shift the clear value to that offset and
-       * replicate it because 1 invocation stores up to 4 dwords from user SGPRs regardless of
-       * the clear value size.
-       */
-      const unsigned num_clear_user_data_terms = clear_value_size == 12 ? 3 : dwords_per_thread;
-      const unsigned clear_user_data_size = num_clear_user_data_terms * 4;
-
-      memcpy((uint8_t *)out->user_data + clear_user_data_offset,
-             (uint8_t*)clear_value + clear_value_size - dst_align_offset % clear_value_size,
-             dst_align_offset % clear_value_size);
-      unsigned offset = dst_align_offset % clear_value_size;
-
-      while (offset + clear_value_size <= clear_user_data_size) {
-         memcpy((uint8_t*)out->user_data + clear_user_data_offset + offset, clear_value, clear_value_size);
-         offset += clear_value_size;
-      }
-
-      if (offset < clear_user_data_size)
-         memcpy((uint8_t*)out->user_data + clear_user_data_offset + offset, clear_value, clear_user_data_size - offset);
-
-      num_user_data_terms += num_clear_user_data_terms;
+      num_user_data_terms +=
+         ac_prepare_clear_value_user_data(clear_value_size, dwords_per_thread, dst_align_offset,
+                                          clear_value, &out->user_data[num_user_data_terms]);
    }
 
    out->shader_key.key = 0;
