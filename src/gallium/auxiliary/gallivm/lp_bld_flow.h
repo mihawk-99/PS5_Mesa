@@ -77,6 +77,9 @@ struct lp_build_mask_context
    LLVMTypeRef var_type;
    /* 'var' is a pointer (alloca) pointing to 'var_type' */
    LLVMValueRef var;
+
+   /* Whether the mask can be all zero for the current emit. */
+   bool may_be_zero;
 };
 
 

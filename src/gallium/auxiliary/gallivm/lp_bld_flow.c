@@ -146,6 +146,8 @@ lp_build_mask_check(struct lp_build_mask_context *mask)
 
    /* if cond, goto end of block */
    lp_build_flow_skip_cond_break(&mask->skip, cond);
+
+   mask->may_be_zero = false;
 }
 
 
@@ -172,6 +174,8 @@ lp_build_mask_begin(struct lp_build_mask_context *mask,
 
    LLVMBuildStore(gallivm->builder, value, mask->var);
 
+   mask->may_be_zero = true;
+
    lp_build_flow_skip_begin(&mask->skip, gallivm);
 }
 
@@ -196,6 +200,7 @@ lp_build_mask_update(struct lp_build_mask_context *mask,
                         lp_build_mask_value(mask),
                         value, "");
    LLVMBuildStore(mask->skip.gallivm->builder, value, mask->var);
+   mask->may_be_zero = true;
 }
 
 /*
@@ -207,6 +212,7 @@ lp_build_mask_force(struct lp_build_mask_context *mask,
                     LLVMValueRef value)
 {
    LLVMBuildStore(mask->skip.gallivm->builder, value, mask->var);
+   mask->may_be_zero = true;
 }
 
 /**
@@ -216,6 +222,9 @@ LLVMValueRef
 lp_build_mask_end(struct lp_build_mask_context *mask)
 {
    lp_build_flow_skip_end(&mask->skip);
+
+   mask->may_be_zero = true;
+
    return lp_build_mask_value(mask);
 }
 

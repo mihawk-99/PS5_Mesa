@@ -348,8 +348,10 @@ mask_vec(struct lp_build_nir_soa_context *bld)
 static LLVMValueRef
 mask_vec_with_helpers(struct lp_build_nir_soa_context *bld)
 {
-   if (bld->shader->info.stage != MESA_SHADER_FRAGMENT)
+   if (bld->shader->info.stage != MESA_SHADER_FRAGMENT ||
+       !bld->shader->info.fs.needs_coarse_quad_helper_invocations) {
       return mask_vec(bld); /* No helper invocations needed. */
+   }
 
    struct lp_exec_mask *exec_mask = &bld->exec_mask;
    if (exec_mask->has_mask)
@@ -368,13 +370,16 @@ group_op_mask_vec(struct lp_build_nir_soa_context *bld)
    return mask_vec(bld);
 }
 
+/*
+ * Whether a mask is provably not all zero.
+ */
 static bool
-lp_exec_mask_is_nz(struct lp_build_nir_soa_context *bld)
+mask_vec_is_nz(struct lp_build_nir_soa_context *bld)
 {
    if (bld->shader->info.stage == MESA_SHADER_FRAGMENT && bld->shader->info.fs.uses_discard)
       return false;
 
-   return !bld->exec_mask.has_mask;
+   return !bld->exec_mask.has_mask && !bld->mask->may_be_zero;
 }
 
 static bool
@@ -1291,7 +1296,7 @@ ssbo_base_pointer(struct lp_build_nir_soa_context *bld,
 
    LLVMValueRef ssbo_idx = invocation ? LLVMBuildExtractElement(gallivm->builder, index, invocation, "") : index;
 
-   if (!invocation_0_must_be_active(bld) &&
+   if (!mask_vec_is_nz(bld) &&
        LLVMGetTypeKind(LLVMTypeOf(ssbo_idx)) == LLVMIntegerTypeKind &&
        LLVMGetIntTypeWidth(LLVMTypeOf(ssbo_idx)) == 64) {
       LLVMValueRef exec_mask = mask_vec_with_helpers(bld);
@@ -1710,7 +1715,7 @@ static void emit_image_op(struct lp_build_nir_soa_context *bld,
    params->thread_data_type = bld->thread_data_type;
    params->thread_data_ptr = bld->thread_data_ptr;
    params->exec_mask = mask_vec(bld);
-   params->exec_mask_nz = lp_exec_mask_is_nz(bld);
+   params->exec_mask_nz = mask_vec_is_nz(bld);
 
    bld->image->emit_op(bld->image,
                        bld->base.gallivm,
@@ -1779,7 +1784,7 @@ static void emit_tex(struct lp_build_nir_soa_context *bld,
    params->thread_data_type = bld->thread_data_type;
    params->thread_data_ptr = bld->thread_data_ptr;
    params->exec_mask = mask_vec(bld);
-   params->exec_mask_nz = lp_exec_mask_is_nz(bld);
+   params->exec_mask_nz = mask_vec_is_nz(bld);
 
    if (params->texture_index_offset && bld->shader->info.stage != MESA_SHADER_FRAGMENT) {
       /* this is horrible but this can be dynamic */
@@ -1852,7 +1857,7 @@ static void emit_tex_size(struct lp_build_nir_soa_context *bld,
                                                             lp_build_const_int32(bld->base.gallivm, 0), "");
 
    params->exec_mask = mask_vec(bld);
-   params->exec_mask_nz = lp_exec_mask_is_nz(bld);
+   params->exec_mask_nz = mask_vec_is_nz(bld);
 
    bld->sampler->emit_size_query(bld->sampler,
                                  bld->base.gallivm,
@@ -4116,7 +4121,7 @@ visit_load_ubo(struct lp_build_nir_soa_context *bld,
    LLVMValueRef offset = get_src(bld, &instr->src[1], 0);
 
    bool in_bounds = nir_intrinsic_access(instr) & ACCESS_IN_BOUNDS;
-   if (!lp_exec_mask_is_nz(bld))
+   if (!mask_vec_is_nz(bld))
       in_bounds = false;
 
    struct lp_build_context *uint_bld = get_int_bld(bld, true, 32, lp_value_is_divergent(offset));
@@ -4198,7 +4203,7 @@ visit_load_ssbo(struct lp_build_nir_soa_context *bld,
    LLVMValueRef offset = get_src(bld, &instr->src[1], 0);
 
    bool in_bounds = nir_intrinsic_access(instr) & ACCESS_IN_BOUNDS;
-   if (!lp_exec_mask_is_nz(bld))
+   if (!mask_vec_is_nz(bld))
       in_bounds = false;
 
    emit_load_mem(bld, instr->def.num_components,
@@ -4224,7 +4229,7 @@ visit_store_ssbo(struct lp_build_nir_soa_context *bld,
    int bitsize = nir_src_bit_size(instr->src[0]);
 
    bool in_bounds = nir_intrinsic_access(instr) & ACCESS_IN_BOUNDS;
-   if (!lp_exec_mask_is_nz(bld))
+   if (!mask_vec_is_nz(bld))
       in_bounds = false;
 
    emit_store_mem(bld, writemask, nc, bitsize,
