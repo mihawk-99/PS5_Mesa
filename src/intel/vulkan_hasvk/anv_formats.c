@@ -1494,10 +1494,10 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
          android_usage = s;
          break;
       case VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT:
-         modifier_props = (void *) s;
+         modifier_props = s;
          break;
       case VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_2_EXT:
-         modifier_props_2 = (void *) s;
+         modifier_props_2 = s;
          break;
       default:
          vk_debug_ignored_stype(sType);
