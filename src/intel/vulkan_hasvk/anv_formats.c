@@ -590,9 +590,13 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       return flags;
    }
 
-   if (vk_format == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM) {
-      flags |= VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR |
-               VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR;
+   /* XXX: Replace this with something like ANV_FORMAT_FLAG_CAN_VIDEO. */
+   if (vk_format == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM
+      || (vk_tiling == VK_IMAGE_TILING_OPTIMAL
+      && (vk_format == VK_FORMAT_R8_UNORM
+      || vk_format == VK_FORMAT_R8G8_UNORM))) {
+      flags |= VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR
+      | VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR;
    }
 
    assert(aspects & VK_IMAGE_ASPECT_ANY_COLOR_BIT_ANV);
@@ -600,7 +604,7 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       anv_get_format_plane(devinfo, vk_format, 0, vk_tiling);
 
    if (plane_format.isl_format == ISL_FORMAT_UNSUPPORTED)
-      return 0;
+      return flags;
 
    struct anv_format_plane base_plane_format = plane_format;
    if (vk_tiling != VK_IMAGE_TILING_LINEAR) {
@@ -725,12 +729,18 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       if (anv_format->n_planes > 1)
          flags |= VK_FORMAT_FEATURE_2_DISJOINT_BIT;
 
-      const VkFormatFeatureFlags2 disallowed_ycbcr_image_features =
-         VK_FORMAT_FEATURE_2_BLIT_SRC_BIT |
-         VK_FORMAT_FEATURE_2_BLIT_DST_BIT |
+      VkFormatFeatureFlags2 disallowed_ycbcr_image_features =
          VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT |
-         VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT |
-         VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
+         VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT;
+
+      /* For video decode formats, allow BLIT and STORAGE operations. */
+      if (!(flags & (VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR |
+                     VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR))) {
+         disallowed_ycbcr_image_features |=
+            VK_FORMAT_FEATURE_2_BLIT_SRC_BIT |
+            VK_FORMAT_FEATURE_2_BLIT_DST_BIT |
+            VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
+      }
 
       flags &= ~disallowed_ycbcr_image_features;
    }
@@ -909,6 +919,88 @@ get_drm_format_modifier_properties_list_2(const struct anv_physical_device *phys
    }
 }
 
+static void
+get_image_drm_format_modifier_properties_list(
+   const struct anv_physical_device *physical_device,
+   const VkPhysicalDeviceImageFormatInfo2 *base_info,
+   VkDrmFormatModifierPropertiesListEXT *list)
+{
+   const struct intel_device_info *devinfo = &physical_device->info;
+   const struct anv_format *anv_format = anv_get_format(base_info->format);
+
+   VK_OUTARRAY_MAKE_TYPED(VkDrmFormatModifierPropertiesEXT, out,
+                          list->pDrmFormatModifierProperties,
+                          &list->drmFormatModifierCount);
+
+   if (base_info->tiling != VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+      return;
+
+   isl_drm_modifier_info_for_each(isl_mod_info) {
+      VkFormatFeatureFlags2 features2 =
+         anv_get_image_format_features2(devinfo, base_info->format, anv_format,
+                                        VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+                                        isl_mod_info);
+      VkFormatFeatureFlags features =
+         vk_format_features2_to_features(features2);
+      if (!features)
+         continue;
+
+      if (base_info->usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) {
+         if (isl_mod_info->tiling != ISL_TILING_Y0)
+            continue;
+      }
+
+      vk_outarray_append_typed(VkDrmFormatModifierPropertiesEXT, &out,
+                               out_props) {
+         *out_props = (VkDrmFormatModifierPropertiesEXT) {
+            .drmFormatModifier = isl_mod_info->modifier,
+            .drmFormatModifierPlaneCount = anv_format->n_planes,
+            .drmFormatModifierTilingFeatures = features,
+         };
+      };
+   }
+}
+
+static void
+get_image_drm_format_modifier_properties_list_2(
+   const struct anv_physical_device *physical_device,
+   const VkPhysicalDeviceImageFormatInfo2 *base_info,
+   VkDrmFormatModifierPropertiesList2EXT *list)
+{
+   const struct intel_device_info *devinfo = &physical_device->info;
+   const struct anv_format *anv_format = anv_get_format(base_info->format);
+
+   VK_OUTARRAY_MAKE_TYPED(VkDrmFormatModifierProperties2EXT, out,
+                          list->pDrmFormatModifierProperties,
+                          &list->drmFormatModifierCount);
+
+   if (base_info->tiling != VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+      return;
+
+   isl_drm_modifier_info_for_each(isl_mod_info) {
+      VkFormatFeatureFlags2 features2 =
+         anv_get_image_format_features2(devinfo, base_info->format, anv_format,
+                                        VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+                                        isl_mod_info);
+      if (!features2)
+         continue;
+
+      if (base_info->usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) {
+         if (isl_mod_info->tiling != ISL_TILING_Y0)
+            continue;
+      }
+
+      vk_outarray_append_typed(VkDrmFormatModifierProperties2EXT, &out,
+                               out_props) {
+         *out_props = (VkDrmFormatModifierProperties2EXT) {
+            .drmFormatModifier = isl_mod_info->modifier,
+            .drmFormatModifierPlaneCount = anv_format->n_planes,
+            .drmFormatModifierTilingFeatures = features2,
+         };
+      };
+   }
+}
+
 void anv_GetPhysicalDeviceFormatProperties2(
     VkPhysicalDevice                            physicalDevice,
     VkFormat                                    vk_format,
@@ -954,7 +1046,6 @@ void anv_GetPhysicalDeviceFormatProperties2(
          break;
       }
       case VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR:
-         /* don't have any thing to use this for yet */
          break;
       default:
          vk_debug_ignored_stype(sType);
@@ -993,7 +1084,7 @@ anv_get_image_format_properties(
       if (isl_mod_info == NULL)
          goto unsupported;
 
-      /* only allow Y tiling for video decode. */
+      /* Only allow Y tiling for video decode. */
       if (info->usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) {
          if (isl_mod_info->tiling != ISL_TILING_Y0)
             goto unsupported;
@@ -1380,7 +1471,6 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
          from_wsi = true;
          break;
       case VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR:
-         /* Ignore but don't warn */
          break;
       default:
          vk_debug_ignored_stype(sType);
@@ -1389,6 +1479,9 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
    }
 
    /* Extract output structs */
+   VkDrmFormatModifierPropertiesListEXT *modifier_props = NULL;
+   VkDrmFormatModifierPropertiesList2EXT *modifier_props_2 = NULL;
+
    vk_foreach_struct(sType, s, base_props->pNext) {
       switch (sType) {
       case VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES:
@@ -1399,6 +1492,12 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
          break;
       case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID:
          android_usage = s;
+         break;
+      case VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT:
+         modifier_props = (void *) s;
+         break;
+      case VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_2_EXT:
+         modifier_props_2 = (void *) s;
          break;
       default:
          vk_debug_ignored_stype(sType);
@@ -1556,6 +1655,17 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
                             external_info->handleType);
          goto fail;
       }
+   }
+
+   /* Fill DRM format modifier properties if requested. */
+   if (modifier_props) {
+      get_image_drm_format_modifier_properties_list(physical_device, base_info,
+                                                     modifier_props);
+   }
+
+   if (modifier_props_2) {
+      get_image_drm_format_modifier_properties_list_2(physical_device, base_info,
+                                                       modifier_props_2);
    }
 
    return VK_SUCCESS;
