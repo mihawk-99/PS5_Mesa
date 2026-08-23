@@ -4702,7 +4702,7 @@ visit_load_global(struct lp_build_nir_soa_context *bld,
 
    res_bld = get_int_bld(bld, true, instr->def.bit_size, lp_value_is_divergent(addr));
 
-   if (!lp_value_is_divergent(addr)) {
+   if (!lp_value_is_divergent(addr) && lp_exec_mask_is_nz(bld)) {
       addr = global_addr_to_ptr(gallivm, addr, instr->def.bit_size);
 
       for (unsigned c = 0; c < instr->def.num_components; c++) {
