@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "jay_builder.h"
 #include "jay_ir.h"
 #include "jay_opcodes.h"
 
@@ -88,3 +89,43 @@ jay_simd_split(const jay_shader *s, const jay_inst *I)
 
    return (actual > max) ? (util_logbase2(actual) - util_logbase2(max)) : 0;
 }
+
+static void
+pass(jay_function *func)
+{
+   jay_builder b = jay_init_builder(func, jay_before_function(func));
+
+   jay_foreach_inst_in_func_safe(func, block, I) {
+      unsigned split = jay_simd_split(func->shader, I);
+      if (split) {
+         I->simd_split = split;
+         b.cursor = jay_after_inst(I);
+
+         for (unsigned i = 1; i < (1 << split); ++i) {
+            jay_inst *clone = jay_clone_inst(&b, I, I->num_srcs);
+            clone->simd_offs = i;
+
+            /* Replicate the SWSB regdist for SIMD split instructions if needed */
+            if (!I->replicate_dep) {
+               clone->dep = gen_swsb_null();
+            }
+
+            /* We do not allow SBID dependencies on SIMD split instructions
+             * since individual groups could get shot down. This would require
+             * more tracking and is unclear whether it's beneficial.
+             */
+            assert(I->dep.mode == GEN_SBID_NULL);
+
+            if (I->decrement_dep) {
+               unsigned delta = i * jay_macro_length(I);
+               assert(clone->dep.regdist > delta);
+               clone->dep.regdist -= delta;
+            }
+
+            jay_builder_insert(&b, clone);
+         }
+      }
+   }
+}
+
+JAY_DEFINE_FUNCTION_PASS(jay_lower_simd_width, pass)

@@ -1070,7 +1070,7 @@ jay_simd_width_logical(const jay_shader *s, const jay_inst *I)
 static inline unsigned
 jay_simd_width_physical(jay_shader *s, const jay_inst *I)
 {
-   return jay_simd_width_logical(s, I) >> jay_simd_split(s, I);
+   return jay_simd_width_logical(s, I) >> I->simd_split;
 }
 
 /*

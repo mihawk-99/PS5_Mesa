@@ -4687,7 +4687,7 @@ jay_gather_stats(const jay_shader *s, struct genisa_stats *stats)
 {
    jay_foreach_inst_in_shader(s, f, I) {
       if (I->op != JAY_OPCODE_SYNC) {
-         stats->instrs += jay_macro_length(I) << jay_simd_split(s, I);
+         stats->instrs += jay_macro_length(I);
       }
 
       stats->loops += I->op == JAY_OPCODE_WHILE;
@@ -4886,6 +4886,8 @@ jay_compile_simd(const struct intel_device_info *devinfo,
    } else {
       JAY_PASS(s, jay_lower_scoreboard);
    }
+
+   JAY_PASS(s, jay_lower_simd_width);
 
    if (debug) {
       fprintf(stdout, "Jay shader (post-RA):\n\n");
