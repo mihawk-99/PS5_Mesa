@@ -567,6 +567,19 @@ typedef struct jay_inst {
    bool saturate:1;
 
    /**
+    * Indicates the log2 number of SIMD splits. 0 for an instruction that's not
+    * split, 1 to split SIMD32 to SIMD16, 2 to split SIMD32 to SIMD8.
+    */
+   unsigned simd_split:2;
+
+   /*
+    * Indicates the offset of the SIMD group executing this instruction in the
+    * SIMD width of the instruction. E.g. with simd_offs = 1, simd_split = 1 in
+    * a SIMD32 shader, this is equivalent to (16|M16).
+    */
+   unsigned simd_offs:3;
+
+   /**
     * In a SIMD split instruction, whether the regdist dependency is replicated
     * to each physical instruction. If false, only the first instruction waits.
     *
@@ -575,7 +588,7 @@ typedef struct jay_inst {
     */
    bool replicate_dep:1;
    bool decrement_dep:1;
-   uint8_t padding   :7;
+   uint8_t padding   :2;
 
    gen_condition conditional_mod;
 

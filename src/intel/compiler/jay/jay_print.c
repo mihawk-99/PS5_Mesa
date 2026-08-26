@@ -228,6 +228,10 @@ jay_print_inst_with_lu(
       fprintf(fp, "}");
    }
 
+   if (I->simd_split) {
+      fprintf(fp, " [%u/%u]", I->simd_offs, 1 << I->simd_split);
+   }
+
    fprintf(fp, "\n");
 }
 
