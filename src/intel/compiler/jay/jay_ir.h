@@ -607,7 +607,11 @@ static_assert(sizeof(jay_inst) == 24 + (sizeof(uintptr_t) * 2), "packed");
 static inline unsigned
 jay_num_isa_srcs(const jay_inst *I)
 {
-   return I->num_srcs - I->predication - (I->op == JAY_OPCODE_SEL);
+   return I->num_srcs -
+          I->predication -
+          (I->op == JAY_OPCODE_SEL ||
+           I->op == JAY_OPCODE_MACL ||
+           I->op == JAY_OPCODE_MACH);
 }
 
 static inline bool
@@ -1048,7 +1052,9 @@ jay_simd_width_logical(const jay_shader *s, const jay_inst *I)
 
    /* Handle vectors-of-UGPR operations with special care for bitsizes */
    unsigned vec_per_channel = jay_type_vector_length(I->type);
-   unsigned dst_size = jay_num_values(I->dst);
+   unsigned dst_size = I->op == JAY_OPCODE_MUL_32_PART ?
+                          jay_num_values(I->src[0]) :
+                          jay_num_values(I->dst);
    assert(util_is_aligned(dst_size, vec_per_channel));
 
    if (base == 1 && dst_size > vec_per_channel && I->op != JAY_OPCODE_SEND) {

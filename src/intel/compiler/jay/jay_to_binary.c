@@ -181,7 +181,10 @@ to_gen_operand(
       R = d.file == GPR ? gen_grf(grf, 0) : gen_accumulator(grf / 2);
       R = gen_restride(R, 1, 1, 0);
 
-      R = gen_byte_offset(devinfo, R, simd_offs * simd_width * stride_bits / 8);
+      if (!(I->op == JAY_OPCODE_MUL_32_PART && d.file == ACCUM)) {
+         R = gen_byte_offset(devinfo, R,
+                             simd_offs * simd_width * stride_bits / 8);
+      }
 
       if (stride_bits == (type_bits * 4)) {
          R = gen_restride(R, 8, 2, 4);
@@ -299,7 +302,9 @@ static const struct {
    OP(MODIFIER, MOV, 1),
    OP(MOV_IMM64, MOV, 0),
    OP(MOV, MOV, 1),
-   OP(MUL_32, MUL, 2),
+   OP(MACL, MACL, 2),
+   OP(MACH, MACH, 2),
+   OP(MUL_32_PART, MUL, 2),
    OP(MUL_32X16, MUL, 2),
    OP(MUL, MUL, 2),
    OP(NOT, NOT, 1),
@@ -576,16 +581,13 @@ emit(struct jay_codegen *jc,
       gen->src[1] = gen_imm_uv(0x44440000);
       break;
 
-   case JAY_OPCODE_MUL_32:
-      if (idx_in_macro == 0) {
-         gen->dst = gen_accumulator(0);
-         gen->dst.type = to_gen_reg_type(I->type);
-         gen->src[1] = gen_subscript(jc->devinfo, gen->src[1], GEN_TYPE_UW, 0);
-      } else {
-         gen->swsb = gen_swsb_null();
-         gen->opcode = jay_mul_32_high(I) ? GEN_OP_MACH : GEN_OP_MACL;
-         gen->acc_wr_control = jc->devinfo->ver < 20;
-      }
+   case JAY_OPCODE_MUL_32_PART:
+      gen->src[1] = gen_subscript(jc->devinfo, gen->src[1], GEN_TYPE_UW, 0);
+      break;
+
+   case JAY_OPCODE_MACL:
+   case JAY_OPCODE_MACH:
+      gen->acc_wr_control = jc->devinfo->ver < 20;
       break;
 
    case JAY_OPCODE_SHUFFLE:

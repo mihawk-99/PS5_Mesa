@@ -126,6 +126,31 @@ pass(jay_function *func)
          }
       }
    }
+
+   /* Expand macros after SIMD splitting */
+   jay_foreach_inst_in_func_safe(func, block, I) {
+      b.cursor = jay_after_inst(I);
+
+      if (I->op == JAY_OPCODE_MUL_32) {
+         jay_def acc = jay_bare_reg(ACCUM, 0);
+
+         jay_inst *mac =
+            jay_MACL(&b, I->type, I->dst, I->src[0], I->src[1], acc);
+         mac->simd_offs = I->simd_offs;
+         mac->simd_split = I->simd_split;
+
+         if (I->predication) {
+            jay_add_predicate(&b, mac, *jay_inst_get_predicate(I), jay_null());
+         }
+
+         if (jay_mul_32_high(I)) {
+            mac->op = JAY_OPCODE_MACH;
+         }
+
+         I->dst = acc;
+         I->op = JAY_OPCODE_MUL_32_PART;
+      }
+   }
 }
 
 JAY_DEFINE_FUNCTION_PASS(jay_lower_simd_width, pass)
