@@ -40,6 +40,7 @@
 #include "pipe-loader/pipe_loader.h"
 #include "renderonly/renderonly.h"
 #include "util/u_memory.h"
+#include "util/os_file.h"
 
 #include "loader.h"
 
@@ -73,7 +74,7 @@ struct pipe_screen *kmsro_drm_screen_create(int kms_fd,
          goto out;
 
       ro->kms_fd = kms_fd;
-      ro->gpu_fd = dup(gpu_fds[i]);
+      ro->gpu_fd = os_dupfd_cloexec(gpu_fds[i]);
 
       render_dev_name = loader_get_kernel_driver_name(ro->gpu_fd);
       if (!render_dev_name) {
