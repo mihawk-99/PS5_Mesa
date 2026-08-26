@@ -222,8 +222,7 @@ jay_print_inst_with_lu(
 
    /* Software scoreboard dependency info */
    if (I->dep.regdist || I->dep.mode) {
-      fprintf(fp, "%s%s%s", strlen(sep) ? " {" : "{",
-              I->replicate_dep ? "*" : "", I->decrement_dep ? "+" : "");
+      fprintf(fp, "%s", strlen(sep) ? " {" : "{");
       gen_print_swsb(NULL, fp, I->dep);
       fprintf(fp, "}");
    }

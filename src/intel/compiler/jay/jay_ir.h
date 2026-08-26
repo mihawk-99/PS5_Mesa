@@ -579,16 +579,7 @@ typedef struct jay_inst {
     */
    unsigned simd_offs:3;
 
-   /**
-    * In a SIMD split instruction, whether the regdist dependency is replicated
-    * to each physical instruction. If false, only the first instruction waits.
-    *
-    * If decrement_dep is also set, the regdist is decremented by the macro
-    * length for each instruction (modelling cross-pipe dependencies).
-    */
-   bool replicate_dep:1;
-   bool decrement_dep:1;
-   uint8_t padding   :2;
+   uint8_t padding:4;
 
    gen_condition conditional_mod;
 
@@ -1074,27 +1065,6 @@ static inline unsigned
 jay_simd_width_physical(jay_shader *s, const jay_inst *I)
 {
    return jay_simd_width_logical(s, I) >> I->simd_split;
-}
-
-/*
- * Returns the number of physical instructions emitted for each logical
- * instruction not accounting for SIMD split. That is, the number of
- * instructions that macros will expand to in jay_to_binary or 1 for non-macros.
- */
-static inline unsigned
-jay_macro_length(const jay_inst *I)
-{
-   switch (I->op) {
-   case JAY_OPCODE_MUL_32:
-   case JAY_OPCODE_SHUFFLE:
-      return 2;
-
-   case JAY_OPCODE_SLICE_REPACK:
-      return 1 << jay_slice_repack_factor_log2(I);
-
-   default:
-      return 1;
-   }
 }
 
 /**

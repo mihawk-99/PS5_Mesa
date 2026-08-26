@@ -106,24 +106,6 @@ pass(jay_function *func)
          for (unsigned i = 1; i < (1 << split); ++i) {
             jay_inst *clone = jay_clone_inst(&b, I, I->num_srcs);
             clone->simd_offs = i;
-
-            /* Replicate the SWSB regdist for SIMD split instructions if needed */
-            if (!I->replicate_dep) {
-               clone->dep = gen_swsb_null();
-            }
-
-            /* We do not allow SBID dependencies on SIMD split instructions
-             * since individual groups could get shot down. This would require
-             * more tracking and is unclear whether it's beneficial.
-             */
-            assert(I->dep.mode == GEN_SBID_NULL);
-
-            if (I->decrement_dep) {
-               unsigned delta = i * jay_macro_length(I);
-               assert(clone->dep.regdist > delta);
-               clone->dep.regdist -= delta;
-            }
-
             jay_builder_insert(&b, clone);
          }
       }
@@ -173,7 +155,6 @@ pass(jay_function *func)
          add->uniform = !VxH;
          add->simd_split = I->simd_split;
          add->simd_offs = I->simd_offs;
-         add->dep = I->dep;
 
          I->op = JAY_OPCODE_MOV_INDIRECT;
          I->src[1] = a0;
