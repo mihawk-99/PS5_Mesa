@@ -230,6 +230,10 @@ op('mov_imm64', 0, 'u64', 0, ['uint64_t imm'])
 # Indirect move. src0=data, src1=offset in bytes. Clobbers an address reg.
 op('shuffle', 2, 'u1 u8 u16 u32')
 
+# Indirect move directly from the register file. src0=data vector. src1=offset
+# in bytes inside the register file (as an address register).
+op('mov_indirect', 2, 'u8 u16 u32')
+
 # Shuffle with a constant lane index.
 op('broadcast_imm', 1, 'u1 u32', 0, ['unsigned lane'])
 
@@ -246,6 +250,7 @@ op('dpas', 3, 'u32', Props.NO_MASK, [
 op('slice_repack', 1, 'u32', Props.NO_MASK, [
    'uint8_t factor_log2',
    'bool unpack',
+   'uint8_t index',
    ])
 
 # Active lanes select source 0, inactive lanes select the constant value

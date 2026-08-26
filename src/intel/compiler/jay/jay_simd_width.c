@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "compiler/brw/brw_eu_defines.h"
 #include "jay_builder.h"
+#include "jay_builder_opcodes.h"
 #include "jay_ir.h"
 #include "jay_opcodes.h"
 
@@ -149,6 +151,39 @@ pass(jay_function *func)
 
          I->dst = acc;
          I->op = JAY_OPCODE_MUL_32_PART;
+      } else if (I->op == JAY_OPCODE_SHUFFLE) {
+         /* Use a dedicated address register for 1x1 indirects to avoid
+          * interfering with a0.0 and a0.2 users. This affects UGPR spilling.
+          */
+         bool VxH = !jay_is_uniform(I->src[1]);
+         unsigned addr = VxH ? 0 : 4;
+         unsigned nr = VxH ? jay_simd_width_physical(func->shader, I) : 1;
+         jay_def a0 = jay_bare_regs(J_ADDRESS, addr, DIV_ROUND_UP(nr, 2));
+
+         struct jay_register_block block =
+            jay_lookup_block(&func->shader->partition, I->src[0].reg,
+                             I->src[0].file);
+         unsigned reg_width =
+            4 * (I->src[0].file == UGPR ? 1 : func->shader->dispatch_width);
+         unsigned offset_B = block.start_grf * func->shader->devinfo->grf_size +
+                             (I->src[0].reg - block.start_gpr) * reg_width;
+
+         b.cursor = jay_before_inst(I);
+         jay_inst *add = jay_ADD(&b, JAY_TYPE_U16, a0, I->src[1], offset_B);
+         add->uniform = !VxH;
+         add->simd_split = I->simd_split;
+         add->simd_offs = I->simd_offs;
+         add->dep = I->dep;
+
+         I->op = JAY_OPCODE_MOV_INDIRECT;
+         I->src[1] = a0;
+      } else if (I->op == JAY_OPCODE_SLICE_REPACK) {
+         b.cursor = jay_after_inst(I);
+         for (unsigned i = 1; i < (1 << jay_slice_repack_factor_log2(I)); ++i) {
+            jay_inst *clone = jay_clone_inst(&b, I, I->num_srcs);
+            jay_set_slice_repack_index(clone, i);
+            jay_builder_insert(&b, clone);
+         }
       }
    }
 }

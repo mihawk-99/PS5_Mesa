@@ -2154,7 +2154,7 @@ jay_emit_convert_cmat(struct nir_to_jay_state *nj, nir_intrinsic_instr *intr)
       for (unsigned i = 0; i < elems; i += src_pf) {
          jay_SLICE_REPACK(b, jay_extract_range(src_tmp, i, src_pf),
                           jay_extract(src, i / src_pf), util_logbase2(src_pf),
-                          /* unpack */ true);
+                          /* unpack */ true, 0);
       }
    }
 
@@ -2178,7 +2178,7 @@ jay_emit_convert_cmat(struct nir_to_jay_state *nj, nir_intrinsic_instr *intr)
       for (unsigned i = 0; i < elems; i += dst_pf) {
          jay_SLICE_REPACK(b, jay_extract(dst, i / dst_pf),
                           jay_extract_range(dst_tmp, i, dst_pf),
-                          util_logbase2(dst_pf), /* unpack */ false);
+                          util_logbase2(dst_pf), /* unpack */ false, 0);
       }
    }
 }

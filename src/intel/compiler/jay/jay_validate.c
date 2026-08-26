@@ -213,6 +213,7 @@ validate_def(struct validate_state *validate,
          jay_is_null(def) ||
          jay_simd_width_logical(validate->func->shader, I) > 1 ||
          I->op == JAY_OPCODE_SHUFFLE ||
+         I->op == JAY_OPCODE_MOV_INDIRECT ||
          I->op == JAY_OPCODE_BROADCAST_IMM);
 }
 
@@ -307,6 +308,7 @@ validate_inst(struct validate_state *validate, jay_inst *I)
          unsigned words = jay_num_values(I->src[s]);
          if ((I->op != JAY_OPCODE_SEND || s < 2) &&
              I->op != JAY_OPCODE_SHUFFLE &&
+             I->op != JAY_OPCODE_MOV_INDIRECT &&
              I->op != JAY_OPCODE_BROADCAST_IMM) {
             CHECK(expected == words);
          }
