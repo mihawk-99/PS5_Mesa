@@ -955,11 +955,10 @@ assign_regs_for_inst(jay_ra_state *ra, jay_inst *I)
       bool killed = false;
       jay_def var = *(vars[i]);
       unsigned size = jay_num_values(var);
-      unsigned alignment =
-         I->op == JAY_OPCODE_EXPAND_QUAD ||
-               (I->op == JAY_OPCODE_VECTOR_EXTRACT && is_src) ?
-            1 :
-            util_next_power_of_two(size);
+      unsigned alignment = I->op == JAY_OPCODE_EXPAND_QUAD ||
+                                 (I->op == JAY_OPCODE_SHUFFLE && is_src) ?
+                              1 :
+                              util_next_power_of_two(size);
       enum jay_file file = var.file;
       enum jay_stride min_stride = JAY_STRIDE_2, max_stride = JAY_STRIDE_8;
 

@@ -227,11 +227,8 @@ op('not', 1, 'u1 u32', Props.CMOD)
 
 op('mov_imm64', 0, 'u64', 0, ['uint64_t imm'])
 
-# Cross-lane shuffle. src0=data, src1=offset in bytes. Clobbers an address reg.
-op('shuffle', 2, 'u1 u32')
-
 # Indirect move. src0=data, src1=offset in bytes. Clobbers an address reg.
-op('vector_extract', 2, 'u8 u16 u32')
+op('shuffle', 2, 'u1 u8 u16 u32')
 
 # Shuffle with a constant lane index.
 op('broadcast_imm', 1, 'u1 u32', 0, ['unsigned lane'])

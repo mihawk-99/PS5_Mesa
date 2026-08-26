@@ -698,8 +698,7 @@ jay_src_type(const jay_inst *I, unsigned s)
       return JAY_TYPE_U32;
 
    /* Indirect offset distinct from data type */
-   if ((I->op == JAY_OPCODE_SHUFFLE || I->op == JAY_OPCODE_VECTOR_EXTRACT) &&
-       s == 1)
+   if (I->op == JAY_OPCODE_SHUFFLE && s == 1)
       return JAY_TYPE_U32;
 
    /* TODO: *maybe* find a less janky way of handling mixed bfloat op type
@@ -929,7 +928,6 @@ static inline bool
 jay_is_shuffle_like(const jay_inst *I)
 {
    return I->op == JAY_OPCODE_SHUFFLE ||
-          I->op == JAY_OPCODE_VECTOR_EXTRACT ||
           I->op == JAY_OPCODE_QUAD_SWIZZLE ||
           I->op == JAY_OPCODE_BROADCAST_IMM;
 }
@@ -937,8 +935,7 @@ jay_is_shuffle_like(const jay_inst *I)
 static inline bool
 jay_clobbers_address_reg(const jay_inst *I)
 {
-   return (I->op == JAY_OPCODE_SHUFFLE || I->op == JAY_OPCODE_VECTOR_EXTRACT) &&
-          I->src[1].file == GPR;
+   return I->op == JAY_OPCODE_SHUFFLE && I->src[1].file == GPR;
 }
 
 /*
@@ -1090,7 +1087,6 @@ jay_macro_length(const jay_inst *I)
    switch (I->op) {
    case JAY_OPCODE_MUL_32:
    case JAY_OPCODE_SHUFFLE:
-   case JAY_OPCODE_VECTOR_EXTRACT:
       return 2;
 
    case JAY_OPCODE_SLICE_REPACK:

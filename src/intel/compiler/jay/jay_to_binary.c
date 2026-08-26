@@ -325,7 +325,6 @@ static const struct {
    OP(SHR_ODD_SUBSPANS_BY_4, SHR, 1),
    OP(SHR, SHR, 2),
    OP(SHUFFLE, MOV, 2),
-   OP(VECTOR_EXTRACT, MOV, 2),
    OP(SYNC, SYNC, 1),
    OP(WHILE, WHILE, 0),
    OP(XOR, XOR, 2),
@@ -590,10 +589,7 @@ emit(struct jay_codegen *jc,
       gen->acc_wr_control = jc->devinfo->ver < 20;
       break;
 
-   case JAY_OPCODE_SHUFFLE:
-      assert(I->src[0].file == GPR && jay_num_values(I->src[0]) == 1);
-      FALLTHROUGH;
-   case JAY_OPCODE_VECTOR_EXTRACT: {
+   case JAY_OPCODE_SHUFFLE: {
       /* Use a dedicated address register for 1x1 indirects to avoid
        * interfering with a0.0 and a0.2 users. This affects UGPR spilling.
        */
@@ -627,8 +623,7 @@ emit(struct jay_codegen *jc,
 
          if (VxH) {
             gen->src[0].region.vstride = GEN_VSTRIDE_ONE_DIMENSIONAL;
-         } else if (I->op == JAY_OPCODE_VECTOR_EXTRACT &&
-                    I->src[0].file == GPR) {
+         } else if (jay_num_values(I->src[0]) > 1 && I->src[0].file == GPR) {
             gen->src[0] = gen_restride(gen->src[0],
                                        32 / jay_type_size_bits(I->type), 1, 0);
          } else {

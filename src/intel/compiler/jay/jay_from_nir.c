@@ -240,7 +240,9 @@ emit_uniformize(struct nir_to_jay_state *nj, jay_def x)
       nj->active_lane_x4 = jay_SHL_u32(b, emit_active_lane(nj), 2);
    }
 
-   return jay_SHUFFLE(b, jay_alloc_def(b, UGPR, 1), x, nj->active_lane_x4)->dst;
+   jay_def dst = jay_alloc_def(b, UGPR, 1);
+   jay_SHUFFLE(b, JAY_TYPE_U32, dst, x, nj->active_lane_x4);
+   return dst;
 }
 
 static jay_block *jay_emit_cf_list(struct nir_to_jay_state *nj,
@@ -2224,8 +2226,7 @@ load_push_data(struct nir_to_jay_state *nj,
       if (base_offset % 4)
          offset = jay_ADD_u32(b, offset, base_offset % 4);
 
-      jay_VECTOR_EXTRACT(b, JAY_TYPE_U | intr->def.bit_size, dst, push_data,
-                         offset);
+      jay_SHUFFLE(b, JAY_TYPE_U | intr->def.bit_size, dst, push_data, offset);
    }
 }
 
@@ -2607,8 +2608,8 @@ jay_emit_intrinsic(struct nir_to_jay_state *nj, nir_intrinsic_instr *intr)
                      jay_extract(tcs->icp_handles,
                                  nir_src_as_uint(intr->src[0])));
          } else {
-            jay_VECTOR_EXTRACT(b, JAY_TYPE_U32, dst, tcs->icp_handles,
-                               jay_SHL_u32(b, nj_src(intr->src[0]), shift));
+            jay_SHUFFLE(b, JAY_TYPE_U32, dst, tcs->icp_handles,
+                        jay_SHL_u32(b, nj_src(intr->src[0]), shift));
          }
       } else if (gs) {
          if (s->prog_data->gs.invocations == 1) {
@@ -2623,13 +2624,13 @@ jay_emit_intrinsic(struct nir_to_jay_state *nj, nir_intrinsic_instr *intr)
                   addr = jay_ADD_u32(b, addr, jay_SHL_u32(b, lane_id(b), 2u));
                }
 
-               jay_VECTOR_EXTRACT(b, JAY_TYPE_U32, dst, gs->icp_handles, addr);
+               jay_SHUFFLE(b, JAY_TYPE_U32, dst, gs->icp_handles, addr);
             }
 
          } else {
             assert(s->prog_data->gs.invocations > 1);
-            jay_VECTOR_EXTRACT(b, JAY_TYPE_U32, dst, gs->icp_handles,
-                               jay_SHL_u32(b, nj_src(intr->src[0]), 2u));
+            jay_SHUFFLE(b, JAY_TYPE_U32, dst, gs->icp_handles,
+                        jay_SHL_u32(b, nj_src(intr->src[0]), 2u));
          }
       }
       break;
@@ -2755,9 +2756,9 @@ jay_emit_intrinsic(struct nir_to_jay_state *nj, nir_intrinsic_instr *intr)
             start = MIN2(start, jay_base_index(fs->deltas[0]));
             end_excl = jay_base_index(last) + jay_num_values(last);
          }
-         jay_VECTOR_EXTRACT(b, JAY_TYPE_U32, dst,
-                            jay_contiguous_def(UGPR, start, end_excl - start),
-                            nj_src(intr->src[0]));
+         jay_SHUFFLE(b, JAY_TYPE_U32, dst,
+                     jay_contiguous_def(UGPR, start, end_excl - start),
+                     nj_src(intr->src[0]));
       } else {
          UNREACHABLE("TODO: attribute payload data");
       }
@@ -2871,7 +2872,7 @@ jay_emit_intrinsic(struct nir_to_jay_state *nj, nir_intrinsic_instr *intr)
          jay_BROADCAST_IMM(b, dst, data, nir_src_as_uint(intr->src[1]) / 4);
       } else {
          /* Shuffle takes a byte index */
-         jay_SHUFFLE(b, dst, data, nj_src(intr->src[1]));
+         jay_SHUFFLE(b, JAY_TYPE_U32, dst, data, nj_src(intr->src[1]));
       }
 
       break;
