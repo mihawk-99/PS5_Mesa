@@ -662,7 +662,6 @@ struct gen_encoder {
          if (desc->has_dst) {
             set(E::DST_ADDRESS_MODE, inst->dst.indirect);
             set(E::DST_TYPE,         encode_type(inst->dst.file, inst->dst.type));
-            set(E::DST_HSTRIDE,      encode_hstride(inst->dst.region.hstride));
 
             if (inst->dst.indirect)
                encode_indirect_operand(E::DST_OPERAND, inst->dst);
@@ -674,6 +673,9 @@ struct gen_encoder {
                                                             : inst->dst.subnr & 1);
             }
          }
+
+         if (E::TYPE >= GEN_ENCODING_XE || desc->has_dst)
+            set(E::DST_HSTRIDE, encode_hstride(inst->dst.region.hstride));
 
          if constexpr (E::TYPE == GEN_ENCODING_XE)
             set(E::ACC_WR_CONTROL, inst->acc_wr_control);

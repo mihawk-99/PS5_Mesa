@@ -1095,7 +1095,8 @@ private:
          }
       }
 
-      if (gen_inst_has_dst(inst->opcode) && !is_null(inst->dst)) {
+      if (devinfo->ver >= 12 ||
+          (gen_inst_has_dst(inst->opcode) && !is_null(inst->dst))) {
          ERROR_IF(inst->dst.region.hstride == 0,
                   "Destination horizontal stride must not be 0.");
       }

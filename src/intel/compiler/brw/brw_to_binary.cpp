@@ -2097,10 +2097,8 @@ brw_generator::generate_code(const brw_shader &s,
             gen.src[1].region = { 0, 1, 0 };
 
       }
-      if ((gen.dst.file == GEN_GRF || gen.dst.file == GEN_ARF) &&
-           gen.dst.region.hstride == 0) {
+      if (gen.dst.region.hstride == 0)
          gen.dst.region.hstride = 1;
-      }
    }
 
    /* Translate any pre-filled IMM branch sources from absolute indices

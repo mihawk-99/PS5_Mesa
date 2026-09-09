@@ -796,8 +796,7 @@ jay_to_binary(jay_shader *s,
    for (int i = 0; i < jc.num_insts; i++) {
       gen_inst *gen = &jc.insts[i];
 
-      if ((gen->dst.file == GEN_GRF || gen->dst.file == GEN_ARF) &&
-          gen->dst.region.hstride == 0)
+      if (gen->dst.region.hstride == 0)
          gen->dst.region.hstride = 1;
    }
 
