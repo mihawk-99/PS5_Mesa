@@ -8,6 +8,7 @@
 
 #include "r600_asm.h"
 #include "r600_atomics.h"
+#include "r600_tex_units.h"
 
 #include "compiler/shader_enums.h"
 
@@ -58,6 +59,11 @@ struct r600_shader_atomic {
 
 #define R600_SHADER_MAX_INPUTS (32 /* generic */ + 32 /* patch */ + 16 /* others */)
 #define R600_SHADER_MAX_OUTPUTS (32 /* generic */ + 32 /* patch */ + 16 /* others */)
+
+struct gather_workaround {
+	bool tex[NUM_TEX_UNITS];
+	unsigned gather[NUM_TEX_UNITS];
+};
 
 struct r600_shader {
 	unsigned		processor_type;
@@ -111,6 +117,7 @@ struct r600_shader {
 	unsigned                num_loops;
 
 	struct r600_shader_array * arrays;
+	struct gather_workaround gather_workaround;
 
 	bool			uses_doubles;
 	bool                 uses_atomics;

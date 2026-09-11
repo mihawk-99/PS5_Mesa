@@ -157,6 +157,7 @@ r600_shader_from_nir(struct r600_context *rctx,
    } else {
       r600::sfn_log << r600::SfnLog::shader_info << "This is not a Geometry shader\n";
    }
+   pipeshader->shader.gather_workaround = shader->gather_workaround;
    ralloc_free(sh);
 
    return 0;

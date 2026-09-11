@@ -131,7 +131,7 @@ static uint32_t r600_translate_dbformat(enum pipe_format format)
 static bool r600_is_sampler_format_supported(struct pipe_screen *screen, enum pipe_format format)
 {
 	return r600_translate_texformat(screen, format, NULL, NULL, NULL,
-                                   false) != ~0U;
+					false, NULL) != ~0U;
 }
 
 static bool r600_is_colorbuffer_format_supported(enum amd_gfx_level chip, enum pipe_format format)
@@ -696,7 +696,7 @@ r600_create_sampler_view_custom(struct pipe_context *ctx,
 
 	format = r600_translate_texformat(ctx->screen, state->format,
 					  swizzle,
-					  &word4, &yuv_format, do_endian_swap);
+					  &word4, &yuv_format, do_endian_swap, NULL);
 	assert(format != ~0);
 	if (format == ~0) {
 		FREE(view);

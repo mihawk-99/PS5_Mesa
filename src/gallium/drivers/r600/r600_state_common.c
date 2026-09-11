@@ -666,6 +666,10 @@ static void r600_sampler_view_destroy(struct pipe_context *ctx,
 {
 	struct r600_pipe_sampler_view *view = (struct r600_pipe_sampler_view *)state;
 
+	if (unlikely(view->gather_view)) {
+		r600_sampler_view_destroy(ctx, &view->gather_view->base);
+	}
+
 	if (view->tex_resource->gpu_address &&
 	    view->tex_resource->b.b.target == PIPE_BUFFER)
 		list_delinit(&view->list);
@@ -916,14 +920,33 @@ static void r600_set_sampler_views(struct pipe_context *pipe,
 	}
 
 	for (i = 0; i < count; i++) {
-		if (rviews[i] == dst->views.views[i]) {
+		struct r600_pipe_sampler_view *const lrview = rviews[i];
+		bool force_dirty = false;
+
+		if (lrview) {
+			if (unlikely(shader == MESA_SHADER_FRAGMENT && lrview->gather_signal_about_workaround &&
+				     rctx->ps_shader->current->shader.gather_workaround.gather[i])) {
+				if (!lrview->gather_view_enabled) {
+					force_dirty = evergreen_gather_workaround(rctx, lrview,
+										  dst->views.gather_tex_words[i],
+										  rctx->ps_shader->current->shader.gather_workaround.gather[i],
+										  rctx->ps_shader->current->shader.gather_workaround.tex[i],
+										  lrview->gather_signal_about_workaround,
+										  &dst->views.gather_workaround[i]);
+				}
+			} else {
+				dst->views.gather_workaround[i] = false;
+			}
+		}
+
+		if (lrview == dst->views.views[i] && !force_dirty) {
 			continue;
 		}
 
-		if (rviews[i]) {
+		if (lrview) {
 			struct r600_texture *rtex =
-				r600_as_texture(rviews[i]->base.texture);
-			bool is_buffer = rviews[i]->base.texture->target == PIPE_BUFFER;
+				r600_as_texture(lrview->base.texture);
+			bool is_buffer = lrview->base.texture->target == PIPE_BUFFER;
 
 			if (!is_buffer && rtex->db_compatible) {
 				dst->views.compressed_depthtex_mask |= 1 << i;
@@ -942,14 +965,14 @@ static void r600_set_sampler_views(struct pipe_context *pipe,
 			 * updating TEX_ARRAY_OVERRIDE in sampler states on R6xx-R7xx. */
 			if (rctx->b.gfx_level <= R700 &&
 			    (dst->states.enabled_mask & (1 << i)) &&
-			    (rviews[i]->base.texture->target == PIPE_TEXTURE_1D_ARRAY ||
-			     rviews[i]->base.texture->target == PIPE_TEXTURE_2D_ARRAY) != dst->is_array_sampler[i]) {
+			    (lrview->base.texture->target == PIPE_TEXTURE_1D_ARRAY ||
+			     lrview->base.texture->target == PIPE_TEXTURE_2D_ARRAY) != dst->is_array_sampler[i]) {
 				dirty_sampler_states_mask |= 1 << i;
 			}
 
-			pipe_sampler_view_reference((struct pipe_sampler_view **)&dst->views.views[i], views[i]);
+			pipe_sampler_view_reference((struct pipe_sampler_view **)&dst->views.views[i], &lrview->base);
 			new_mask |= 1 << i;
-			r600_context_add_resource_size(pipe, views[i]->texture);
+			r600_context_add_resource_size(pipe, lrview->base.texture);
 		} else {
 			pipe_sampler_view_reference((struct pipe_sampler_view **)&dst->views.views[i], NULL);
 			disable_mask |= 1 << i;
@@ -3489,12 +3512,24 @@ unsigned r600_get_swizzle_combined(const unsigned char *swizzle_format,
 	return result;
 }
 
+static inline bool uses_only_01_swizzle_combined(const unsigned char *swizzle_view)
+{
+	uint8_t mask = 0;
+	for (unsigned i = 0; i < PIPE_SWIZZLE_0; ++i)
+		mask |= 1U << swizzle_view[i];
+	return (mask & ((1U << PIPE_SWIZZLE_X) |
+			(1U << PIPE_SWIZZLE_Y) |
+			(1U << PIPE_SWIZZLE_Z) |
+			(1U << PIPE_SWIZZLE_W))) == 0;
+}
+
 /* texture format translate */
 uint32_t r600_translate_texformat(struct pipe_screen *screen,
 				  enum pipe_format format,
 				  const unsigned char *swizzle_view,
 				  uint32_t *word4_p, uint32_t *yuv_format_p,
-				  bool do_endian_swap)
+				  bool do_endian_swap,
+				  enum gather_workaround_mode *const gather_signal_about_workaround)
 {
 	struct r600_screen *rscreen = (struct r600_screen *)screen;
 	uint32_t result = 0, word4 = 0, yuv_format = 0;
@@ -3873,22 +3908,91 @@ out_word4:
 	if (desc->colorspace == UTIL_FORMAT_COLORSPACE_SRGB && !is_srgb_valid)
 		return ~0;
 
-	if (unlikely(swizzle_view &&
-		     swizzle_view[0] >= PIPE_SWIZZLE_0 &&
-		     swizzle_view[1] >= PIPE_SWIZZLE_0 &&
-		     swizzle_view[2] >= PIPE_SWIZZLE_0 &&
-		     swizzle_view[3] >= PIPE_SWIZZLE_0)) {
-		switch (result) {
-		case FMT_32_32_32_32_FLOAT:
-		case FMT_32_32_FLOAT:
-			result = FMT_32_FLOAT;
-			break;
-		case FMT_16_16_16_16:
-		case FMT_16_16:
-			result = FMT_32;
-			break;
-		default:
-			break;
+	if (swizzle_view) {
+		if (unlikely(uses_only_01_swizzle_combined(swizzle_view))) {
+			enum gather_workaround_mode gather_mode = gw_nop;
+
+			if (result == FMT_8_8_8_8 && (
+				    (swizzle_view[0] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_1) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_1) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_1) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_1) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_0) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_0) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_0 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_0) ||
+				    (swizzle_view[0] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[1] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[2] == PIPE_SWIZZLE_1 &&
+				     swizzle_view[3] == PIPE_SWIZZLE_0)))
+				gather_mode = gw_zero_one_fallback;
+
+			if (gather_mode == gw_nop) {
+				switch (result) {
+				case FMT_32_32_32_32_FLOAT:
+				case FMT_32_32_FLOAT:
+					result = FMT_32_FLOAT;
+					break;
+				case FMT_16_16_16_16:
+				case FMT_16_16:
+				case FMT_32_32_32_32:
+				case FMT_8_8_8_8:
+					result = FMT_32;
+					break;
+				default:
+					break;
+				}
+			} else {
+				if (gather_signal_about_workaround)
+					*gather_signal_about_workaround = gather_mode;
+			}
+		} else if (unlikely(gather_signal_about_workaround &&
+				    result == FMT_8_8_8_8 &&
+				    !(swizzle_view[0] == PIPE_SWIZZLE_X &&
+				      swizzle_view[1] == PIPE_SWIZZLE_Y &&
+				      swizzle_view[2] == PIPE_SWIZZLE_Z &&
+				      swizzle_view[3] == PIPE_SWIZZLE_W))) {
+			if (likely(!((swizzle_view[0] == PIPE_SWIZZLE_0 &&
+				      swizzle_view[1] == PIPE_SWIZZLE_Y &&
+				      swizzle_view[2] == PIPE_SWIZZLE_Z &&
+				      swizzle_view[3] == PIPE_SWIZZLE_0) ||
+				     (swizzle_view[0] == PIPE_SWIZZLE_1 &&
+				      swizzle_view[1] == PIPE_SWIZZLE_Z &&
+				      swizzle_view[2] == PIPE_SWIZZLE_W &&
+				      swizzle_view[3] == PIPE_SWIZZLE_1) ||
+				     (swizzle_view[0] == PIPE_SWIZZLE_Y &&
+				      swizzle_view[1] == PIPE_SWIZZLE_Z &&
+				      swizzle_view[2] == PIPE_SWIZZLE_W &&
+				      swizzle_view[3] == PIPE_SWIZZLE_X) ||
+				     (swizzle_view[0] == PIPE_SWIZZLE_Z &&
+				      swizzle_view[1] == PIPE_SWIZZLE_Y &&
+				      swizzle_view[2] == PIPE_SWIZZLE_X &&
+				      swizzle_view[3] == PIPE_SWIZZLE_W) ||
+				     (swizzle_view[0] == PIPE_SWIZZLE_W &&
+				      swizzle_view[1] == PIPE_SWIZZLE_Z &&
+				      swizzle_view[2] == PIPE_SWIZZLE_Y &&
+				      swizzle_view[3] == PIPE_SWIZZLE_X))))
+				*gather_signal_about_workaround = gw_standard;
 		}
 	}
 

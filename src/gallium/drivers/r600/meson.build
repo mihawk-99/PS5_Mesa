@@ -38,6 +38,7 @@ files_r600 = files(
   'r600_sq.h',
   'r600_state.c',
   'r600_state_common.c',
+  'r600_tex_units.h',
   'r600_uvd.c',
   'r700_asm.c',
   'r700_sq.h',
