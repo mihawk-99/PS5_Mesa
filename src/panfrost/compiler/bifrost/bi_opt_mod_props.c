@@ -181,6 +181,43 @@ bi_fuse_small_int_to_f32(bi_context *ctx, bi_instr *I, bi_instr *mod)
    }
 }
 
+/*
+ * Use "widen" field on valhall float sources to converts f16 to f32 for free.
+ */
+static void
+bi_fuse_f16_to_f32(bi_context *ctx, bi_instr *I, bi_instr *mod, unsigned s)
+{
+   if (ctx->arch < 9 || mod->op != BI_OPCODE_F16_TO_F32)
+      return;
+
+   /* FROUND.f32 doesn't support widen start from v11.
+    * Moved from CVT to FMA, see va_arch_adjusted_unit()*/
+   if (I->op == BI_OPCODE_FROUND_F32 && ctx->arch >= 11)
+      return;
+
+   if (mod->round != BI_ROUND_NONE)
+      return;
+
+   struct va_src_info info = va_src_info(I->op, s);
+   if (!info.swizzle || info.size != VA_SIZE_32)
+      return;
+
+   if (I->src[s].swizzle != BI_SWIZZLE_NONE)
+      return;
+
+   enum bi_swizzle swz = mod->src[0].swizzle;
+   if (swz != BI_SWIZZLE_H0 && swz != BI_SWIZZLE_H1)
+      return;
+
+   if (mod->src[0].abs && !bi_takes_fabs(ctx->arch, I, mod->src[0], s))
+      return;
+
+   if (mod->src[0].neg && !bi_takes_fneg(ctx->arch, I, s))
+      return;
+
+   I->src[s] = bi_compose_float_index(I->src[s], mod->src[0]);
+}
+
 void
 bi_opt_mod_prop_forward(bi_context *ctx)
 {
@@ -213,6 +250,7 @@ bi_opt_mod_prop_forward(bi_context *ctx)
          unsigned size = bi_get_opcode_props(I)->size;
 
          bi_fuse_small_int_to_f32(ctx, I, mod);
+         bi_fuse_f16_to_f32(ctx, I, mod, s);
 
          if (bi_is_fabsneg(mod->op, size)) {
             if (mod->src[0].abs && !bi_takes_fabs(ctx->arch, I, mod->src[0], s))
