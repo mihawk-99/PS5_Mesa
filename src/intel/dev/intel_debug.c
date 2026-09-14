@@ -93,6 +93,8 @@ static const struct debug_control_bitset debug_control[] = {
    OPT2("shaders",           DEBUG_VS, DEBUG_RT),
    OPT1("rt",                DEBUG_RT),
    OPT1("rt_notrace",        DEBUG_RT_NO_TRACE),
+   OPT1("rt_noahs",          DEBUG_RT_NO_AHS),
+   OPT1("rt_nochs",          DEBUG_RT_NO_CHS),
    OPT1("bvh_blas",          DEBUG_BVH_BLAS),
    OPT1("bvh_tlas",          DEBUG_BVH_TLAS),
    OPT1("bvh_blas_ir_hdr",   DEBUG_BVH_BLAS_IR_HDR),

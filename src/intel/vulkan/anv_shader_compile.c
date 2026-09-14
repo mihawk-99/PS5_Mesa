@@ -735,6 +735,11 @@ populate_bs_prog_key(struct brw_bs_prog_key *key,
    else if (rt_skip_aabbs)
       ray_flags |= BRW_RT_RAY_FLAG_SKIP_AABBS;
 
+   if (INTEL_DEBUG(DEBUG_RT_NO_AHS))
+      ray_flags |= BRW_RT_RAY_FLAG_CULL_NON_OPAQUE;
+   if (INTEL_DEBUG(DEBUG_RT_NO_CHS))
+      ray_flags |= BRW_RT_RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+
    key->pipeline_ray_flags = ray_flags;
 }
 
