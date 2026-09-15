@@ -46,3 +46,7 @@ VK_KHR_shader_constant_data on panvk
 Support for BXM-4-64 (36.52.104.182) on pvr
 VK_KHR_shader_float_controls2 on pvr
 VK_KHR_performance_query on GFX12
+GLSL 130 on etnaviv/HALTI2
+GL_EXT_texture_integer on etnaviv/HALTI2
+GL_ARB_shader_bit_encoding on etnaviv/HALTI2
+GL_ARB_texture_rgb10_a2ui on etnaviv/HALTI2

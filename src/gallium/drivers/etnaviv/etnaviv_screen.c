@@ -286,6 +286,9 @@ etna_init_screen_caps(struct etna_screen *screen)
 
    caps->draw_indirect = VIV_FEATURE(screen, ETNA_FEATURE_HALTI5);
 
+   caps->glsl_feature_level =
+   caps->glsl_feature_level_compatibility = screen->info->halti >= 2 ? 130 : 120;
+
    /* Unsupported features. */
    caps->texture_buffer_offset_alignment = false;
    caps->texrect = false;
