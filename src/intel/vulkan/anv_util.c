@@ -245,6 +245,7 @@ anv_device_print_init(struct anv_device *device)
    if (result != VK_SUCCESS)
       return result;
 
+   device->vk.debug_output = stderr;
    u_printf_init(&device->printf, bo, (uint32_t*)bo->map);
    return VK_SUCCESS;
 }

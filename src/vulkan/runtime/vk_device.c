@@ -306,6 +306,8 @@ vk_device_init(struct vk_device *device,
 
    device->disable_lto = false;
 
+   device->debug_output = stdout;
+
    return VK_SUCCESS;
 }
 
