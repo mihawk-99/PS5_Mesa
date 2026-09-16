@@ -1075,7 +1075,7 @@ fn compile_nir_variant(
         nir_lower_convert_alu_types,
         nir_options.lower_convert_alu_types
     );
-    nir_pass!(nir, nir_opt_intrinsics);
+    nir_pass!(nir, nir_opt_intrinsics, ptr::null());
 
     opt_nir(nir, dev, true);
 

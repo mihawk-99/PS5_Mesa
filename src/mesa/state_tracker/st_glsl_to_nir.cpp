@@ -363,7 +363,8 @@ st_glsl_to_nir_post_opts(struct st_context *st, struct gl_program *prog,
       NIR_PASS(_, nir, nir_lower_atomics_to_ssbo, align_offset_state);
    }
 
-   NIR_PASS(_, nir, nir_opt_intrinsics);
+   static const nir_opt_intrinsics_options no_options = {0};
+   NIR_PASS(_, nir, nir_opt_intrinsics, &no_options);
 
    st_set_prog_affected_state_flags(prog);
    nir_shader_gather_info(nir, nir_shader_get_entrypoint(nir));

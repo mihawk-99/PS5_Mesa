@@ -212,7 +212,7 @@ radv_optimize_nir(struct nir_shader *shader, bool optimize_conservatively)
       };
       NIR_LOOP_PASS(progress, skip, shader, nir_opt_peephole_select, &peephole_select_options);
       NIR_LOOP_PASS(progress, skip, shader, nir_opt_constant_folding);
-      NIR_LOOP_PASS(progress, skip, shader, nir_opt_intrinsics);
+      NIR_LOOP_PASS(progress, skip, shader, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
       NIR_LOOP_PASS_NOT_IDEMPOTENT(progress, skip, shader, nir_opt_algebraic);
       NIR_LOOP_PASS(progress, skip, shader, nir_opt_phi_to_bool);
       NIR_LOOP_PASS(progress, skip, shader, nir_opt_phi_precision);

@@ -1219,7 +1219,7 @@ static void si_postprocess_nir(struct si_nir_shader_ctx *ctx)
    if (sel->screen->info.gfx_level >= GFX11)
       NIR_PASS(opt_intrinsics, nir, ac_nir_opt_flip_if_for_mem_loads);
    if (opt_intrinsics) /* optimize inot(inverse_ballot) */
-      NIR_PASS(_, nir, nir_opt_intrinsics);
+      NIR_PASS(_, nir, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
 
    si_nir_late_opts(nir);
 

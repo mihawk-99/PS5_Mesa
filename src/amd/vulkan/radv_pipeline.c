@@ -545,7 +545,7 @@ radv_postprocess_nir(const struct radv_compiler_info *compiler_info, const struc
    if (gfx_level >= GFX11)
       NIR_PASS(opt_intrinsics, stage->nir, ac_nir_opt_flip_if_for_mem_loads);
    if (opt_intrinsics) /* optimize inot(inverse_ballot) */
-      NIR_PASS(_, stage->nir, nir_opt_intrinsics);
+      NIR_PASS(_, stage->nir, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
 
    NIR_PASS(_, stage->nir, nir_opt_uub, &(nir_opt_uub_options){0});
 

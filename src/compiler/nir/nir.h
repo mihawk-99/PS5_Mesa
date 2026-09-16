@@ -7031,7 +7031,12 @@ typedef enum {
 
 bool nir_opt_if(nir_shader *shader, nir_opt_if_options options);
 
-bool nir_opt_intrinsics(nir_shader *shader);
+typedef struct {
+   bool unused;
+} nir_opt_intrinsics_options;
+
+bool nir_opt_intrinsics(nir_shader *shader,
+                        const nir_opt_intrinsics_options *options);
 
 bool nir_opt_large_constants(nir_shader *shader,
                              glsl_type_size_align_func size_align,

@@ -648,7 +648,7 @@ hw_select_create_gs(struct st_context *st, union state_key state)
    }
 
    NIR_PASS(_, nir, nir_lower_returns);
-   NIR_PASS(_, nir, nir_opt_intrinsics);
+   NIR_PASS(_, nir, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
 
    return st_nir_finish_builtin_shader(st, nir);
 }

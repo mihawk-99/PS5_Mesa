@@ -2279,7 +2279,7 @@ brw_nir_optimize(brw_pass_tracker *pt)
       };
       LOOP_OPT(nir_opt_peephole_select, &peephole_select_options);
 
-      LOOP_OPT(nir_opt_intrinsics);
+      LOOP_OPT(nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
       LOOP_OPT_NOT_IDEMPOTENT(nir_opt_algebraic);
 
       LOOP_OPT(nir_opt_constant_folding);

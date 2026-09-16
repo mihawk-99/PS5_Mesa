@@ -209,7 +209,7 @@ nak_optimize_nir(nir_shader *nir, const struct nak_compiler *nak)
       };
       LOOP_OPT_NOT_IDEMPOTENT(nir, nir_opt_peephole_select,
                               &peephole_select_options);
-      LOOP_OPT(nir, nir_opt_intrinsics);
+      LOOP_OPT(nir, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
       LOOP_OPT(nir, nir_opt_idiv_const, 32);
       LOOP_OPT_NOT_IDEMPOTENT(nir, nir_opt_algebraic);
       LOOP_OPT(nir, nir_lower_constant_convert_alu_types);

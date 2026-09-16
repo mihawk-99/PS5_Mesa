@@ -140,7 +140,7 @@ void si_finalize_nir(struct pipe_screen *screen, struct nir_shader *nir,
       NIR_PASS(_, nir, nir_opt_dce);
    }
 
-   NIR_PASS_ASSERT_NO_PROGRESS(nir, nir_opt_intrinsics);
+   NIR_PASS_ASSERT_NO_PROGRESS(nir, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
    NIR_PASS_ASSERT_NO_PROGRESS(nir, nir_lower_system_values);
 
    /* Remove uniforms because those should have been lowered to UBOs already. */

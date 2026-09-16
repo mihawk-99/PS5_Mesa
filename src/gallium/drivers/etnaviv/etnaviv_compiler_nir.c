@@ -177,7 +177,7 @@ etna_optimize_loop(nir_shader *s)
          .expensive_alu_ok = true,
       };
       progress |= OPT(s, nir_opt_peephole_select, &peephole_select_options);
-      progress |= OPT(s, nir_opt_intrinsics);
+      progress |= OPT(s, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
       progress |= OPT(s, nir_opt_algebraic);
       progress |= OPT(s, nir_opt_constant_folding);
       progress |= OPT(s, nir_opt_dead_cf);

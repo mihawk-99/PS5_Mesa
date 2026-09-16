@@ -89,7 +89,8 @@ build_factored_intr_bcsel(nir_builder *b, nir_alu_instr *bcsel)
  */
 static nir_def *
 try_opt_bcsel_of_intr(nir_builder *b, nir_alu_instr *bcsel,
-                      bool block_has_discard)
+                      bool block_has_discard,
+                      const nir_opt_intrinsics_options *options)
 {
    nir_intrinsic_instr *intr1 = nir_src_as_intrinsic(bcsel->src[1].src);
    nir_intrinsic_instr *intr2 = nir_src_as_intrinsic(bcsel->src[2].src);
@@ -329,13 +330,14 @@ try_opt_inot_inverse_ballot(nir_builder *b, nir_alu_instr *alu)
 }
 
 static bool
-opt_intrinsics_alu(nir_builder *b, nir_alu_instr *alu, bool block_has_discard)
+opt_intrinsics_alu(nir_builder *b, nir_alu_instr *alu, bool block_has_discard,
+                   const nir_opt_intrinsics_options *options)
 {
    nir_def *replacement = NULL;
 
    switch (alu->op) {
    case nir_op_bcsel:
-      replacement = try_opt_bcsel_of_intr(b, alu, block_has_discard);
+      replacement = try_opt_bcsel_of_intr(b, alu, block_has_discard, options);
       if (!replacement && b->shader->options->optimize_load_front_face_fsign)
          replacement = try_opt_front_face_fsign(b, alu);
       break;
@@ -796,7 +798,8 @@ opt_intrinsics_intrin(nir_builder *b, nir_intrinsic_instr *intrin)
 }
 
 static bool
-opt_intrinsics_impl(nir_function_impl *impl)
+opt_intrinsics_impl(nir_function_impl *impl,
+                    const nir_opt_intrinsics_options *options)
 {
    nir_builder b = nir_builder_create(impl);
    bool progress = false;
@@ -810,7 +813,7 @@ opt_intrinsics_impl(nir_function_impl *impl)
          switch (instr->type) {
          case nir_instr_type_alu:
             if (opt_intrinsics_alu(&b, nir_instr_as_alu(instr),
-                                   block_has_discard))
+                                   block_has_discard, options))
                progress = true;
             break;
 
@@ -837,12 +840,13 @@ opt_intrinsics_impl(nir_function_impl *impl)
 }
 
 bool
-nir_opt_intrinsics(nir_shader *shader)
+nir_opt_intrinsics(nir_shader *shader,
+                   const nir_opt_intrinsics_options *options)
 {
    bool progress = false;
 
    nir_foreach_function_impl(impl, shader) {
-      bool impl_progress = opt_intrinsics_impl(impl);
+      bool impl_progress = opt_intrinsics_impl(impl, options);
       progress |= nir_progress(impl_progress, impl,
                                nir_metadata_control_flow);
    }

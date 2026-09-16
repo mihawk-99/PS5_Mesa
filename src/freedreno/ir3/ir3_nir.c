@@ -339,7 +339,7 @@ ir3_optimize_loop(struct ir3_compiler *compiler,
          .expensive_alu_ok = true,
       };
       progress |= OPT(s, nir_opt_peephole_select, &peephole_select_options);
-      progress |= OPT(s, nir_opt_intrinsics);
+      progress |= OPT(s, nir_opt_intrinsics, &(nir_opt_intrinsics_options){});
       /* NOTE: GS lowering inserts an output var with varying slot that
        * is larger than VARYING_SLOT_MAX (ie. GS_VERTEX_FLAGS_IR3),
        * which triggers asserts in nir_shader_gather_info().  To work
