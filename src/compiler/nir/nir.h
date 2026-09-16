@@ -7033,7 +7033,31 @@ typedef enum {
 bool nir_opt_if(nir_shader *shader, nir_opt_if_options options);
 
 typedef struct {
-   bool unused;
+   /* bcsel(c, load_input(x), load_input(y)) -> load_input(bcsel(c, x, y)).
+    *
+    * Applied to all load_input intrinsics. This may create indirect input
+    * indexing.
+    *
+    * The new load will have a random IO base. Don't use this option if
+    * the preservation of IO bases is required.
+    */
+   bool factor_bcsel_load_input;
+
+   /* Allow load_input factoring out of bcsel even if the indirect offset src
+    * ends up being divergent. If false, only convergent indirect offset srcs
+    * can be created.
+    */
+   bool allow_bcsel_load_input_divergent_offset_src;
+
+   /* Allow load_input factoring out of bcsel even if the vertex index is
+    * different between loads, resulting in bcsel being created for the src.
+    * If false, the transformation is applied only if both vertex indices
+    * are equal. (it notably prevents making constant vertex index srcs
+    * non-constant)
+    *
+    * This also affects load_input_vertex.
+    */
+   bool allow_bcsel_load_input_different_vertex_index;
 } nir_opt_intrinsics_options;
 
 bool nir_opt_intrinsics(nir_shader *shader,

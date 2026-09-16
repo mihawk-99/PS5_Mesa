@@ -47,8 +47,13 @@ is_single_use_intrinsic(nir_intrinsic_instr *intr)
 
 /* Build op(bcsel(c, x1, y1), bcsel(c, x2, y2), ...). */
 static nir_def *
-build_factored_intr_bcsel(nir_builder *b, nir_alu_instr *bcsel)
+build_factored_intr_bcsel(nir_builder *b, nir_alu_instr *bcsel,
+                          unsigned src_equal_mask)
 {
+   /* If the condition is a vector, all its components are guaranteed to be
+    * equal at this point.
+    */
+   nir_def *bcsel_cond = nir_channel(b, bcsel->src[0].src.ssa, 0);
    nir_intrinsic_instr *intr1 = nir_src_as_intrinsic(bcsel->src[1].src);
    nir_intrinsic_instr *intr2 = nir_src_as_intrinsic(bcsel->src[2].src);
 
@@ -67,15 +72,82 @@ build_factored_intr_bcsel(nir_builder *b, nir_alu_instr *bcsel)
    /* Copy equal srcs or create bcsels. */
    unsigned num_op_srcs = nir_intrinsic_infos[intr1->intrinsic].num_srcs;
 
-   /* Create bcsels if srcs are not equal. */
    for (unsigned i = 0; i < num_op_srcs; i++) {
-      if (intr1->src[i].ssa == intr2->src[i].ssa) {
+      assert(intr1->src[i].ssa->num_components ==
+             intr2->src[i].ssa->num_components);
+      assert(intr1->src[i].ssa->bit_size == intr2->src[i].ssa->bit_size);
+
+      /* Create bcsels if srcs are not equal. */
+      if (src_equal_mask & BITFIELD_BIT(i)) {
          new_intr->src[i] = nir_src_for_ssa(intr1->src[i].ssa);
       } else {
-         new_intr->src[i] =
-            nir_src_for_ssa(nir_bcsel(b, bcsel->src[0].src.ssa,
-                                      intr1->src[i].ssa, intr2->src[i].ssa));
+         nir_def *new_src =
+            nir_bcsel(b, bcsel_cond, intr1->src[i].ssa, intr2->src[i].ssa);
+         new_intr->src[i] = nir_src_for_ssa(new_src);
       }
+   }
+
+   /* Merge those intrinsic "indices" that are allowed to differ. */
+   if (nir_intrinsic_has_io_semantics(new_intr)) {
+      nir_io_semantics sem1 = nir_intrinsic_io_semantics(intr1);
+      nir_io_semantics sem2 = nir_intrinsic_io_semantics(intr2);
+      nir_io_semantics new_sem = sem1;
+      unsigned location_diff = abs((int)sem1.location - (int)sem2.location);
+
+      if (sem1.location != sem2.location) {
+         /* The new location is the minimum of the two locations. */
+         new_sem.location = MIN2(sem1.location, sem2.location);
+
+         /* Add the location difference to the corresponding bcsel src
+          * where the load had a greater location, so that the index value
+          * is relative to the new location.
+          */
+         unsigned fix_intr = sem1.location < sem2.location ? 1 : 0;
+         int offset_src = nir_get_io_offset_src_number(new_intr);
+         assert(offset_src >= 0);
+
+         if (src_equal_mask & BITFIELD_BIT(offset_src)) {
+            /* If the srcs are equal, no bcsel was created, so we have
+             * to create one. The location difference is only added to
+             * the bcsel src that needs it given the adjusted location.
+             */
+            nir_def *offset_src_def[2] = {
+               intr1->src[offset_src].ssa,
+               intr2->src[offset_src].ssa,
+            };
+
+            offset_src_def[fix_intr] =
+               nir_iadd_imm(b, offset_src_def[fix_intr], location_diff);
+
+            new_intr->src[offset_src] =
+               nir_src_for_ssa(nir_bcsel(b, bcsel_cond, offset_src_def[0],
+                                         offset_src_def[1]));
+         } else {
+            nir_alu_instr *offset_src_as_bcsel =
+               nir_src_as_alu(new_intr->src[offset_src]);
+            assert(offset_src_as_bcsel);
+
+            /* Fix just the bcsel src. */
+            nir_builder b2 =
+               nir_builder_at(nir_before_instr(&offset_src_as_bcsel->instr));
+            nir_def *new_offset =
+               nir_iadd_imm(&b2, offset_src_as_bcsel->src[fix_intr + 1].src.ssa,
+                            location_diff);
+            nir_src_rewrite(&offset_src_as_bcsel->src[fix_intr + 1].src,
+                            new_offset);
+         }
+      }
+
+      unsigned num_slots =
+         MAX2(sem1.location + sem1.num_slots, sem2.location + sem2.num_slots) -
+         MIN2(sem1.location, sem2.location);
+      assert(num_slots <= 32);
+
+      new_sem.num_slots = num_slots;
+      new_sem.no_validate = sem1.no_validate || sem2.no_validate;
+      new_sem.no_signed_zero = sem1.no_signed_zero && sem2.no_signed_zero;
+
+      nir_intrinsic_set_io_semantics(new_intr, new_sem);
    }
 
    nir_builder_instr_insert(b, &new_intr->instr);
@@ -124,11 +196,91 @@ try_opt_bcsel_of_intr(nir_builder *b, nir_alu_instr *bcsel,
          return NULL;
    }
 
+   bool is_input_load = nir_is_input_load(intr1);
+
+   /* Reject cases based on options. */
+   if (is_input_load) {
+      nir_def *bcsel_cond = bcsel->src[0].src.ssa;
+
+      if (!options->factor_bcsel_load_input)
+         return NULL;
+
+      if (!options->allow_bcsel_load_input_divergent_offset_src &&
+          bcsel_cond->divergent)
+         return NULL;
+
+      if (!options->allow_bcsel_load_input_different_vertex_index) {
+         int index_src = nir_get_io_arrayed_index_src_number(intr1);
+
+         /* We want to handle this one too. */
+         if (intr1->intrinsic == nir_intrinsic_load_input_vertex)
+            index_src = 0;
+
+         if (index_src >= 0 &&
+             intr1->src[index_src].ssa != intr2->src[index_src].ssa)
+            return NULL;
+      }
+
+      /* For input loads, only scalar bcsel conditions or vector conditions
+       * where all components are equal are allowed. That's because IO srcs
+       * can have a different number of components than the result.
+       */
+      if (bcsel_cond->num_components > 1) {
+         nir_scalar comp0 = nir_scalar_resolved(bcsel_cond, 0);
+
+         for (unsigned i = 1; i < bcsel_cond->num_components; i++) {
+            if (!nir_scalar_equal(nir_scalar_resolved(bcsel_cond, i), comp0))
+               return NULL;
+         }
+      }
+   }
+
    unsigned num_index_slots =
       nir_intrinsic_infos[intr1->intrinsic].num_index_slots;
+   uint8_t base_index =
+      nir_intrinsic_infos[intr1->intrinsic].index_map[NIR_INTRINSIC_BASE];
+   uint8_t io_semantics_index =
+      nir_intrinsic_infos[intr1->intrinsic].index_map[NIR_INTRINSIC_IO_SEMANTICS];
 
    /* Check whether intrinsic indices are compatible. */
    for (unsigned i = 0; i < num_index_slots; i++) {
+      if (is_input_load) {
+         /* IO bases are merged for the new load. */
+         if (i == base_index - 1)
+            continue;
+
+         if (i == io_semantics_index - 1) {
+            nir_io_semantics sem1 = nir_intrinsic_io_semantics(intr1);
+            nir_io_semantics sem2 = nir_intrinsic_io_semantics(intr2);
+
+            /* Check whether the locations occupy the same indexable space
+             * since bcsel introduces indirect indexing.
+             */
+            if (b->shader->info.stage != MESA_SHADER_VERTEX) {
+               int space1 = nir_io_get_varying_space_index(sem1.location);
+               int space2 = nir_io_get_varying_space_index(sem2.location);
+
+               if (space1 < 0 || space1 != space2)
+                  return NULL;
+            }
+
+            /* These don't prevent factorization and are merged for
+             * the new load.
+             */
+            sem1.location = sem2.location = 0;
+            sem1.num_slots = sem2.num_slots = 0;
+            sem1.no_validate = sem2.no_validate = 0;
+            sem1.no_signed_zero = sem2.no_signed_zero = 0;
+
+            /* Reject non-mergeable IO semantics. */
+            if (memcmp(&sem1, &sem2, sizeof(sem1)))
+               return NULL;
+
+            i++; /* io_semantics occupy 2 dwords */
+            continue;
+         }
+      }
+
       if (intr1->const_index[i] != intr2->const_index[i])
          return NULL;
    }
@@ -138,7 +290,17 @@ try_opt_bcsel_of_intr(nir_builder *b, nir_alu_instr *bcsel,
    unsigned src_equal_mask = 0;
 
    for (unsigned i = 0; i < num_op_srcs; i++) {
-      if (intr1->src[i].ssa == intr2->src[i].ssa)
+      /* We need to identify non-CSE'd equal load_const instructions,
+       * otherwise if CSE isn't invoked before this, NIR validation fails
+       * if num_slots == 1 and the offset src becomes e.g. bcsel(c, 0, 0)
+       * after bcsel insertion.
+       */
+      nir_instr *src1 = nir_def_instr(intr1->src[i].ssa);
+      nir_instr *src2 = nir_def_instr(intr2->src[i].ssa);
+
+      if (src1 == src2 || (src1->type == nir_instr_type_load_const &&
+                           src2->type == nir_instr_type_load_const &&
+                           nir_instrs_equal(src1, src2)))
          src_equal_mask |= BITFIELD_BIT(i);
    }
 
@@ -153,6 +315,11 @@ try_opt_bcsel_of_intr(nir_builder *b, nir_alu_instr *bcsel,
    } bcsel_src_op_info;
 
    static const bcsel_src_op_info bcsel_src_ops[] = {
+      {nir_intrinsic_load_input, 0},
+      {nir_intrinsic_load_input_vertex, 0},
+      {nir_intrinsic_load_interpolated_input, 0},
+      {nir_intrinsic_load_per_primitive_input, 0},
+      {nir_intrinsic_load_per_vertex_input, 0},
       {nir_intrinsic_shuffle, 0x1},
    };
 
@@ -164,7 +331,7 @@ try_opt_bcsel_of_intr(nir_builder *b, nir_alu_instr *bcsel,
           bcsel_src_ops[i].require_equal_src_mask)
          return NULL;
 
-      return build_factored_intr_bcsel(b, bcsel);
+      return build_factored_intr_bcsel(b, bcsel, src_equal_mask);
    }
 
    return NULL;
@@ -803,6 +970,10 @@ opt_intrinsics_impl(nir_function_impl *impl,
 {
    nir_builder b = nir_builder_create(impl);
    bool progress = false;
+
+   if (options->factor_bcsel_load_input &&
+       !options->allow_bcsel_load_input_divergent_offset_src)
+      nir_metadata_require(impl, nir_metadata_divergence);
 
    nir_foreach_block(block, impl) {
       bool block_has_discard = false;
