@@ -30,64 +30,143 @@
  */
 
 static bool
-src_is_single_use_shuffle(nir_src src, nir_def **data, nir_def **index)
+is_single_use_intrinsic(nir_intrinsic_instr *intr)
 {
-   nir_intrinsic_instr *shuffle = nir_src_as_intrinsic(src);
-   if (shuffle == NULL || shuffle->intrinsic != nir_intrinsic_shuffle)
-      return false;
-
-   /* This is only called when src is part of an ALU op so requiring no if
-    * uses is reasonable.  If we ever want to use this from an if statement,
-    * we can change it then.
+   /* This is only called when the intrinsic is src of an ALU op so requiring
+    * no if uses is reasonable.  If we ever want to use this from an if
+    * statement, we can change it then.
     */
-   if (!list_is_singular(&shuffle->def.uses))
+   if (!list_is_singular(&intr->def.uses))
       return false;
 
-   if (nir_def_used_by_if(&shuffle->def))
+   if (nir_def_used_by_if(&intr->def))
       return false;
-
-   *data = shuffle->src[0].ssa;
-   *index = shuffle->src[1].ssa;
 
    return true;
 }
 
+/* Build op(bcsel(c, x1, y1), bcsel(c, x2, y2), ...). */
 static nir_def *
-try_opt_bcsel_of_shuffle(nir_builder *b, nir_alu_instr *alu,
-                         bool block_has_discard)
+build_factored_intr_bcsel(nir_builder *b, nir_alu_instr *bcsel)
 {
-   assert(alu->op == nir_op_bcsel);
+   nir_intrinsic_instr *intr1 = nir_src_as_intrinsic(bcsel->src[1].src);
+   nir_intrinsic_instr *intr2 = nir_src_as_intrinsic(bcsel->src[2].src);
 
-   /* If we've seen a discard in this block, don't do the optimization.  We
-    * could try to do something fancy where we check if the shuffle is on our
-    * side of the discard or not but this is good enough for correctness for
-    * now and subgroup ops in the presence of discard aren't common.
+   nir_intrinsic_instr *new_intr =
+      nir_intrinsic_instr_create(b->shader, intr1->intrinsic);
+   nir_def_init(&new_intr->instr, &new_intr->def, intr1->def.num_components,
+                intr1->def.bit_size);
+   nir_intrinsic_copy_const_indices(new_intr, intr1);
+   new_intr->num_components = intr1->num_components;
+
+   if (intr1->name && intr2->name) {
+      new_intr->name = ralloc_asprintf(b->shader, "? %s : %s",
+                                       intr1->name, intr2->name);
+   }
+
+   /* Copy equal srcs or create bcsels. */
+   unsigned num_op_srcs = nir_intrinsic_infos[intr1->intrinsic].num_srcs;
+
+   /* Create bcsels if srcs are not equal. */
+   for (unsigned i = 0; i < num_op_srcs; i++) {
+      if (intr1->src[i].ssa == intr2->src[i].ssa) {
+         new_intr->src[i] = nir_src_for_ssa(intr1->src[i].ssa);
+      } else {
+         new_intr->src[i] =
+            nir_src_for_ssa(nir_bcsel(b, bcsel->src[0].src.ssa,
+                                      intr1->src[i].ssa, intr2->src[i].ssa));
+      }
+   }
+
+   nir_builder_instr_insert(b, &new_intr->instr);
+   return &new_intr->def;
+}
+
+/* Factor the op out of bcsel.
+ *
+ * Replace: bcsel(c, op(x1, x2, ...), op(y1, y2, ...))
+ * with:    op(bcsel(c, x1, y1), bcsel(c, x2, y2), ...)
+ */
+static nir_def *
+try_opt_bcsel_of_intr(nir_builder *b, nir_alu_instr *bcsel,
+                      bool block_has_discard)
+{
+   nir_intrinsic_instr *intr1 = nir_src_as_intrinsic(bcsel->src[1].src);
+   nir_intrinsic_instr *intr2 = nir_src_as_intrinsic(bcsel->src[2].src);
+
+   if (!intr1 || !intr2 || intr1->intrinsic != intr2->intrinsic)
+      return NULL;
+
+   if (nir_intrinsic_infos[intr1->intrinsic].flags & NIR_INTRINSIC_SUBGROUP) {
+      /* If we've seen a discard in this block, don't do the optimization.  We
+       * could try to do something fancy where we check if the subgroup op is on
+       * our side of the discard or not but this is good enough for correctness
+       * for now and subgroup ops in the presence of discard aren't common.
+       */
+      if (block_has_discard)
+         return NULL;
+
+      /* Reject subgroup op selection srcs in different blocks. */
+      for (unsigned i = 1; i < 3; i++) {
+         if (nir_def_block(bcsel->src[i].src.ssa) != bcsel->instr.block)
+            return NULL;
+      }
+   }
+
+   /* The optimization is valuable only if the srcs are eliminated after this. */
+   if (!is_single_use_intrinsic(intr1) || !is_single_use_intrinsic(intr2))
+      return NULL;
+
+   /* Reject bcsel with non-trivial srcs. */
+   for (unsigned i = 0; i < 3; i++) {
+      if (!nir_alu_has_trivial_src(bcsel, i))
+         return NULL;
+   }
+
+   unsigned num_index_slots =
+      nir_intrinsic_infos[intr1->intrinsic].num_index_slots;
+
+   /* Check whether intrinsic indices are compatible. */
+   for (unsigned i = 0; i < num_index_slots; i++) {
+      if (intr1->const_index[i] != intr2->const_index[i])
+         return NULL;
+   }
+
+   /* Gather which srcs are equal between the intrinsics. */
+   unsigned num_op_srcs = nir_intrinsic_infos[intr1->intrinsic].num_srcs;
+   unsigned src_equal_mask = 0;
+
+   for (unsigned i = 0; i < num_op_srcs; i++) {
+      if (intr1->src[i].ssa == intr2->src[i].ssa)
+         src_equal_mask |= BITFIELD_BIT(i);
+   }
+
+   /* The list of intrinsics for which we perform:
+    *    bcsel(c, op(x), op(y)) -> op(bcsel(c, x, y))
+    *
+    * The masks indicate which srcs must be equal between the intrinsics.
     */
-   if (block_has_discard)
-      return NULL;
+   typedef struct {
+      nir_intrinsic_op op;
+      unsigned require_equal_src_mask;
+   } bcsel_src_op_info;
 
-   if (!nir_alu_has_trivial_src(alu, 0))
-      return NULL;
+   static const bcsel_src_op_info bcsel_src_ops[] = {
+      {nir_intrinsic_shuffle, 0x1},
+   };
 
-   nir_def *data1, *index1;
-   if (!nir_alu_has_trivial_src(alu, 1) ||
-       nir_def_block(alu->src[1].src.ssa) != alu->instr.block ||
-       !src_is_single_use_shuffle(alu->src[1].src, &data1, &index1))
-      return NULL;
+   for (unsigned i = 0; i < ARRAY_SIZE(bcsel_src_ops); i++) {
+      if (intr1->intrinsic != bcsel_src_ops[i].op)
+         continue;
 
-   nir_def *data2, *index2;
-   if (!nir_alu_has_trivial_src(alu, 2) ||
-       nir_def_block(alu->src[2].src.ssa) != alu->instr.block ||
-       !src_is_single_use_shuffle(alu->src[2].src, &data2, &index2))
-      return NULL;
+      if ((src_equal_mask & bcsel_src_ops[i].require_equal_src_mask) !=
+          bcsel_src_ops[i].require_equal_src_mask)
+         return NULL;
 
-   if (data1 != data2)
-      return NULL;
+      return build_factored_intr_bcsel(b, bcsel);
+   }
 
-   nir_def *index = nir_bcsel(b, alu->src[0].src.ssa, index1, index2);
-   nir_def *shuffle = nir_shuffle(b, data1, index);
-
-   return shuffle;
+   return NULL;
 }
 
 /* load_front_face ? a : -a -> load_front_face_sign * a */
@@ -256,7 +335,7 @@ opt_intrinsics_alu(nir_builder *b, nir_alu_instr *alu, bool block_has_discard)
 
    switch (alu->op) {
    case nir_op_bcsel:
-      replacement = try_opt_bcsel_of_shuffle(b, alu, block_has_discard);
+      replacement = try_opt_bcsel_of_intr(b, alu, block_has_discard);
       if (!replacement && b->shader->options->optimize_load_front_face_fsign)
          replacement = try_opt_front_face_fsign(b, alu);
       break;
