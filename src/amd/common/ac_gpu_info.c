@@ -365,6 +365,20 @@ ac_fill_compiler_info(struct radeon_info *info, const struct drm_amdgpu_info_dev
 
    out->has_gfx6_mrt_export_bug =
       info->family == CHIP_TAHITI || info->family == CHIP_PITCAIRN || info->family == CHIP_VERDE;
+
+   /* Load balance per watt (LBPW) monitors HW utilization to determine
+    * if the HW can handle the workload with fewer CUs enabled.
+    * The SPI_LB_CU_MASK register directs the SPI to stop launching
+    * waves to a CU so it will be clock-gated. Due to a bug, SPI applies
+    * the clock-gate immediately, which causes pending LS/HS/CS waves on
+    * that CU to never be launched. (A microcode fix exists for CS.)
+    *
+    * The workaround is to limit each LS/HS threadgroup to a single wavefront.
+    * The kernel only enables LBPW on SI when VRAM is DDR3, that's when we
+    * need the workaround.
+    */
+   out->has_lbpw_tcs_wg_bug = info->gfx_level == GFX6 && info->vram_type == AMDGPU_VRAM_TYPE_DDR3;
+
    out->has_vtx_format_alpha_adjust_bug = info->gfx_level <= GFX8 && info->family != CHIP_STONEY;
 
    /* On GFX6-7, SMEM instructions access memory when num_records == 0 or offset >= num_records,
@@ -2168,6 +2182,7 @@ void ac_print_gpu_info(FILE *f, const struct radeon_info *info, int fd)
    fprintf(f, "    has_attr_ring = %i\n", info->compiler_info.has_attr_ring);
    fprintf(f, "    smaller_tcs_workgroups = %i\n", info->compiler_info.smaller_tcs_workgroups);
    fprintf(f, "    has_gfx6_mrt_export_bug = %i\n", info->compiler_info.has_gfx6_mrt_export_bug);
+   fprintf(f, "    has_lbpw_tcs_wg_bug = %i\n", info->compiler_info.has_lbpw_tcs_wg_bug);
    fprintf(f, "    has_vtx_format_alpha_adjust_bug = %i\n", info->compiler_info.has_vtx_format_alpha_adjust_bug);
    fprintf(f, "    has_smem_oob_access_bug = %i\n", info->compiler_info.has_smem_oob_access_bug);
    fprintf(f, "    has_image_load_dcc_bug = %i\n", info->compiler_info.has_image_load_dcc_bug);

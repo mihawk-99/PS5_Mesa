@@ -204,6 +204,8 @@ struct ac_compiler_info {
 
    /* Some GFX6 GPUs have a bug where it only looks at the x writemask component. */
    uint32_t has_gfx6_mrt_export_bug : 1;
+   /* GFX6 needs single-wave TCS workgroups when load balance per watt is enabled. */
+   uint32_t has_lbpw_tcs_wg_bug : 1;
    /* Pre-GFX9: A bug where the alpha component of 10_10_10_2 formats is always unsigned.*/
    uint32_t has_vtx_format_alpha_adjust_bug : 1;
    /* GFX6-7: SMEM accesses memory even when it's out of bounds */
