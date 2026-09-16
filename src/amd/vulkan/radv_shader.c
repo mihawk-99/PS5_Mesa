@@ -2044,7 +2044,6 @@ radv_precompute_registers_hw_fs(struct radv_device *device, struct radv_shader *
       regs->ps.spi_shader_pgm_rsrc4_ps =
          S_00B01C_WAVE_LIMIT_GFX12(0x3FF) | S_00B01C_LDS_GROUP_SIZE_GFX12(1) | S_00B01C_INST_PREF_SIZE(inst_pref_size);
 
-      regs->ps.pa_sc_hisz_control = S_028BBC_ROUND(2); /* required minimum value */
       if (info->ps.depth_layout == FRAG_DEPTH_LAYOUT_GREATER)
          regs->ps.pa_sc_hisz_control |= S_028BBC_CONSERVATIVE_Z_EXPORT(V_028BBC_EXPORT_GREATER_THAN_Z);
       else if (info->ps.depth_layout == FRAG_DEPTH_LAYOUT_LESS)
