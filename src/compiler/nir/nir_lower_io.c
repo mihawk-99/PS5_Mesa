@@ -1396,6 +1396,28 @@ nir_get_io_arrayed_index_src(nir_intrinsic_instr *instr)
    return idx >= 0 ? &instr->src[idx] : NULL;
 }
 
+/* Return an index uniquely identifying the indexable space of the varying,
+ * -1 if not indexable.
+ */
+int
+nir_io_get_varying_space_index(gl_varying_slot location)
+{
+   if (location >= VARYING_SLOT_TEX0 && location <= VARYING_SLOT_TEX7)
+      return 0;
+   if (location >= VARYING_SLOT_CLIP_DIST0 && location <= VARYING_SLOT_CLIP_DIST1)
+      return 1;
+   if (location >= VARYING_SLOT_CULL_DIST0 && location <= VARYING_SLOT_CULL_DIST1)
+      return 2;
+   if (location >= VARYING_SLOT_VAR0 && location <= VARYING_SLOT_VAR31)
+      return 3;
+   if (location >= VARYING_SLOT_PATCH0 && location <= VARYING_SLOT_PATCH31)
+      return 4;
+   if (location >= VARYING_SLOT_VAR0_16BIT && location <= VARYING_SLOT_VAR15_16BIT)
+      return 5;
+
+   return -1;
+}
+
 static unsigned
 type_size_vec4(const struct glsl_type *type, bool bindless)
 {

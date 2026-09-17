@@ -6041,6 +6041,7 @@ nir_src *nir_get_io_uniform_offset_src(nir_intrinsic_instr *instr);
 nir_src *nir_get_io_index_src(nir_intrinsic_instr *instr);
 nir_src *nir_get_io_data_src(nir_intrinsic_instr *instr);
 nir_src *nir_get_io_arrayed_index_src(nir_intrinsic_instr *instr);
+int nir_io_get_varying_space_index(gl_varying_slot location);
 nir_src *nir_get_shader_call_payload_src(nir_intrinsic_instr *call);
 
 static inline unsigned
