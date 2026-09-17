@@ -6761,6 +6761,11 @@ tu_subpass_barrier(struct tu_cmd_buffer *cmd_buffer,
    enum tu_stage src_stage = vk2tu_src_stage(cmd_buffer->device, src_stage_vk);
    enum tu_stage dst_stage = vk2tu_dst_stage(cmd_buffer->device, dst_stage_vk);
    tu_flush_for_stage<CHIP>(cache, src_stage, dst_stage, !barrier->non_fb_local);
+
+   if (barrier->potential_feedback_loop) {
+      tu_lrz_disable_write_for_rp(cmd_buffer, "Potential feedback loop (fb-space dependency)");
+      cmd_buffer->state.dirty |= TU_CMD_DIRTY_LRZ;
+   }
 }
 
 template <chip CHIP>
@@ -10118,6 +10123,7 @@ tu_barrier(struct tu_cmd_buffer *cmd,
    VkPipelineStageFlags2 dstStage = 0;
    BITMASK_ENUM(tu_cmd_access_mask) src_flags = 0;
    BITMASK_ENUM(tu_cmd_access_mask) dst_flags = 0;
+   bool potential_feedback_loop = false;
 
    /* Inside a renderpass, we don't know yet whether we'll be using sysmem
     * so we have to use the sysmem flushes.
@@ -10134,6 +10140,10 @@ tu_barrier(struct tu_cmd_buffer *cmd,
             sanitize_src_stage(barrier->srcStageMask);
          VkPipelineStageFlags2 sanitized_dst_stage =
             sanitize_dst_stage(barrier->dstStageMask);
+
+         potential_feedback_loop |= tu_dependency_is_potential_feedback_loop(
+            dep_info->dependencyFlags, sanitized_src_stage, barrier->srcAccessMask, sanitized_dst_stage,
+            barrier->dstAccessMask);
 
          VkAccessFlags3KHR src_access_mask2 = 0, dst_access_mask2 = 0;
          const VkMemoryBarrierAccessFlags3KHR *access3 =
@@ -10163,6 +10173,10 @@ tu_barrier(struct tu_cmd_buffer *cmd,
             sanitize_src_stage(barrier->srcStageMask);
          VkPipelineStageFlags2 sanitized_dst_stage =
             sanitize_dst_stage(barrier->dstStageMask);
+
+         potential_feedback_loop |= tu_dependency_is_potential_feedback_loop(
+            dep_info->dependencyFlags, sanitized_src_stage, barrier->srcAccessMask, sanitized_dst_stage,
+            barrier->dstAccessMask);
 
          VkAccessFlags3KHR src_access_mask2 = 0, dst_access_mask2 = 0;
          const VkMemoryBarrierAccessFlags3KHR *access3 =
@@ -10210,6 +10224,10 @@ tu_barrier(struct tu_cmd_buffer *cmd,
             sanitize_src_stage(barrier->srcStageMask);
          VkPipelineStageFlags2 sanitized_dst_stage =
             sanitize_dst_stage(barrier->dstStageMask);
+
+         potential_feedback_loop |= tu_dependency_is_potential_feedback_loop(
+            dep_info->dependencyFlags, sanitized_src_stage, barrier->srcAccessMask, sanitized_dst_stage,
+            barrier->dstAccessMask);
 
          VkAccessFlags3KHR src_access_mask2 = 0, dst_access_mask2 = 0;
          const VkMemoryBarrierAccessFlags3KHR *access3 =
@@ -10265,6 +10283,19 @@ tu_barrier(struct tu_cmd_buffer *cmd,
          by_region = false;
       } else {
          by_region = true;
+      }
+
+      /* Without an appropriate framebuffer-local dependency, feedback loop not guaranteed
+       * to observe values from previous writes. However, an appropriate dependency is a
+       * strong enough signal that there would be a feedback loop, which from LRZ point of
+       * view is same as blending.
+       */
+      bool subpass_may_have_feedback_loop = cmd->state.pass == &cmd->dynamic_pass ||
+                                            cmd->state.subpass->feedback_loop_color ||
+                                            cmd->state.subpass->feedback_loop_ds;
+      if (potential_feedback_loop && subpass_may_have_feedback_loop) {
+         tu_lrz_disable_write_for_rp(cmd, "Potential feedback loop (fb-space dependency)");
+         cmd->state.dirty |= TU_CMD_DIRTY_LRZ;
       }
    }
 
