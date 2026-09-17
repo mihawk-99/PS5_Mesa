@@ -454,6 +454,7 @@ if with_tests and not with_nir_headers_only
           'tests/negative_equal_tests.cpp',
           'tests/nir_algebraic_pattern_test.cpp',
           'tests/opt_if_tests.cpp',
+          'tests/opt_intrinsics_tests.cpp',
           'tests/opt_large_constants_tests.cpp',
           'tests/opt_licm_tests.cpp',
           'tests/opt_loop_tests.cpp',
