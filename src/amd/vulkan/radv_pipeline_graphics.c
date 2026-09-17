@@ -2738,6 +2738,18 @@ radv_graphics_shaders_compile(const struct radv_compiler_info *compiler_info, st
       if (indirect_derefs_lowered && !stages[i].key.optimisations_disabled)
          radv_optimize_nir(stages[i].nir, false);
 
+      /* Do bcsel(c, load_input(x), load_input(y)) -> load_input(bcsel(c, x, y)).
+       * Don't do it if TCS reads inputs from VGPRs because that can't have indirect indexing.
+       */
+      if ((stages[i].stage == MESA_SHADER_TESS_CTRL && !stages[MESA_SHADER_VERTEX].info.vs.tcs_in_out_eq) ||
+          stages[i].stage == MESA_SHADER_TESS_EVAL || stages[i].stage == MESA_SHADER_GEOMETRY ||
+          stages[i].stage == MESA_SHADER_FRAGMENT)
+         NIR_PASS(_, stages[i].nir, nir_opt_intrinsics,
+                  &(nir_opt_intrinsics_options){
+                     .factor_bcsel_load_input = true,
+                     .allow_bcsel_load_input_divergent_offset_src = stages[i].stage != MESA_SHADER_FRAGMENT,
+                  });
+
       stages[i].feedback.duration += os_time_get_nano() - stage_start;
    }
 
