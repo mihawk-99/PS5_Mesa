@@ -118,7 +118,7 @@ int amdvgpu_cs_ctx_create2(amdvgpu_device_handle dev, int32_t priority,
    simple_mtx_lock(&dev->contexts_mutex);
    if (!dev->allow_multiple_amdgpu_ctx && _mesa_hash_table_num_entries(&dev->contexts)) {
       assert(_mesa_hash_table_num_entries(&dev->contexts) == 1);
-      struct hash_entry *he = _mesa_hash_table_random_entry(&dev->contexts, NULL);
+      struct hash_entry *he = _mesa_hash_table_next_entry(&dev->contexts, NULL);
       struct amdvgpu_context *ctx = he->data;
       p_atomic_inc(&ctx->refcount);
       *ctx_virtio = (uint32_t)(uintptr_t)he->key;
