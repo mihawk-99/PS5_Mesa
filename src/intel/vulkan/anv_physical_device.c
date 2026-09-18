@@ -626,6 +626,7 @@ get_device_extensions(const struct anv_physical_device *device,
 #endif
       .GOOGLE_hlsl_functionality1            = true,
       .GOOGLE_user_type                      = true,
+      .INTEL_device_info                     = true,
       .INTEL_performance_query               = device->perf && device->perf->use_metrics_library,
       .INTEL_shader_integer_functions2       = true,
       .MESA_image_alignment_control          = true,
@@ -2465,6 +2466,13 @@ get_properties(const struct anv_physical_device *pdevice,
    /* VK_KHR_device_fault */
    {
       props->maxDeviceFaultCount = UINT32_MAX;
+   }
+
+   /* VK_INTEL_device_info */
+   {
+      props->deviceIpVersionArch = devinfo->gfx_ip_ver >> 16;
+      props->deviceIpVersionRelease = devinfo->gfx_ip_ver & 0xffff;
+      props->deviceIpVersionRevision = devinfo->revision;
    }
 }
 
