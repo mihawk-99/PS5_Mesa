@@ -2993,8 +2993,19 @@ static void r600_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info 
 	if (rctx->b.gfx_level >= EVERGREEN) {
 		if (rctx->b.gfx_level == EVERGREEN)
 			global_atomic_count = evergreen_emit_atomic_buffer_setup_count(rctx, NULL, combined_atomics, global_atomic_count);
-		else
+		else {
 			global_atomic_count = cayman_emit_atomic_buffer_setup_count(rctx, NULL, combined_atomics, global_atomic_count);
+
+			/* Unlike evergreen's PKT3_SET_APPEND_CNT (a context register load
+			 * that is implicitly serialized with the graphics pipeline), cayman
+			 * loads the counter into GDS via a CP DMA copy, which the CP can
+			 * issue without waiting for a previous draw's pixel shaders to
+			 * finish reading GDS. Without an explicit flush here, a later draw's
+			 * counter reload can race ahead of an earlier draw's shader reads,
+			 * making every draw observe the last-loaded value. */
+			if (global_atomic_count)
+				rctx->b.flags |= R600_CONTEXT_PS_PARTIAL_FLUSH;
+		}
 	}
 
 	if (index_size) {
