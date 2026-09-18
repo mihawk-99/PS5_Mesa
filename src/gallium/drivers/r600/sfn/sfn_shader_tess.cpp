@@ -21,6 +21,7 @@ TCSShader::TCSShader(const r600_shader_key& key):
     Shader("TCS", {(uint8_t)key.tcs.nr_cbufs, 0, (uint8_t)key.tcs.dynamic_ssbo_offset}),
     m_tcs_prim_mode(key.tcs.prim_mode)
 {
+   set_ssbo_read_by_later_stage(key.tcs.ssbo_read_by_later_stage);
 }
 
 bool
@@ -144,6 +145,7 @@ TESShader::TESShader(const pipe_stream_output_info *so_info,
        "TES", {(uint8_t)key.tes.nr_cbufs, 0, (uint8_t)key.tes.dynamic_ssbo_offset}),
     m_vs_as_gs_a(key.vs.as_gs_a)
 {
+   set_ssbo_read_by_later_stage(key.tes.ssbo_read_by_later_stage);
    if (key.tes.as_es)
       m_export_processor = new VertexExportForGS(this, gs_shader);
    else

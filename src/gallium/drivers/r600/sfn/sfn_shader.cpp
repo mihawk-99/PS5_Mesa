@@ -631,11 +631,15 @@ Shader::scan_instruction(nir_instr *instr)
    case nir_intrinsic_image_atomic:
    case nir_intrinsic_image_atomic_swap:
       m_flags.set(sh_needs_sbo_ret_address);
+      m_flags.set(sh_reads_memory);
       FALLTHROUGH;
    case nir_intrinsic_image_store:
    case nir_intrinsic_store_ssbo:
       m_flags.set(sh_writes_memory);
       m_flags.set(sh_uses_images);
+      break;
+   case nir_intrinsic_load_ssbo:
+      m_flags.set(sh_reads_memory);
       break;
    case nir_intrinsic_barrier:
       m_chain_instr.prepare_mem_barrier |=

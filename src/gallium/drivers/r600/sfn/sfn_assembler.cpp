@@ -116,6 +116,9 @@ Assembler::lower(Shader *shader)
          return false;
    }
 
+   if (shader->must_ack_memory_writes())
+      ass.emit_wait_ack();
+
    ass.finalize();
 
    return ass.m_result;

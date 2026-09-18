@@ -1012,6 +1012,28 @@ static void r600_update_compressed_colortex_mask_images(struct r600_image_state 
 	}
 }
 
+/* Whether any shader stage running after `stage` in the pipeline declares
+ * SSBOs, i.e. could observe a write this stage makes to a shared buffer. */
+static inline bool r600_later_stage_reads_ssbo(struct r600_context *rctx,
+					       mesa_shader_stage stage)
+{
+	bool later = rctx->ps_shader->current->shader.num_ssbos != 0;
+	if (stage == MESA_SHADER_GEOMETRY)
+		return later;
+
+	later = later || (rctx->gs_shader && rctx->gs_shader->current->shader.num_ssbos);
+	if (stage == MESA_SHADER_TESS_EVAL)
+		return later;
+
+	later = later || (rctx->tes_shader && rctx->tes_shader->current->shader.num_ssbos);
+	if (stage == MESA_SHADER_TESS_CTRL)
+		return later;
+
+	later = later || (rctx->tcs_shader && rctx->tcs_shader->current->shader.num_ssbos);
+	/* stage == MESA_SHADER_VERTEX */
+	return later;
+}
+
 static inline void r600_check_image_buffer_dirty(struct r600_context *const rctx,
 						 const bool ssbo,
 						 const mesa_shader_stage stage,
@@ -1066,6 +1088,7 @@ static inline void r600_shader_selector_key(struct pipe_context *ctx,
 		if (rctx->vs_shader->current->shader.num_images || rctx->vs_shader->current->shader.num_ssbos) {
 			key->vs.nr_cbufs = rctx->framebuffer.state.nr_cbufs;
 			key->vs.dynamic_ssbo_offset = r600_image_buffer_offset(rctx, true, sel->type);
+			key->vs.ssbo_read_by_later_stage = r600_later_stage_reads_ssbo(rctx, MESA_SHADER_VERTEX);
 			r600_check_image_buffer_dirty(rctx, true, sel->type, key->vs.dynamic_ssbo_offset);
 		}
 		break;
@@ -1075,6 +1098,7 @@ static inline void r600_shader_selector_key(struct pipe_context *ctx,
 		if (rctx->gs_shader->current->shader.num_ssbos) {
 			key->gs.nr_cbufs = rctx->framebuffer.state.nr_cbufs;
 			key->gs.dynamic_ssbo_offset = r600_image_buffer_offset(rctx, true, sel->type);
+			key->gs.ssbo_read_by_later_stage = r600_later_stage_reads_ssbo(rctx, MESA_SHADER_GEOMETRY);
 			r600_check_image_buffer_dirty(rctx, true, sel->type, key->gs.dynamic_ssbo_offset);
 		}
 		break;
@@ -1106,6 +1130,7 @@ static inline void r600_shader_selector_key(struct pipe_context *ctx,
 		if (rctx->tes_shader->current->shader.num_ssbos) {
 			key->tes.nr_cbufs = rctx->framebuffer.state.nr_cbufs;
 			key->tes.dynamic_ssbo_offset = r600_image_buffer_offset(rctx, true, sel->type);
+			key->tes.ssbo_read_by_later_stage = r600_later_stage_reads_ssbo(rctx, MESA_SHADER_TESS_EVAL);
 			r600_check_image_buffer_dirty(rctx, true, sel->type, key->tes.dynamic_ssbo_offset);
 		}
 		break;
@@ -1114,6 +1139,7 @@ static inline void r600_shader_selector_key(struct pipe_context *ctx,
 		if (rctx->tcs_shader && rctx->tcs_shader->current->shader.num_ssbos) {
 			key->tcs.nr_cbufs = rctx->framebuffer.state.nr_cbufs;
 			key->tcs.dynamic_ssbo_offset = r600_image_buffer_offset(rctx, true, sel->type);
+			key->tcs.ssbo_read_by_later_stage = r600_later_stage_reads_ssbo(rctx, MESA_SHADER_TESS_CTRL);
 			r600_check_image_buffer_dirty(rctx, true, sel->type, key->tcs.dynamic_ssbo_offset);
 		}
 		break;
@@ -1134,6 +1160,7 @@ r600_shader_precompile_key(const struct pipe_context *ctx,
 	switch (sel->type) {
 	case MESA_SHADER_VERTEX:
 		key->vs.nr_cbufs = sel->nir_info.ps_nr_cbufs;
+		key->vs.ssbo_read_by_later_stage = 0;
 		break;
 
 	case MESA_SHADER_TESS_EVAL:
@@ -1142,10 +1169,12 @@ r600_shader_precompile_key(const struct pipe_context *ctx,
 		 * with (see the link_shader screen method)
 		 */
 		key->tes.nr_cbufs = sel->nir_info.ps_nr_cbufs;
+		key->tes.ssbo_read_by_later_stage = 0;
 		break;
 
 	case MESA_SHADER_GEOMETRY:
 		key->gs.nr_cbufs = sel->nir_info.ps_nr_cbufs;
+		key->gs.ssbo_read_by_later_stage = 0;
 		break;
 
 	case MESA_SHADER_FRAGMENT:
@@ -1162,6 +1191,7 @@ r600_shader_precompile_key(const struct pipe_context *ctx,
 		/* Prim mode comes from the TES, but we need some valid value. */
 		key->tcs.prim_mode = MESA_PRIM_TRIANGLES;
 		key->tcs.nr_cbufs = sel->nir_info.ps_nr_cbufs;
+		key->tcs.ssbo_read_by_later_stage = 0;
 		break;
 
 	case MESA_SHADER_COMPUTE:

@@ -742,19 +742,24 @@ RatInstr::emit_ssbo_store(nir_intrinsic_instr *instr, Shader& shader)
       PRegister v = vf.temp_register(0);
       shader.emit_instruction(new AluInstr(op1_mov, v, value, AluInstr::write));
       auto value_vec = RegisterVec4(v, nullptr, nullptr, nullptr, pin_chan);
+
       const bool coherent = nir_intrinsic_access(instr) & ACCESS_COHERENT;
-      auto store = new RatInstr(unlikely(coherent) ? cf_mem_rat_cacheless : cf_mem_rat,
-                                RatInstr::STORE_TYPED,
-                                value_vec,
-                                addr_vec,
-                                offset + shader.get_dynamic_offset().ssbo_offset,
-                                rat_id,
-                                1,
-                                1,
-                                0);
+      const bool cacheless = coherent || shader.must_ack_memory_writes();
+      auto store =
+         new RatInstr(cacheless ? cf_mem_rat_cacheless : cf_mem_rat,
+                      RatInstr::STORE_TYPED,
+                      value_vec,
+                      addr_vec,
+                      offset + shader.get_dynamic_offset().ssbo_offset,
+                      rat_id,
+                      1,
+                      1,
+                      0);
       shader.emit_instruction(store);
       if (unlikely(coherent))
          store->set_ack();
+      if (unlikely(shader.must_ack_memory_writes()))
+          store->set_mark();
    }
 
    return true;

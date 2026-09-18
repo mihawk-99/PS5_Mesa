@@ -567,7 +567,7 @@ fill_bytecode_rat(r600_bytecode_cf& cf, const RatInstr& instr,
 
    cf.vpm = shader_type == MESA_SHADER_FRAGMENT;
    cf.barrier = 1;
-   cf.mark = instr.need_ack();
+   cf.mark = instr.mark();
    cf.output.elem_size = instr.elm_size();
 }
 

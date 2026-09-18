@@ -396,6 +396,7 @@ VertexShader::VertexShader(const pipe_stream_output_info *so_info,
                       {(uint8_t)key.vs.nr_cbufs, 0, (uint8_t)key.vs.dynamic_ssbo_offset}),
     m_vs_as_gs_a(key.vs.as_gs_a)
 {
+   set_ssbo_read_by_later_stage(key.vs.ssbo_read_by_later_stage);
    if (key.vs.as_es)
       m_export_stage = new VertexExportForGS(this, gs_shader);
    else if (key.vs.as_ls)
