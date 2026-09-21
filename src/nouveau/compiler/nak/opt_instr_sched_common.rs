@@ -184,6 +184,14 @@ pub fn side_effect_type(op: &Op) -> SideEffect {
         | Op::LdTram(_)
         | Op::MemBar(_) => SideEffect::Memory,
 
+        // Both representations access the same ordered TTU state.
+        Op::TtuOpen(_)
+        | Op::TtuMacroFuse(_)
+        | Op::TtuStore(_)
+        | Op::TtuGo(_)
+        | Op::TtuLoad(_)
+        | Op::TtuOpBundle(_) => SideEffect::Memory,
+
         // Matrix ops
         Op::Imma(_) | Op::Hmma(_) | Op::Movm(_) => SideEffect::None,
 
@@ -315,7 +323,8 @@ pub fn estimate_variable_latency(sm: &ShaderModelInfo, op: &Op) -> u32 {
         | Op::Ipa(_)
         | Op::CCtl(_)
         | Op::LdTram(_)
-        | Op::MemBar(_) => 32,
+        | Op::MemBar(_)
+        | Op::TtuOpBundle(_) => 32,
 
         // Control-flow ops
         Op::WarpSync(_) => 16,

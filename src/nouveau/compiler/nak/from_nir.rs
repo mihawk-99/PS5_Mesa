@@ -2624,6 +2624,35 @@ impl<'a> ShaderFromNir<'a> {
 
                 self.set_dst(&intrin.def, b.bmov_to_gpr(bar_out.into()).into());
             }
+            nir_intrinsic_ttu_op_bundle_nv => {
+                let gpr_srcs = std::array::from_fn(|i| {
+                    let data = self.get_ssa(srcs[i / 2].as_def());
+                    debug_assert_eq!(data.len(), 4);
+                    let c = (i % 2) * 2;
+                    Src::from(SSARef::from([data[c], data[c + 1]]))
+                });
+                let predicates = self.get_ssa(srcs[7].as_def());
+                debug_assert_eq!(predicates.len(), 8);
+                let pred_srcs = std::array::from_fn(|i| {
+                    Src::from(Pred::from(predicates[i]))
+                });
+
+                let mut nir_dst = Vec::with_capacity(32);
+                let bundle_dsts = std::array::from_fn(|_| {
+                    let pair = b.alloc_ssa_vec(RegFile::GPR, 2);
+                    nir_dst.extend_from_slice(&pair);
+                    Dst::from(pair)
+                });
+                /* ttu_op_bundle_nv uses a vec16<u64> because NIR has no vec12.
+                 * Materialize the four unused 64-bit components as undef.
+                 */
+                for _ in 12..16 {
+                    nir_dst.push(b.undef());
+                    nir_dst.push(b.undef());
+                }
+                self.set_ssa(&intrin.def, nir_dst);
+                b.push_op(OpTtuOpBundle::new(gpr_srcs, pred_srcs, bundle_dsts));
+            }
             nir_intrinsic_bar_sync_nv => {
                 let src = self.get_src(&srcs[0]);
 

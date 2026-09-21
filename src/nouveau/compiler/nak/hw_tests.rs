@@ -2829,3 +2829,191 @@ fn test_qmd_hw_decrement_dependence() -> io::Result<()> {
 
     Ok(())
 }
+
+/* Sparse nonzero words for a BLAS containing the triangle (0, 0, 0),
+ * (1, 0, 0), (0, 1, 0) and a TLAS containing one identity-transformed
+ * instance of that BLAS.
+ */
+#[rustfmt::skip]
+const RAY_QUERY_TRIANGLE_BLAS_WORDS: &[(usize, u32)] = &[
+    (0x002, 0x00000a00), (0x004, 0x00000400), (0x008, 0x00000380),
+    (0x012, 0x00000180), (0x016, 0x00000001), (0x01d, 0x00000001),
+    (0x01e, 0x00000001), (0x01f, 0x00000001), (0x060, 0x00000005),
+    (0x062, 0x4b3fffff), (0x063, 0xbf800003), (0x064, 0x4b3fffff),
+    (0x065, 0xbf800003), (0x066, 0x4b3fffff), (0x067, 0xb4c00000),
+    (0x0e0, 0x007f7f60), (0x0e4, 0x00000080), (0x0e5, 0xf0000000),
+    (0x0e7, 0x00000001), (0x0e8, 0xff00ff00), (0x0e9, 0x01ffff00),
+    (0x103, 0x1fc0007f), (0x11e, 0x80000000), (0x11f, 0x370000c6),
+];
+
+/* Sparse nonzero words for a BLAS containing the nonopaque AABB
+ * (0, 0, 0)--(1, 1, 1).
+ */
+#[rustfmt::skip]
+const RAY_QUERY_AABB_BLAS_WORDS: &[(usize, u32)] = &[
+    (0x000, 0x00000003), (0x001, 0x00000007), (0x002, 0x00000480),
+    (0x008, 0x00000400), (0x010, 0xffffffff), (0x011, 0xffffffff),
+    (0x012, 0x00000200), (0x016, 0x00000001), (0x017, 0x00000001),
+    (0x019, 0x00000001), (0x01d, 0x00000001), (0x01e, 0x00000001),
+    (0x01f, 0x00000001), (0x028, 0x00000180), (0x02a, 0x00000001),
+    (0x032, 0x00000001), (0x036, 0x00000004), (0x037, 0x01010101),
+    (0x080, 0x00000005),
+    (0x082, 0x4b3fffff), (0x083, 0xbf800003), (0x084, 0x4b3fffff),
+    (0x085, 0xbf800003), (0x086, 0x4b3fffff), (0x087, 0xbf800003),
+    (0x100, 0x7f7f7f00), (0x105, 0xf0000000),
+    (0x107, 0x00000001), (0x108, 0xff00ff00), (0x109, 0x4100ff00),
+];
+
+#[rustfmt::skip]
+const RAY_QUERY_TLAS_WORDS: &[(usize, u32)] = &[
+    (0x000, 0x00080003), (0x001, 0x00000007), (0x002, 0x00000800),
+    (0x008, 0x00000700), (0x00c, 0x00000180), (0x00e, 0x00000600),
+    (0x010, 0xffffffff), (0x011, 0xffffffff), (0x012, 0x00000680),
+    (0x016, 0x00000001), (0x01c, 0x00000001), (0x01d, 0x00000001),
+    (0x02a, 0x00000001), (0x032, 0x00000001), (0x033, 0x0b110000),
+    (0x034, 0x00000004), (0x035, 0x01010101), (0x060, 0x000001ff),
+    (0x061, 0x00000012), (0x080, 0x040e0000), (0x0a0, 0x3f800000),
+    (0x0a5, 0x3f800000), (0x0aa, 0x3f800000), (0x181, 0x00000001),
+    (0x182, 0x040e0380), (0x183, 0x14000000), (0x184, 0x3f800000),
+    (0x189, 0x3f800000), (0x18e, 0x3f800000), (0x1a0, 0x00000001),
+    (0x1a2, 0x4b3fffff), (0x1a3, 0xbf800003), (0x1a4, 0x4b3fffff),
+    (0x1a5, 0xbf800003), (0x1a6, 0x4b3fffff), (0x1a7, 0xb4c00000),
+    (0x1c0, 0x008080a0), (0x1c4, 0xffffff00), (0x1c5, 0xf001ffff),
+    (0x1c7, 0x00000001), (0x1c8, 0x7f007f00), (0x1c9, 0x41ffff00),
+];
+
+unsafe extern "C" {
+    fn nak_test_compile_sm120_ray_query(
+        dev: *const nv_device_info,
+    ) -> *mut nak_shader_bin;
+}
+
+#[test]
+fn test_sm120_ray_query() -> io::Result<()> {
+    const BLAS_SIZE: usize = 0xa00;
+    const TLAS_SIZE: usize = 0x800;
+    const TLAS_OFFSET: usize = 0x1000;
+
+    const INTERSECTION_NONE: u32 = 0;
+    const CANDIDATE_TRIANGLE: u32 = 0;
+    const INTERSECTION_TRIANGLE: u32 = 1;
+    const CANDIDATE_AABB: u32 = 1;
+    const INTERSECTION_GENERATED: u32 = 2;
+
+    const ACTION_IGNORE: u32 = 0;
+    const ACTION_CONFIRM: u32 = 1;
+    const ACTION_GENERATE: u32 = 2;
+    const ACTION_TERMINATE: u32 = 3;
+
+    let run = RunSingleton::get();
+    if run.sm.sm() != 120 {
+        return Ok(());
+    }
+
+    let bin = unsafe { nak_test_compile_sm120_ray_query(run.run.dev_info()) };
+    assert!(!bin.is_null());
+    let run_case = |aabb: bool,
+                    direction_z: f32,
+                    action: u32|
+     -> io::Result<[u32; 13]> {
+        let as_bo = BO::new(
+            run.run.device(),
+            (TLAS_OFFSET + TLAS_SIZE).try_into().unwrap(),
+        )?;
+        let (blas_words, blas_ref) = if aabb {
+            (RAY_QUERY_AABB_BLAS_WORDS, as_bo.addr + 0x400)
+        } else {
+            (RAY_QUERY_TRIANGLE_BLAS_WORDS, as_bo.addr + 0x380)
+        };
+        let mut blas = vec![0; BLAS_SIZE / 4];
+        for &(index, value) in blas_words {
+            blas[index] = value;
+        }
+        if aabb {
+            /* Fill the allocation-dependent words omitted above. */
+            let addr = as_bo.addr + 0x180;
+            blas[0xd0 / 4] = as_bo.addr as u32;
+            blas[0xd4 / 4] = (as_bo.addr >> 32) as u32;
+            blas[0x410 / 4] = (addr >> 3) as u32;
+            blas[0x414 / 4] =
+                (blas[0x414 / 4] & !0x1ffff) | ((addr >> 35) as u32 & 0x1ffff);
+        }
+
+        let mut tlas = vec![0; TLAS_SIZE / 4];
+        for &(index, value) in RAY_QUERY_TLAS_WORDS {
+            tlas[index] = value;
+        }
+        assert_eq!(&tlas[0x80..0x82], &[0x040e0000, 0]);
+        tlas[0x80..0x82]
+            .copy_from_slice(&[as_bo.addr as u32, (as_bo.addr >> 32) as u32]);
+        assert_eq!(&tlas[0x182..0x184], &[0x040e0380, 0x14000000]);
+        tlas[0x182..0x184]
+            .copy_from_slice(&[blas_ref as u32, (blas_ref >> 32) as u32]);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                blas.as_ptr(),
+                as_bo.map.cast::<u32>(),
+                blas.len(),
+            );
+            std::ptr::copy_nonoverlapping(
+                tlas.as_ptr(),
+                as_bo.map.cast::<u32>().add(TLAS_OFFSET / 4),
+                tlas.len(),
+            );
+        }
+
+        let tlas_addr = as_bo.addr + TLAS_OFFSET as u64;
+        let mut data = [0_u32; 13];
+        data[0] = tlas_addr as u32;
+        data[1] = (tlas_addr >> 32) as u32;
+        data[2] = direction_z.to_bits();
+        data[3] = action;
+        run.run
+            .run(unsafe { &*bin }, std::slice::from_mut(&mut data))?;
+        Ok(data)
+    };
+
+    let triangle_hit = run_case(false, 1.0, ACTION_IGNORE)?;
+    assert_eq!(triangle_hit[4], 0);
+    assert_eq!(triangle_hit[6], 0);
+    assert_eq!(triangle_hit[7], INTERSECTION_TRIANGLE);
+    assert_eq!(triangle_hit[8], 0);
+    assert_eq!(triangle_hit[9], 1.0f32.to_bits());
+    assert_eq!(&triangle_hit[10..13], &[1.0f32.to_bits(), 0, 0]);
+
+    let triangle_miss = run_case(false, -1.0, ACTION_IGNORE)?;
+    assert_eq!(triangle_miss[4], 0);
+    assert_eq!(triangle_miss[6], 0);
+    assert_eq!(triangle_miss[7], INTERSECTION_NONE);
+
+    let triangle_confirmed = run_case(false, 1.0, ACTION_CONFIRM)?;
+    assert_eq!(triangle_confirmed[4], 1);
+    assert_eq!(triangle_confirmed[5], CANDIDATE_TRIANGLE);
+    assert_eq!(triangle_confirmed[6], 0);
+    assert_eq!(triangle_confirmed[7], INTERSECTION_TRIANGLE);
+    assert_eq!(triangle_confirmed[8], 0);
+    assert_eq!(triangle_confirmed[9], 1.0f32.to_bits());
+
+    let aabb_hit = run_case(true, 1.0, ACTION_GENERATE)?;
+    assert_eq!(aabb_hit[4], 1);
+    assert_eq!(aabb_hit[5], CANDIDATE_AABB);
+    assert_eq!(aabb_hit[6], 0);
+    assert_eq!(aabb_hit[7], INTERSECTION_GENERATED);
+    assert_eq!(aabb_hit[8], 0);
+    assert_eq!(aabb_hit[9], 1.5f32.to_bits());
+
+    let aabb_ignored = run_case(true, 1.0, ACTION_IGNORE)?;
+    assert_eq!(aabb_ignored[4], 1);
+    assert_eq!(aabb_ignored[5], CANDIDATE_AABB);
+    assert_eq!(aabb_ignored[6], 0);
+    assert_eq!(aabb_ignored[7], INTERSECTION_NONE);
+
+    let aabb_terminated = run_case(true, 1.0, ACTION_TERMINATE)?;
+    assert_eq!(aabb_terminated[4], 1);
+    assert_eq!(aabb_terminated[5], CANDIDATE_AABB);
+    assert_eq!(aabb_terminated[6], 0);
+    assert_eq!(aabb_terminated[7], INTERSECTION_NONE);
+
+    unsafe { nak_shader_bin_destroy(bin) };
+    Ok(())
+}

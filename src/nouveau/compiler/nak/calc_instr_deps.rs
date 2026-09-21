@@ -1010,7 +1010,7 @@ fn calc_delays(f: &mut Function, sm: &ShaderModelInfo) -> u64 {
         for (ip, i) in b.instrs.iter_mut().enumerate() {
             let delay = cycles[ip] - cycles.get(ip + 1).copied().unwrap_or(0);
             let delay: u8 = delay.try_into().expect("Delay overflow");
-            i.deps.delay = delay.max(MIN_INSTR_DELAY);
+            i.deps.delay = i.deps.delay.max(delay.max(MIN_INSTR_DELAY));
         }
     }
 
@@ -1124,6 +1124,7 @@ impl Shader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lower_ttu_op_bundle::tests::{allocated_bundle, test_shader};
 
     fn reg_gpr(range: Range<usize>) -> RegRef {
         RegRef::new(
@@ -1197,5 +1198,49 @@ mod tests {
             sim.push(reg_gpr(65..66)),
             Some(OpTexDepBar::MAX_TEXTURES_LEFT)
         );
+    }
+
+    #[test]
+    fn ttu_store_tracks_predicate_dependencies() {
+        let sm = ShaderModelInfo::new(120, 0);
+        let pred = RegRef::new(RegFile::Pred, 2, 1);
+        let outputs =
+            std::array::from_fn(|i| 64 + u32::try_from(i).unwrap() * 2);
+        let bundle = allocated_bundle(SrcRef::Reg(pred).into(), outputs);
+        let producer = Instr::new(OpPLop3 {
+            dsts: [Dst::Reg(pred), Dst::None],
+            srcs: [true.into(), true.into(), true.into()],
+            ops: [LogicOp3 { lut: 0xff }, LogicOp3 { lut: 0 }],
+        });
+        let mut s = test_shader(
+            &sm,
+            vec![producer, Instr::new(Op::TtuOpBundle(Box::new(bundle)))],
+        );
+        s.lower_ttu_op_bundle();
+        s.calc_instr_deps();
+        assert_eq!(s.functions[0].blocks[0].instrs[0].deps.delay, 5);
+    }
+
+    #[test]
+    fn ttu_load_tracks_output_dependencies() {
+        let sm = ShaderModelInfo::new(120, 0);
+        let outputs =
+            std::array::from_fn(|i| 64 + u32::try_from(i).unwrap() * 2);
+        let bundle = allocated_bundle(true.into(), outputs);
+        let consumer = Instr::new(OpMov {
+            dst: Dst::Reg(RegRef::new(RegFile::GPR, 100, 1)),
+            src: SrcRef::Reg(RegRef::new(RegFile::GPR, 64, 1)).into(),
+            quad_lanes: 0xf,
+        });
+        let mut s = test_shader(
+            &sm,
+            vec![Instr::new(Op::TtuOpBundle(Box::new(bundle))), consumer],
+        );
+        s.lower_ttu_op_bundle();
+        s.calc_instr_deps();
+
+        let instrs = &s.functions[0].blocks[0].instrs;
+        let write_bar = instrs[11].deps.wr_bar().unwrap();
+        assert_ne!(instrs[17].deps.wt_bar_mask & (1 << write_bar), 0);
     }
 }
