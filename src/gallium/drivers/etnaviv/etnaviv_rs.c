@@ -798,15 +798,23 @@ etna_try_rs_blit(struct pipe_context *pctx,
    assert(blit_info->dst.box.x + blit_info->dst.box.width <= dst_lev->padded_width);
    assert(blit_info->dst.box.y + blit_info->dst.box.height <= dst_lev->padded_height);
 
+   struct pipe_box src_box = blit_info->src.box;
+   struct pipe_box dst_box = blit_info->dst.box;
+
+   src_box.x *= src_xscale;
+   src_box.y *= src_yscale;
+   dst_box.x *= dst_xscale;
+   dst_box.y *= dst_yscale;
+
    unsigned src_offset = src_lev->offset +
                          blit_info->src.box.z * src_lev->layer_stride +
-                         etna_compute_tileoffset(&blit_info->src.box,
+                         etna_compute_tileoffset(&src_box,
                                                  blit_info->src.format,
                                                  src_lev->stride,
                                                  src->layout);
    unsigned dst_offset = dst_lev->offset +
                          blit_info->dst.box.z * dst_lev->layer_stride +
-                         etna_compute_tileoffset(&blit_info->dst.box,
+                         etna_compute_tileoffset(&dst_box,
                                                  blit_info->dst.format,
                                                  dst_lev->stride,
                                                  dst->layout);
