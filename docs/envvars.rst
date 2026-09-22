@@ -1961,6 +1961,17 @@ RadeonSI driver environment variables
    ``ibcachesflush``
       Flush all caches at the beginning of IBs.
 
+.. envvar:: AMD_SPM_COUNTERS_CONFIG
+
+   path to a config file listing custom SPM counters to collect when
+   capturing an RGP trace in RadeonSI (``AMD_THREAD_TRACE_SPM=1``).
+   Supported on GFX10 and newer. The user is responsible for selecting
+   block and event IDs that are valid on the target ASIC.
+
+   This uses the same file format as :envvar:`RADV_SPM_COUNTERS_CONFIG`.
+   For compatibility with existing setups, RadeonSI also accepts
+   ``RADV_SPM_COUNTERS_CONFIG`` when ``AMD_SPM_COUNTERS_CONFIG`` is not set.
+
 r600 driver environment variables
 ---------------------------------
 

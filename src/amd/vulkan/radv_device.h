@@ -240,7 +240,6 @@ struct radv_device {
 
    /* SPM. */
    struct ac_spm spm;
-   struct ac_spm_user_config *spm_user_config;
 
    struct radv_backed_buffer spm_buffer;
    struct radv_backed_buffer spm_staging_buffer;
