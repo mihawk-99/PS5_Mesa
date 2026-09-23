@@ -15,6 +15,7 @@ files_u_gralloc = files(
   'u_gralloc_cros_api.c',
   'u_gralloc_libdrm.c',
   'u_gralloc_qcom.c',
+  'u_gralloc_qcom_native_handle.c',
 )
 
 if dep_android_ui.found()

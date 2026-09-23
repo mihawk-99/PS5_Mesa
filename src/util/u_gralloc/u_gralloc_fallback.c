@@ -14,6 +14,8 @@
 #include "util/macros.h"
 #include "util/u_memory.h"
 
+#include "u_gralloc_qcom_native_handle.h"
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <string.h>
@@ -148,11 +150,8 @@ fallback_gralloc_get_buffer_info(struct u_gralloc *gralloc,
    out->strides[0] = stride;
 
 #ifdef HAS_FREEDRENO
-   uint32_t gmsm = ('g' << 24) | ('m' << 16) | ('s' << 8) | 'm';
-   if (hnd->handle->numInts >= 2 && hnd->handle->data[hnd->handle->numFds] == gmsm) {
-      /* This UBWC flag was introduced in a5xx. */
-      bool ubwc = hnd->handle->data[hnd->handle->numFds + 1] & 0x08000000;
-      out->modifier = ubwc ? DRM_FORMAT_MOD_QCOM_COMPRESSED : DRM_FORMAT_MOD_LINEAR;
+   if (u_gralloc_has_supported_qcom_native_handle(hnd)) {
+      u_gralloc_qcom_native_handle_apply_modifier(hnd, out);
    }
 #endif
 
