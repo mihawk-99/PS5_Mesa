@@ -702,7 +702,9 @@ pick_regs_from_block(jay_ra_state *ra,
          /* If we are the collect representative but the final collect won't
           * actually be usable, the whole vector will need to be copied.
           */
-         if (i < affinity.offset || !util_is_aligned(i - affinity.offset, 4)) {
+         if (i < affinity.offset ||
+             !util_is_aligned(i - affinity.offset, 4) ||
+             (i - affinity.offset) + affinity.nr >= block.len_gpr) {
             cost += affinity.nr;
          }
       } else if (affinity.repr) {
