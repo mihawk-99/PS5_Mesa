@@ -62,8 +62,7 @@ finish_render_desc_ringbuf(struct panvk_gpu_queue *queue)
          pan_kmod_vm_bind(dev->kmod.vm, PAN_KMOD_VM_OP_MODE_IMMEDIATE, &op, 1);
       assert(!ret);
 
-      panvk_as_free(dev, dev->as.priv_heap, ringbuf->addr.dev,
-                    ringbuf->size * 2);
+      panvk_as_free(dev, ringbuf->addr.dev, ringbuf->size * 2);
    }
 
    if (ringbuf->addr.host) {
@@ -112,7 +111,7 @@ init_render_desc_ringbuf(struct panvk_gpu_queue *queue)
    /* We choose the alignment to guarantee that we won't ever cross a 4G
     * boundary when accessing the mapping. This way we can encode the wraparound
     * using 32-bit operations. */
-   dev_addr = panvk_as_alloc(dev, dev->as.priv_heap, ringbuf->size * 2,
+   dev_addr = panvk_as_alloc(dev, PANVK_NO_EXEC_VA_HEAP, ringbuf->size * 2,
                              ringbuf->size * 2);
 
    if (!dev_addr)
@@ -149,7 +148,7 @@ init_render_desc_ringbuf(struct panvk_gpu_queue *queue)
    ret = pan_kmod_vm_bind(dev->kmod.vm, PAN_KMOD_VM_OP_MODE_IMMEDIATE, vm_ops,
                           tracing_enabled ? 1 : ARRAY_SIZE(vm_ops));
    if (ret) {
-      panvk_as_free(dev, dev->as.priv_heap, dev_addr, ringbuf->size * 2);
+      panvk_as_free(dev, dev_addr, ringbuf->size * 2);
       return panvk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
                           "Failed to GPU map ringbuf BO");
    }
@@ -216,8 +215,7 @@ finish_subqueue_tracing(struct panvk_gpu_queue *queue,
          pan_kmod_vm_bind(dev->kmod.vm, PAN_KMOD_VM_OP_MODE_IMMEDIATE, &op, 1);
       assert(!ret);
 
-      panvk_as_free(dev, dev->as.priv_heap, subq->tracebuf.addr.dev,
-                    subq->tracebuf.size + pgsize);
+      panvk_as_free(dev, subq->tracebuf.addr.dev, subq->tracebuf.size + pgsize);
    }
 
    if (subq->tracebuf.addr.host) {
@@ -271,7 +269,7 @@ init_subqueue_tracing(struct panvk_gpu_queue *queue,
 
    /* Add a guard page. */
    uint64_t pgsize = panvk_get_gpu_page_size(dev);
-   dev_addr = panvk_as_alloc(dev, dev->as.priv_heap,
+   dev_addr = panvk_as_alloc(dev, PANVK_NO_EXEC_VA_HEAP,
                              subq->tracebuf.size + pgsize, pgsize);
 
    if (!dev_addr)
@@ -295,8 +293,7 @@ init_subqueue_tracing(struct panvk_gpu_queue *queue,
    int ret =
       pan_kmod_vm_bind(dev->kmod.vm, PAN_KMOD_VM_OP_MODE_IMMEDIATE, &vm_op, 1);
    if (ret) {
-      panvk_as_free(dev, dev->as.priv_heap, dev_addr,
-                    subq->tracebuf.size + pgsize);
+      panvk_as_free(dev, dev_addr, subq->tracebuf.size + pgsize);
       return panvk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
                           "Failed to GPU map ringbuf BO");
    }

@@ -814,7 +814,7 @@ panvk_CreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo,
               STANDARD_SPARSE_BLOCK_SIZE_B);
 
       image->sparse.device_address =
-         panvk_as_alloc(dev, &dev->as.heap, va_range, alignment);
+         panvk_as_alloc(dev, PANVK_NO_EXEC_VA_HEAP, va_range, alignment);
       if (!image->sparse.device_address) {
          result = panvk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
          goto err_destroy_image;
@@ -863,7 +863,7 @@ panvk_CreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo,
 
 err_free_va:
    if (image->vk.create_flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT)
-      panvk_as_free(dev, &dev->as.heap, image->sparse.device_address,
+      panvk_as_free(dev, image->sparse.device_address,
                     panvk_image_get_sparse_size(image));
 
 err_destroy_image:
@@ -906,8 +906,7 @@ panvk_DestroyImage(VkDevice _device, VkImage _image,
          device->kmod.vm, PAN_KMOD_VM_OP_MODE_IMMEDIATE, &unmap, 1);
       assert(!ret);
 
-      panvk_as_free(device, &device->as.heap, image->sparse.device_address,
-                    va_range);
+      panvk_as_free(device, image->sparse.device_address, va_range);
    } else {
       panvk_image_report_binding(device, image,
                                  VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT);
