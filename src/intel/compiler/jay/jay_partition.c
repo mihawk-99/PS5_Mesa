@@ -46,7 +46,12 @@ analyze_per_inst(jay_shader *shader)
          if (!jay_is_null(x)) {
             unsigned size = util_next_power_of_two(jay_num_values(x));
 
-            if (x.file == UGPR) {
+            if (x.file == UGPR && i < 0) {
+               /* Ensure we have enough GRFs for SENDs with uniform dest &
+                * uniform source.
+                */
+               local.ugpr += MAX2(size, jay_dst_alignment(shader, I));
+            } else if (x.file == UGPR && i >= 0) {
                local.ugpr += size;
             } else if (x.file == GPR && i >= 0) {
                enum jay_stride min_stride = jay_src_stride_minmax(I, i, false);

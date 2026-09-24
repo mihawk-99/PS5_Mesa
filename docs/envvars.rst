@@ -608,6 +608,8 @@ Intel driver environment variables
    ``no-resource-barrier``
       disable RENDER_BARRIER instruction usage by falling back to
       PIPE_CONTROL
+   ``no-jay``
+      disable the Jay compiler and fall back to the older brw compiler
    ``optimizer``
       dump shader assembly to files at each optimization pass and
       iteration that make progress (Gfx < 9)
