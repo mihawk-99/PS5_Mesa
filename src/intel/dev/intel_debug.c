@@ -122,6 +122,7 @@ static const struct debug_control_bitset debug_control[] = {
    OPT1("cl-quiet",          DEBUG_CL_QUIET),
    OPT1("no-send-gather",    DEBUG_NO_SEND_GATHER),
    OPT1("no-vrt",            DEBUG_NO_VRT),
+   OPT1("no-jay",            DEBUG_NO_JAY),
    OPT1("shaders-lineno",    DEBUG_SHADERS_LINENO),
    { NULL, }
 #undef OPT1
@@ -282,7 +283,17 @@ intel_use_jay(const struct intel_device_info *devinfo, mesa_shader_stage stage)
    if (stage == MESA_SHADER_KERNEL)
       stage = MESA_SHADER_COMPUTE;
 
-   return devinfo->ver >= 20 && (use_jay & BITFIELD_BIT(stage));
+   /* Gfx12.5 and Xe3P support is limited & experimental */
+   bool allowed = devinfo->verx10 >= 125;
+
+   /* Jay is fully supported on Xe2 and Xe3 */
+   bool by_default = devinfo->ver == 20 || devinfo->ver == 30;
+
+   /* INTEL_JAY=fs enables per-stage on allowed platforms. INTEL_DEBUG=no-jay
+    * disables on supported platforms.
+    */
+   return ((allowed && (use_jay & BITFIELD_BIT(stage))) ||
+           (by_default && !INTEL_DEBUG(DEBUG_NO_JAY)));
 }
 
 void

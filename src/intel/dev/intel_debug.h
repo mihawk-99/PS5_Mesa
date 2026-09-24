@@ -99,6 +99,7 @@ enum intel_debug_flag {
    DEBUG_BVH_NO_BUILD,
    DEBUG_NO_SEND_GATHER,
    DEBUG_NO_VRT,
+   DEBUG_NO_JAY,
    DEBUG_RT_NO_TRACE,
    DEBUG_RT_NO_AHS,
    DEBUG_RT_NO_CHS,
