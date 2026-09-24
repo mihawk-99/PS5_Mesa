@@ -17,9 +17,9 @@ impl Write for CFileWrapper {
             return Ok(0);
         }
 
-        let size_u64: u64 = buf.len().try_into().unwrap();
+        let size = buf.len().try_into().unwrap();
         let nwritten = unsafe {
-            fwrite(buf.as_ptr() as *const std::ffi::c_void, 1, size_u64, self.0)
+            fwrite(buf.as_ptr() as *const std::ffi::c_void, 1, size, self.0)
         };
 
         if nwritten == 0 {
