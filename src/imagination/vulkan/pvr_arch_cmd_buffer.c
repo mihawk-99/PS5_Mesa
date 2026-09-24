@@ -61,6 +61,7 @@
 #include "pvr_tex_state.h"
 #include "pvr_types.h"
 #include "pvr_usc.h"
+#include "pvr_utrace.h"
 #include "pvr_winsys.h"
 #include "util/bitscan.h"
 #include "util/bitset.h"
@@ -243,6 +244,9 @@ static void pvr_cmd_buffer_destroy(struct vk_command_buffer *vk_cmd_buffer)
    struct pvr_cmd_buffer *cmd_buffer =
       container_of(vk_cmd_buffer, struct pvr_cmd_buffer, vk);
 
+   /* Cleanup command buffer tracing */
+   pvr_cmd_buffer_utrace_fini(cmd_buffer);
+
    pvr_cmd_buffer_free_resources(cmd_buffer);
    vk_command_buffer_finish(&cmd_buffer->vk);
    vk_free(&cmd_buffer->vk.pool->alloc, cmd_buffer);
@@ -276,6 +280,9 @@ static VkResult pvr_cmd_buffer_create(struct pvr_device *device,
    }
 
    cmd_buffer->device = device;
+
+   /* Initialize tracing for this command buffer */
+   pvr_cmd_buffer_utrace_init(cmd_buffer);
 
    cmd_buffer->depth_bias_array = UTIL_DYNARRAY_INIT;
    cmd_buffer->scissor_array = UTIL_DYNARRAY_INIT;
@@ -6548,6 +6555,8 @@ static void pvr_cmd_dispatch(
    struct pvr_sub_cmd_compute *sub_cmd;
    VkResult result;
 
+   PVR_TRACE_BEGIN_COMPUTE(cmd_buffer);
+
    pvr_arch_cmd_buffer_start_sub_cmd(cmd_buffer, PVR_SUB_CMD_TYPE_COMPUTE);
 
    sub_cmd = &state->current_sub_cmd->compute;
@@ -6558,7 +6567,7 @@ static void pvr_cmd_dispatch(
       result =
          pvr_cmd_upload_push_consts(cmd_buffer, PVR_STAGE_ALLOCATION_COMPUTE);
       if (result != VK_SUCCESS)
-         return;
+         goto end_cmd_dispatch;
 
       /* Regenerate the PDS program to use the new push consts buffer. */
       state->dirty.compute_desc_dirty = true;
@@ -6576,7 +6585,7 @@ static void pvr_cmd_dispatch(
          NULL,
          &state->pds_compute_descriptor_data_offset);
       if (result != VK_SUCCESS)
-         return;
+         goto end_cmd_dispatch;
    }
 
    pvr_compute_update_shared(cmd_buffer, sub_cmd);
@@ -6585,6 +6594,8 @@ static void pvr_cmd_dispatch(
                              indirect_addr,
                              base_group,
                              workgroup_size);
+end_cmd_dispatch:
+   PVR_TRACE_END_COMPUTE(cmd_buffer);
 }
 
 void PVR_PER_ARCH(CmdDispatchBase)(VkCommandBuffer commandBuffer,
@@ -8922,11 +8933,13 @@ void PVR_PER_ARCH(CmdDraw)(VkCommandBuffer commandBuffer,
 
    PVR_CHECK_COMMAND_BUFFER_BUILDING_STATE(cmd_buffer);
 
+   PVR_TRACE_BEGIN_DRAW(cmd_buffer, PVR_DRAW);
+
    pvr_update_draw_state(state, &draw_state);
 
    result = pvr_validate_draw_state(cmd_buffer);
    if (result != VK_SUCCESS)
-      return;
+      goto end_cmd_draw;
 
    /* Write the VDM control stream for the primitive. */
    pvr_emit_vdm_index_list(cmd_buffer,
@@ -8940,6 +8953,9 @@ void PVR_PER_ARCH(CmdDraw)(VkCommandBuffer commandBuffer,
                            0U,
                            0U,
                            0U);
+
+end_cmd_draw:
+   PVR_TRACE_END_DRAW(cmd_buffer);
 }
 
 void PVR_PER_ARCH(CmdDrawIndexed)(VkCommandBuffer commandBuffer,
@@ -8963,11 +8979,13 @@ void PVR_PER_ARCH(CmdDrawIndexed)(VkCommandBuffer commandBuffer,
 
    PVR_CHECK_COMMAND_BUFFER_BUILDING_STATE(cmd_buffer);
 
+   PVR_TRACE_BEGIN_DRAW(cmd_buffer, PVR_DRAW_INDEXED);
+
    pvr_update_draw_state(state, &draw_state);
 
    result = pvr_validate_draw_state(cmd_buffer);
    if (result != VK_SUCCESS)
-      return;
+      goto end_cmd_draw_indexed;
 
    /* Write the VDM control stream for the primitive. */
    pvr_emit_vdm_index_list(cmd_buffer,
@@ -8981,6 +8999,9 @@ void PVR_PER_ARCH(CmdDrawIndexed)(VkCommandBuffer commandBuffer,
                            0U,
                            0U,
                            0U);
+
+end_cmd_draw_indexed:
+   PVR_TRACE_END_DRAW(cmd_buffer);
 }
 
 void PVR_PER_ARCH(CmdDrawIndexedIndirect)(VkCommandBuffer commandBuffer,
@@ -9003,11 +9024,13 @@ void PVR_PER_ARCH(CmdDrawIndexedIndirect)(VkCommandBuffer commandBuffer,
 
    PVR_CHECK_COMMAND_BUFFER_BUILDING_STATE(cmd_buffer);
 
+   PVR_TRACE_BEGIN_DRAW(cmd_buffer, PVR_DRAW_INDEXED_INDIRECT);
+
    pvr_update_draw_state(state, &draw_state);
 
    result = pvr_validate_draw_state(cmd_buffer);
    if (result != VK_SUCCESS)
-      return;
+      goto end_cmd_draw_indexed_indirect;
 
    /* Write the VDM control stream for the primitive. */
    pvr_emit_vdm_index_list(cmd_buffer,
@@ -9021,6 +9044,9 @@ void PVR_PER_ARCH(CmdDrawIndexedIndirect)(VkCommandBuffer commandBuffer,
                            offset,
                            drawCount,
                            stride);
+
+end_cmd_draw_indexed_indirect:
+   PVR_TRACE_END_DRAW(cmd_buffer);
 }
 
 void PVR_PER_ARCH(CmdDrawIndirect)(VkCommandBuffer commandBuffer,
@@ -9042,11 +9068,13 @@ void PVR_PER_ARCH(CmdDrawIndirect)(VkCommandBuffer commandBuffer,
 
    PVR_CHECK_COMMAND_BUFFER_BUILDING_STATE(cmd_buffer);
 
+   PVR_TRACE_BEGIN_DRAW(cmd_buffer, PVR_DRAW_INDIRECT);
+
    pvr_update_draw_state(state, &draw_state);
 
    result = pvr_validate_draw_state(cmd_buffer);
    if (result != VK_SUCCESS)
-      return;
+      goto end_cmd_draw_indirect;
 
    /* Write the VDM control stream for the primitive. */
    pvr_emit_vdm_index_list(cmd_buffer,
@@ -9060,6 +9088,9 @@ void PVR_PER_ARCH(CmdDrawIndirect)(VkCommandBuffer commandBuffer,
                            offset,
                            drawCount,
                            stride);
+
+end_cmd_draw_indirect:
+   PVR_TRACE_END_DRAW(cmd_buffer);
 }
 
 void PVR_PER_ARCH(CmdEndRenderPass2)(VkCommandBuffer commandBuffer,

@@ -22,6 +22,8 @@
 #include "pvr_hw_pass.h"
 #include "pvr_types.h"
 
+#include "util/perf/u_trace.h"
+
 struct pvr_pds_upload;
 struct pvr_private_compute_pipeline;
 struct pvr_query_info;
@@ -555,6 +557,9 @@ struct pvr_cmd_buffer {
    struct list_head bo_list;
 
    struct list_head sub_cmds;
+
+   /* U-trace integration */
+   struct u_trace trace;
 };
 
 VK_DEFINE_HANDLE_CASTS(pvr_cmd_buffer,
