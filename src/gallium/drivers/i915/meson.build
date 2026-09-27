@@ -16,6 +16,7 @@ files_i915 = files(
   'i915_flush.c',
   'i915_fpc_emit.c',
   'i915_fpc.h',
+  'i915_fpc_nir.c',
   'i915_fpc_optimize.c',
   'i915_fpc_translate.c',
   'i915_prim_emit.c',

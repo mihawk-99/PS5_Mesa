@@ -37,7 +37,7 @@
 
 struct nir_shader;
 
-#define I915_PROGRAM_SIZE 192
+#define I915_PROGRAM_SIZE ((I915_MAX_ALU_INSN + I915_MAX_TEX_INSN) * 3)
 
 /**
  * Program translation state
@@ -136,6 +136,15 @@ swizzle(int reg, uint32_t x, uint32_t y, uint32_t z, uint32_t w)
            CHANNEL_SRC(GET_CHANNEL_SRC(reg, w), 3));
 }
 
+static inline int
+negate(int reg, int x, int y, int z, int w)
+{
+   return reg ^ (x << UREG_CHANNEL_X_NEGATE_SHIFT |
+                 y << UREG_CHANNEL_Y_NEGATE_SHIFT |
+                 z << UREG_CHANNEL_Z_NEGATE_SHIFT |
+                 w << UREG_CHANNEL_W_NEGATE_SHIFT);
+}
+
 #define A0_DEST(reg) (((reg)&UREG_TYPE_NR_MASK) >> UREG_A0_DEST_SHIFT_LEFT)
 #define D0_DEST(reg) (((reg)&UREG_TYPE_NR_MASK) >> UREG_A0_DEST_SHIFT_LEFT)
 #define T0_DEST(reg) (((reg)&UREG_TYPE_NR_MASK) >> UREG_A0_DEST_SHIFT_LEFT)
@@ -173,8 +182,27 @@ swizzle(int reg, uint32_t x, uint32_t y, uint32_t z, uint32_t w)
  */
 extern void i915_translate_fragment_program(struct i915_context *i915,
                                             struct i915_fragment_shader *fs);
+enum corm_variant_flags {
+   CORM_DEFERRED_CONST  = 1 << 0,
+   CORM_SEQ_SNE_OPT     = 1 << 1,
+   CORM_UTEMP_TEXCOORD  = 1 << 2,
+   CORM_LATE_SCALAR     = 1 << 3,
+   CORM_NUM_FLAGS        = 4,
+};
+
+struct corm_compile_opts {
+   unsigned flags;
+};
+
+extern void i915_translate_fragment_program_nir(struct i915_context *i915,
+                                                struct i915_fragment_shader *ifs,
+                                                struct nir_shader *s,
+                                                const struct corm_compile_opts *opts);
+extern void i915_use_passthrough_shader(struct i915_fragment_shader *fs);
+extern void i915_program_error(struct i915_fp_compile *p, const char *msg, ...);
 
 extern uint32_t i915_get_temp(struct i915_fp_compile *p);
+extern void i915_release_temp(struct i915_fp_compile *p, int reg);
 extern uint32_t i915_get_utemp(struct i915_fp_compile *p);
 extern void i915_release_utemps(struct i915_fp_compile *p);
 
@@ -191,6 +219,8 @@ extern uint32_t i915_emit_decl(struct i915_fp_compile *p, uint32_t type,
                                uint32_t nr, uint32_t d0_flags);
 
 extern uint32_t i915_emit_const1f(struct i915_fp_compile *p, float c0);
+extern uint32_t i915_emit_const1f_prefer(struct i915_fp_compile *p, float c0,
+                                         int preferred_reg);
 
 extern uint32_t i915_emit_const2f(struct i915_fp_compile *p, float c0,
                                   float c1);
