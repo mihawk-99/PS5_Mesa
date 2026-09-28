@@ -229,6 +229,7 @@ public:
       sh_uses_images,
       sh_uses_tex_buffer,
       sh_writes_memory,
+      sh_reads_memory,
       sh_resinfo_via_uniform,
       sh_indirect_atomic,
       sh_mem_barrier,
@@ -251,6 +252,18 @@ public:
       return m_shader_stage == MESA_SHADER_FRAGMENT ||
              m_shader_stage == MESA_SHADER_GEOMETRY;
    }
+   /* A buffered (non-cacheless) RAT store isn't guaranteed visible to a
+    * subsequent SSBO/image load until the cache is flushed, so a store
+    * needs to bypass the cache (and wait for the write to land) whenever
+    * a load could observe it: either this same shader also reads SSBOs
+    * (a divergent-control-flow store followed by a load in the same
+    * invocation is otherwise not guaranteed visible), or a later pipeline
+    * stage declares an SSBO that could read what this stage wrote. */
+   bool must_ack_memory_writes() const
+   {
+      return has_flag(sh_writes_memory) || m_ssbo_read_by_later_stage;
+   }
+   void set_ssbo_read_by_later_stage(bool value) { m_ssbo_read_by_later_stage = value; }
    PRegister rat_return_address()
    {
       assert(m_rat_return_address);
@@ -384,6 +397,10 @@ private:
    PRegister m_rat_return_address{nullptr};
 
    mesa_shader_stage m_shader_stage{(mesa_shader_stage)-1};
+   /* Set by the vs/gs/tcs/tes constructors when a later stage declares an
+    * SSBO; irrelevant (stays false) for fragment/compute shaders, which
+    * have no such later stage. */
+   bool m_ssbo_read_by_later_stage{false};
    uint32_t m_nloops{0};
    uint32_t m_required_registers{0};
 

@@ -150,21 +150,25 @@ union r600_shader_key {
 		unsigned	as_es:1; /* export shader */
 		unsigned	as_ls:1; /* local shader */
 		unsigned	as_gs_a:1;
+		unsigned        ssbo_read_by_later_stage:1;
 	} vs;
 	struct {
 		unsigned	nr_cbufs:4;
 		unsigned        dynamic_ssbo_offset:4;
 		unsigned	as_es:1;
+		unsigned        ssbo_read_by_later_stage:1;
 	} tes;
 	struct {
 		unsigned	nr_cbufs:4;
 		unsigned        dynamic_ssbo_offset:4;
 		unsigned	prim_mode:3;
+		unsigned        ssbo_read_by_later_stage:1;
 	} tcs;
 	struct {
 		unsigned	nr_cbufs:4;
 		unsigned        dynamic_ssbo_offset:4;
 		unsigned        tri_strip_adj_fix:1;
+		unsigned        ssbo_read_by_later_stage:1;
 	} gs;
 };
 

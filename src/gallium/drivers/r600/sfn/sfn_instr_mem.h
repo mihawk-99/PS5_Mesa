@@ -142,7 +142,7 @@ public:
       set_mark();
    }
    void set_mark() { m_need_mark = true; }
-   bool mark() { return m_need_mark; }
+   bool mark() const { return m_need_mark; }
 
    void accept(ConstInstrVisitor& visitor) const override;
    void accept(InstrVisitor& visitor) override;

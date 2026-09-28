@@ -52,6 +52,8 @@ private:
 
    nir_def *split_double_load_ssbo(nir_intrinsic_instr *intr);
 
+   nir_def *split_double_store_ssbo(nir_intrinsic_instr *intr);
+
    nir_def *split_double_load_ubo(nir_intrinsic_instr *intr);
 
    nir_def *
@@ -294,6 +296,7 @@ LowerSplit64BitVar::filter(const nir_instr *instr) const
             return false;
          return intr->def.num_components >= 3;
       case nir_intrinsic_store_output:
+      case nir_intrinsic_store_ssbo:
          if (nir_src_bit_size(intr->src[0]) != 64)
             return false;
          return nir_src_num_components(intr->src[0]) >= 3;
@@ -637,6 +640,58 @@ LowerSplit64BitVar::split_double_load_ssbo(nir_intrinsic_instr *intr)
 }
 
 nir_def *
+LowerSplit64BitVar::split_double_store_ssbo(nir_intrinsic_instr *store1)
+{
+
+   b->cursor = nir_before_instr(&store1->instr);
+
+   unsigned old_components = nir_src_num_components(store1->src[0]);
+   unsigned old_write_mask = nir_intrinsic_write_mask(store1) & BITFIELD_MASK(old_components);
+   unsigned low_write_mask = old_write_mask & 0x3;
+   unsigned high_write_mask = old_write_mask >> 2;
+
+   assert(low_write_mask || high_write_mask);
+
+   auto high_src = [&]() -> nir_def * {
+      int channels = old_components == 3 ? 4 : 0xc;
+      return nir_channels(b, store1->src[0].ssa, channels);
+   };
+
+   auto high_offset = [&]() -> nir_def * {
+      if (nir_src_is_const(store1->src[2]))
+         return nir_imm_int(b, nir_src_as_int(store1->src[2]) + sizeof(uint64_t) * 2);
+      else
+         return nir_iadd_imm(b, store1->src[2].ssa, sizeof(uint64_t) * 2);
+   };
+
+   if (low_write_mask != 0 && high_write_mask != 0) {
+      auto store2 = nir_instr_as_intrinsic(nir_instr_clone(b->shader, &store1->instr));
+
+      store2->src[0] = nir_src_for_ssa(high_src());
+      nir_intrinsic_set_write_mask(store2, high_write_mask);
+      store2->num_components = old_components - 2;
+      store2->src[2] = nir_src_for_ssa(high_offset());
+
+      nir_builder_instr_insert(b, &store2->instr);
+
+      nir_src_rewrite(&store1->src[0], nir_trim_vector(b, store1->src[0].ssa, 2));
+      nir_intrinsic_set_write_mask(store1, low_write_mask);
+      store1->num_components = 2;
+   } else if (low_write_mask) {
+      nir_src_rewrite(&store1->src[0], nir_trim_vector(b, store1->src[0].ssa, 2));
+      nir_intrinsic_set_write_mask(store1, low_write_mask);
+      store1->num_components = 2;
+   } else {
+      nir_src_rewrite(&store1->src[0], high_src());
+      nir_intrinsic_set_write_mask(store1, high_write_mask);
+      store1->num_components = old_components - 2;
+      nir_src_rewrite(&store1->src[2], high_offset());
+   }
+
+   return NIR_LOWER_INSTR_PROGRESS;
+}
+
+nir_def *
 LowerSplit64BitVar::split_double_load_ubo(nir_intrinsic_instr *intr)
 {
    unsigned second_components = intr->def.num_components - 2;
@@ -743,6 +798,8 @@ LowerSplit64BitVar::lower(nir_instr *instr)
          return split_double_load_ubo(intr);
       case nir_intrinsic_load_ssbo:
          return split_double_load_ssbo(intr);
+      case nir_intrinsic_store_ssbo:
+         return split_double_store_ssbo(intr);
       case nir_intrinsic_load_input:
          return split_double_load(intr);
       case nir_intrinsic_store_output:
@@ -964,11 +1021,15 @@ Lower64BitToVec2::store_ssbo_64_to_vec2(nir_intrinsic_instr *intr)
    b->cursor = nir_before_instr(&intr->instr);
 
    auto src = intr->src[0].ssa;
+   unsigned old_write_mask = nir_intrinsic_write_mask(intr) & BITFIELD_MASK(src->num_components);
+   unsigned new_write_mask = 0;
 
    nir_def *s[4];
    for (int i = 0; i < src->num_components; ++i) {
       s[2 * i] = nir_unpack_64_2x32_split_x(b, nir_channel(b, src, i));
       s[2 * i + 1] = nir_unpack_64_2x32_split_y(b, nir_channel(b, src, i));
+      if (old_write_mask & BITFIELD_BIT(i))
+         new_write_mask |= 0x3 << (2 * i);
    }
 
    auto new_src = src->num_components == 1 ? nir_vec2(b, s[0], s[1])
@@ -978,7 +1039,7 @@ Lower64BitToVec2::store_ssbo_64_to_vec2(nir_intrinsic_instr *intr)
    nir_src_rewrite(&intr->src[0], new_src);
 
    intr->num_components *= 2;
-   nir_intrinsic_set_write_mask(intr, src->num_components == 2 ? 0xf : 0x3);
+   nir_intrinsic_set_write_mask(intr, new_write_mask);
 
    return NIR_LOWER_INSTR_PROGRESS;
 }

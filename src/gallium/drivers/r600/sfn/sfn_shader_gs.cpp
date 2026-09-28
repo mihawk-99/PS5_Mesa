@@ -15,6 +15,7 @@ GeometryShader::GeometryShader(const r600_shader_key& key):
     Shader("GS", {(uint8_t)key.gs.nr_cbufs, 0, (uint8_t)key.gs.dynamic_ssbo_offset}),
     m_tri_strip_adj_fix(key.gs.tri_strip_adj_fix)
 {
+   set_ssbo_read_by_later_stage(key.gs.ssbo_read_by_later_stage);
 }
 
 bool
