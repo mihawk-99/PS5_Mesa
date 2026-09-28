@@ -63,6 +63,19 @@
 #define fmt1(__vk_fmt, __hw_fmt) \
    swiz_fmt1(__vk_fmt, __hw_fmt, RGBA)
 
+#define video_fmt1(__vk_fmt, __hw_fmt) \
+   [VK_ENUM_OFFSET(__vk_fmt)] = { \
+      .planes = { \
+         { .isl_format = __hw_fmt, .swizzle = RGBA, \
+           .denominator_scales = { 1, 1, }, \
+           .aspect = VK_IMAGE_ASPECT_COLOR_BIT, \
+         }, \
+      }, \
+      .vk_format = __vk_fmt, \
+      .n_planes = 1, \
+      .flags = ANV_FORMAT_FLAG_CAN_VIDEO, \
+   }
+
 #define d_fmt(__vk_fmt, __hw_fmt) \
    [VK_ENUM_OFFSET(__vk_fmt)] = { \
       .planes = { \
@@ -129,14 +142,15 @@
      .aspect = VK_IMAGE_ASPECT_PLANE_ ## __plane ## _BIT, \
    }
 
-#define ycbcr_fmt(__vk_fmt, __n_planes, ...) \
+#define ycbcr_fmt(__vk_fmt, __n_planes, __can_video, ...) \
    [VK_ENUM_OFFSET(__vk_fmt)] = { \
       .planes = { \
          __VA_ARGS__, \
       }, \
       .vk_format = __vk_fmt, \
       .n_planes = __n_planes, \
-      .can_ycbcr = true, \
+      .flags = ANV_FORMAT_FLAG_CAN_YCBCR | \
+               (__can_video ? ANV_FORMAT_FLAG_CAN_VIDEO : 0), \
    }
 
 /* HINT: For array formats, the ISL name should match the VK name.  For
@@ -154,7 +168,7 @@ static const struct anv_format main_formats[] = {
    fmt1(VK_FORMAT_R5G5B5A1_UNORM_PACK16,             ISL_FORMAT_A1B5G5R5_UNORM),
    swiz_fmt1(VK_FORMAT_B5G5R5A1_UNORM_PACK16,        ISL_FORMAT_A1B5G5R5_UNORM, BGRA),
    fmt1(VK_FORMAT_A1R5G5B5_UNORM_PACK16,             ISL_FORMAT_B5G5R5A1_UNORM),
-   fmt1(VK_FORMAT_R8_UNORM,                          ISL_FORMAT_R8_UNORM),
+   video_fmt1(VK_FORMAT_R8_UNORM,                    ISL_FORMAT_R8_UNORM),
    fmt1(VK_FORMAT_R8_SNORM,                          ISL_FORMAT_R8_SNORM),
    fmt1(VK_FORMAT_R8_USCALED,                        ISL_FORMAT_R8_USCALED),
    fmt1(VK_FORMAT_R8_SSCALED,                        ISL_FORMAT_R8_SSCALED),
@@ -162,7 +176,7 @@ static const struct anv_format main_formats[] = {
    fmt1(VK_FORMAT_R8_SINT,                           ISL_FORMAT_R8_SINT),
    swiz_fmt1(VK_FORMAT_R8_SRGB,                      ISL_FORMAT_L8_UNORM_SRGB,
                                                      _ISL_SWIZZLE(RED, ZERO, ZERO, ONE)),
-   fmt1(VK_FORMAT_R8G8_UNORM,                        ISL_FORMAT_R8G8_UNORM),
+   video_fmt1(VK_FORMAT_R8G8_UNORM,                  ISL_FORMAT_R8G8_UNORM),
    fmt1(VK_FORMAT_R8G8_SNORM,                        ISL_FORMAT_R8G8_SNORM),
    fmt1(VK_FORMAT_R8G8_USCALED,                      ISL_FORMAT_R8G8_USCALED),
    fmt1(VK_FORMAT_R8G8_SSCALED,                      ISL_FORMAT_R8G8_SSCALED),
@@ -341,25 +355,25 @@ static const struct anv_format _4444_formats[] = {
 };
 
 static const struct anv_format ycbcr_formats[] = {
-   ycbcr_fmt(VK_FORMAT_G8B8G8R8_422_UNORM, 1,
+   ycbcr_fmt(VK_FORMAT_G8B8G8R8_422_UNORM, 1, false,
              y_plane(0, ISL_FORMAT_YCRCB_NORMAL, RGBA, _ISL_SWIZZLE(RED, GREEN, BLUE, ZERO), 1, 1)),
-   ycbcr_fmt(VK_FORMAT_B8G8R8G8_422_UNORM, 1,
+   ycbcr_fmt(VK_FORMAT_B8G8R8G8_422_UNORM, 1, false,
              y_plane(0, ISL_FORMAT_YCRCB_SWAPY, RGBA, _ISL_SWIZZLE(RED, GREEN, BLUE, ZERO), 1, 1)),
-   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 2),
              chroma_plane(2, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_420_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_420_UNORM, 2, true,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8G8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 1),
              chroma_plane(2, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_422_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G8_B8R8_2PLANE_422_UNORM, 2, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8G8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(2, ISL_FORMAT_R8_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 1, 1)),
@@ -390,21 +404,21 @@ static const struct anv_format ycbcr_formats[] = {
    fmt_unsupported(VK_FORMAT_G16B16G16R16_422_UNORM),
    fmt_unsupported(VK_FORMAT_B16G16R16G16_422_UNORM),
 
-   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 2),
              chroma_plane(2, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 2, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16G16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 2)),
-   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 2, 1),
              chroma_plane(2, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_422_UNORM, 2,
+   ycbcr_fmt(VK_FORMAT_G16_B16R16_2PLANE_422_UNORM, 2, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16G16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, RED, ZERO, ZERO), 2, 1)),
-   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM, 3,
+   ycbcr_fmt(VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM, 3, false,
              y_plane(0, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(GREEN, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(1, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(BLUE, ZERO, ZERO, ZERO), 1, 1),
              chroma_plane(2, ISL_FORMAT_R16_UNORM, RGBA, _ISL_SWIZZLE(RED, ZERO, ZERO, ZERO), 1, 1)),
@@ -590,12 +604,19 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       return flags;
    }
 
+   if ((anv_format->flags & ANV_FORMAT_FLAG_CAN_VIDEO) &&
+       (anv_format->n_planes > 1 || vk_tiling == VK_IMAGE_TILING_OPTIMAL)) {
+      flags |= (VIDEO_CODEC_H264DEC && ANV_DEBUG(VIDEO_DECODE)) ?
+                  VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR |
+                  VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR : 0;
+   }
+
    assert(aspects & VK_IMAGE_ASPECT_ANY_COLOR_BIT_ANV);
    const struct anv_format_plane plane_format =
       anv_get_format_plane(devinfo, vk_format, 0, vk_tiling);
 
    if (plane_format.isl_format == ISL_FORMAT_UNSUPPORTED)
-      return 0;
+      return flags;
 
    struct anv_format_plane base_plane_format = plane_format;
    if (vk_tiling != VK_IMAGE_TILING_LINEAR) {
@@ -690,7 +711,7 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       flags &= ~VK_FORMAT_FEATURE_2_BLIT_DST_BIT;
    }
 
-   if (anv_format->can_ycbcr) {
+   if (anv_format->flags & ANV_FORMAT_FLAG_CAN_YCBCR) {
       /* The sampler doesn't have support for mid point when it handles YUV on
        * its own.
        */
@@ -720,12 +741,18 @@ anv_get_image_format_features2(const struct intel_device_info *devinfo,
       if (anv_format->n_planes > 1)
          flags |= VK_FORMAT_FEATURE_2_DISJOINT_BIT;
 
-      const VkFormatFeatureFlags2 disallowed_ycbcr_image_features =
-         VK_FORMAT_FEATURE_2_BLIT_SRC_BIT |
-         VK_FORMAT_FEATURE_2_BLIT_DST_BIT |
+      VkFormatFeatureFlags2 disallowed_ycbcr_image_features =
          VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT |
-         VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT |
-         VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
+         VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT;
+
+      /* For video decode formats, allow BLIT and STORAGE operations. */
+      if (!(flags & (VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR |
+                     VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR))) {
+         disallowed_ycbcr_image_features |=
+            VK_FORMAT_FEATURE_2_BLIT_SRC_BIT |
+            VK_FORMAT_FEATURE_2_BLIT_DST_BIT |
+            VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
+      }
 
       flags &= ~disallowed_ycbcr_image_features;
    }
@@ -816,7 +843,7 @@ get_buffer_format_features2(const struct intel_device_info *devinfo,
    if (anv_format->n_planes > 1)
       return 0;
 
-   if (anv_format->can_ycbcr)
+   if (anv_format->flags & ANV_FORMAT_FLAG_CAN_YCBCR)
       return 0;
 
    if (vk_format_is_depth_or_stencil(vk_format))
@@ -904,6 +931,88 @@ get_drm_format_modifier_properties_list_2(const struct anv_physical_device *phys
    }
 }
 
+static void
+get_image_drm_format_modifier_properties_list(
+   const struct anv_physical_device *physical_device,
+   const VkPhysicalDeviceImageFormatInfo2 *base_info,
+   VkDrmFormatModifierPropertiesListEXT *list)
+{
+   const struct intel_device_info *devinfo = &physical_device->info;
+   const struct anv_format *anv_format = anv_get_format(base_info->format);
+
+   VK_OUTARRAY_MAKE_TYPED(VkDrmFormatModifierPropertiesEXT, out,
+                          list->pDrmFormatModifierProperties,
+                          &list->drmFormatModifierCount);
+
+   if (base_info->tiling != VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+      return;
+
+   isl_drm_modifier_info_for_each(isl_mod_info) {
+      VkFormatFeatureFlags2 features2 =
+         anv_get_image_format_features2(devinfo, base_info->format, anv_format,
+                                        VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+                                        isl_mod_info);
+      VkFormatFeatureFlags features =
+         vk_format_features2_to_features(features2);
+      if (!features)
+         continue;
+
+      if (base_info->usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) {
+         if (isl_mod_info->tiling != ISL_TILING_Y0)
+            continue;
+      }
+
+      vk_outarray_append_typed(VkDrmFormatModifierPropertiesEXT, &out,
+                               out_props) {
+         *out_props = (VkDrmFormatModifierPropertiesEXT) {
+            .drmFormatModifier = isl_mod_info->modifier,
+            .drmFormatModifierPlaneCount = anv_format->n_planes,
+            .drmFormatModifierTilingFeatures = features,
+         };
+      };
+   }
+}
+
+static void
+get_image_drm_format_modifier_properties_list_2(
+   const struct anv_physical_device *physical_device,
+   const VkPhysicalDeviceImageFormatInfo2 *base_info,
+   VkDrmFormatModifierPropertiesList2EXT *list)
+{
+   const struct intel_device_info *devinfo = &physical_device->info;
+   const struct anv_format *anv_format = anv_get_format(base_info->format);
+
+   VK_OUTARRAY_MAKE_TYPED(VkDrmFormatModifierProperties2EXT, out,
+                          list->pDrmFormatModifierProperties,
+                          &list->drmFormatModifierCount);
+
+   if (base_info->tiling != VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+      return;
+
+   isl_drm_modifier_info_for_each(isl_mod_info) {
+      VkFormatFeatureFlags2 features2 =
+         anv_get_image_format_features2(devinfo, base_info->format, anv_format,
+                                        VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+                                        isl_mod_info);
+      if (!features2)
+         continue;
+
+      if (base_info->usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) {
+         if (isl_mod_info->tiling != ISL_TILING_Y0)
+            continue;
+      }
+
+      vk_outarray_append_typed(VkDrmFormatModifierProperties2EXT, &out,
+                               out_props) {
+         *out_props = (VkDrmFormatModifierProperties2EXT) {
+            .drmFormatModifier = isl_mod_info->modifier,
+            .drmFormatModifierPlaneCount = anv_format->n_planes,
+            .drmFormatModifierTilingFeatures = features2,
+         };
+      };
+   }
+}
+
 void anv_GetPhysicalDeviceFormatProperties2(
     VkPhysicalDevice                            physicalDevice,
     VkFormat                                    vk_format,
@@ -948,6 +1057,8 @@ void anv_GetPhysicalDeviceFormatProperties2(
          props->bufferFeatures = buffer2;
          break;
       }
+      case VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR:
+         break;
       default:
          vk_debug_ignored_stype(sType);
          break;
@@ -984,6 +1095,12 @@ anv_get_image_format_properties(
       isl_mod_info = isl_drm_modifier_get_info(vk_mod_info->drmFormatModifier);
       if (isl_mod_info == NULL)
          goto unsupported;
+
+      /* Only allow Y tiling for video decode. */
+      if (info->usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) {
+         if (isl_mod_info->tiling != ISL_TILING_Y0)
+            goto unsupported;
+      }
    }
 
    assert(format->vk_format == info->format);
@@ -1365,6 +1482,8 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
       case VK_STRUCTURE_TYPE_WSI_IMAGE_CREATE_INFO_MESA:
          from_wsi = true;
          break;
+      case VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR:
+         break;
       default:
          vk_debug_ignored_stype(sType);
          break;
@@ -1372,6 +1491,9 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
    }
 
    /* Extract output structs */
+   VkDrmFormatModifierPropertiesListEXT *modifier_props = NULL;
+   VkDrmFormatModifierPropertiesList2EXT *modifier_props_2 = NULL;
+
    vk_foreach_struct(sType, s, base_props->pNext) {
       switch (sType) {
       case VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES:
@@ -1382,6 +1504,12 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
          break;
       case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID:
          android_usage = s;
+         break;
+      case VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT:
+         modifier_props = s;
+         break;
+      case VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_2_EXT:
+         modifier_props_2 = s;
          break;
       default:
          vk_debug_ignored_stype(sType);
@@ -1539,6 +1667,17 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
                             external_info->handleType);
          goto fail;
       }
+   }
+
+   /* Fill DRM format modifier properties if requested. */
+   if (modifier_props) {
+      get_image_drm_format_modifier_properties_list(physical_device, base_info,
+                                                     modifier_props);
+   }
+
+   if (modifier_props_2) {
+      get_image_drm_format_modifier_properties_list_2(physical_device, base_info,
+                                                       modifier_props_2);
    }
 
    return VK_SUCCESS;

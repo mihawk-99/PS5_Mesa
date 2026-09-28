@@ -160,3 +160,8 @@ genX(graphics_pipeline_emit)(struct anv_graphics_pipeline *pipeline,
 
 void
 genX(compute_pipeline_emit)(struct anv_compute_pipeline *pipeline);
+
+void
+genX(emit_query_mi_flush_availability)(struct anv_cmd_buffer *cmd_buffer,
+                                       struct anv_address addr,
+                                       bool available);

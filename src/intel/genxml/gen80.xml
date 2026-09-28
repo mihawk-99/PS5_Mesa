@@ -1772,8 +1772,8 @@
       <field name="POC List" dword="0" bits="31:0" type="uint" />
     </group>
   </instruction>
-  <instruction name="MFX_AVC_IMG_STATE" bias="2" length="14" engine="video">
-    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="12" />
+  <instruction name="MFX_AVC_IMG_STATE" bias="2" length="17" engine="video">
+    <field name="DWord Length" dword="0" bits="11:0" type="uint" default="15" />
     <field name="SubOpcode B" dword="0" bits="20:16" type="uint" default="0" />
     <field name="SubOpcode A" dword="0" bits="23:21" type="uint" default="0" />
     <field name="Media Command Opcode" dword="0" bits="26:24" type="uint" default="1" />

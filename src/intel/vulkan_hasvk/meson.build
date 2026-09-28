@@ -90,6 +90,7 @@ libanv_per_hw_ver_libs = []
 anv_per_hw_ver_files = files(
   'genX_blorp_exec.c',
   'genX_cmd_buffer.c',
+  'genX_cmd_video.c',
   'genX_gpu_memcpy.c',
   'genX_pipeline.c',
   'genX_query.c',
@@ -146,6 +147,8 @@ libanv_files = files(
   'anv_queue.c',
   'anv_util.c',
   'anv_utrace.c',
+  'anv_video.c',
+  'anv_video_h264_slice.c',
   'anv_wsi.c',
 )
 

@@ -461,7 +461,32 @@ shared_type_info(const struct glsl_type *type, unsigned *size, unsigned *align)
    *align = comp_size * (length == 3 ? 4 : length);
 }
 
-static void
+static bool
+anv_nir_has_formatless_image_read(nir_shader *nir)
+{
+   nir_foreach_function_impl(impl, nir) {
+      nir_foreach_block(block, impl) {
+         nir_foreach_instr(instr, block) {
+            if (instr->type != nir_instr_type_intrinsic)
+               continue;
+
+            nir_intrinsic_instr *intrin = nir_instr_as_intrinsic(instr);
+            if (intrin->intrinsic != nir_intrinsic_image_deref_load &&
+                intrin->intrinsic != nir_intrinsic_image_deref_sparse_load)
+               continue;
+
+            nir_deref_instr *deref = nir_src_as_deref(intrin->src[0]);
+            nir_variable *var = nir_deref_instr_get_variable(deref);
+            if (var && var->data.image.format == PIPE_FORMAT_NONE)
+               return true;
+         }
+      }
+   }
+
+   return false;
+}
+
+static VkResult
 anv_pipeline_lower_nir(struct anv_pipeline *pipeline,
                        void *mem_ctx,
                        struct anv_pipeline_stage *stage,
@@ -488,6 +513,14 @@ anv_pipeline_lower_nir(struct anv_pipeline *pipeline,
    }
 
    nir_shader_gather_info(nir, nir_shader_get_entrypoint(nir));
+
+   if (!pdevice->vk.supported_features.shaderStorageImageReadWithoutFormat &&
+       anv_nir_has_formatless_image_read(nir)) {
+      return vk_errorf(pipeline, VK_ERROR_FEATURE_NOT_PRESENT,
+                       "shader reads a storage image without a format, which "
+                       "is not supported "
+                       "(shaderStorageImageReadWithoutFormat)");
+   }
 
    NIR_PASS(_, nir, elk_nir_lower_storage_image,
             &(struct elk_nir_lower_storage_image_opts) {
@@ -577,6 +610,8 @@ anv_pipeline_lower_nir(struct anv_pipeline *pipeline,
    }
 
    stage->nir = nir;
+
+   return VK_SUCCESS;
 }
 
 static void
@@ -1301,7 +1336,12 @@ anv_graphics_pipeline_compile(struct anv_graphics_pipeline *pipeline,
 
       void *stage_ctx = ralloc_context(NULL);
 
-      anv_pipeline_lower_nir(&pipeline->base, stage_ctx, &stages[s], layout);
+      result = anv_pipeline_lower_nir(&pipeline->base, stage_ctx,
+                                      &stages[s], layout);
+      if (result != VK_SUCCESS) {
+         ralloc_free(stage_ctx);
+         goto fail;
+      }
 
       if (prev_stage && s < MESA_SHADER_FRAGMENT) {
          prev_stage->nir->info.outputs_written |= stages[s].nir->info.inputs_read &
@@ -1497,7 +1537,12 @@ anv_pipeline_compile_cs(struct anv_compute_pipeline *pipeline,
          return vk_error(pipeline, VK_ERROR_UNKNOWN);
       }
 
-      anv_pipeline_lower_nir(&pipeline->base, mem_ctx, &stage, layout);
+      VkResult result =
+         anv_pipeline_lower_nir(&pipeline->base, mem_ctx, &stage, layout);
+      if (result != VK_SUCCESS) {
+         ralloc_free(mem_ctx);
+         return result;
+      }
 
       unsigned local_size = stage.nir->info.workgroup_size[0] *
                             stage.nir->info.workgroup_size[1] *

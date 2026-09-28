@@ -72,6 +72,14 @@
 /* Render engine timestamp register */
 #define TIMESTAMP 0x2358
 
+static const struct debug_control debug_control[] = {
+   { "video-decode", ANV_DEBUG_VIDEO_DECODE },
+   { "video-debug", ANV_DEBUG_VIDEO_DEBUG },
+   { NULL, 0 }
+};
+
+enum anv_debug anv_debug;
+
 /* The "RAW" clocks on Linux are called "FAST" on FreeBSD */
 #if !defined(CLOCK_MONOTONIC_RAW) && defined(CLOCK_MONOTONIC_FAST)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC_FAST
@@ -174,6 +182,8 @@ get_device_extensions(const struct anv_physical_device *device,
    const bool has_syncobj_wait =
       (device->sync_syncobj_type.features & VK_SYNC_FEATURE_CPU_WAIT) != 0;
 
+   const bool video_decode = VIDEO_CODEC_H264DEC && ANV_DEBUG(VIDEO_DECODE);
+
    *ext = (struct vk_device_extension_table) {
       .KHR_8bit_storage                      = device->info.ver >= 8,
       .KHR_16bit_storage                     = device->info.ver >= 8 && !device->instance->drirc.performance.no_16bit,
@@ -245,8 +255,14 @@ get_device_extensions(const struct anv_physical_device *device,
       .KHR_swapchain                         = true,
       .KHR_swapchain_mutable_format          = true,
 #endif
+      .KHR_video_queue                       = video_decode,
+      .KHR_video_decode_queue                = video_decode,
+      .KHR_video_decode_h264                 = video_decode,
+      .KHR_video_maintenance1                = video_decode,
+      .KHR_video_maintenance2                = video_decode,
       .KHR_synchronization2                  = true,
       .KHR_timeline_semaphore                = true,
+      .KHR_internally_synchronized_queues    = true,
       .KHR_uniform_buffer_standard_layout    = true,
       .KHR_variable_pointers                 = true,
       .KHR_vulkan_memory_model               = true,
@@ -668,6 +684,15 @@ get_features(const struct anv_physical_device *pdevice,
 
       /* VK_KHR_maintenance6 */
       .maintenance6 = true,
+
+      /* VK_KHR_video_maintenance1 */
+      .videoMaintenance1 = true,
+
+      /* VK_KHR_video_maintenance2 */
+      .videoMaintenance2 = true,
+
+      /* VK_KHR_internally_synchronized_queues */
+      .internallySynchronizedQueues = true,
    };
 
    /* We can't do image stores in vec4 shaders */
@@ -1479,11 +1504,13 @@ anv_physical_device_free_disk_cache(struct anv_physical_device *device)
 }
 
 static void
-anv_override_engine_counts(int *gc_count, int *g_count, int *c_count)
+anv_override_engine_counts(int *gc_count, int *g_count, int *c_count,
+                           int *v_count)
 {
    int gc_override = -1;
    int g_override = -1;
    int c_override = -1;
+   int v_override = -1;
    const char *env_ = os_get_option("HASVK_QUEUE_OVERRIDE");
 
    if (env_ == NULL)
@@ -1499,6 +1526,8 @@ anv_override_engine_counts(int *gc_count, int *g_count, int *c_count)
          g_override = strtol(next + 2, NULL, 0);
       } else if (strncmp(next, "c=", 2) == 0) {
          c_override = strtol(next + 2, NULL, 0);
+      } else if (strncmp(next, "v=", 2) == 0) {
+         v_override = strtol(next + 2, NULL, 0);
       } else {
          mesa_logw("Ignoring unsupported ANV_QUEUE_OVERRIDE token: %s", next);
       }
@@ -1514,6 +1543,8 @@ anv_override_engine_counts(int *gc_count, int *g_count, int *c_count)
                 "Vulkan specification");
    if (c_override >= 0)
       *c_count = c_override;
+   if (v_override >= 0)
+      *v_count = v_override;
 }
 
 static void
@@ -1525,10 +1556,15 @@ anv_physical_device_init_queue_families(struct anv_physical_device *pdevice)
       int gc_count =
          intel_engines_count(pdevice->engine_info,
                              INTEL_ENGINE_CLASS_RENDER);
+
+      int v_count =
+         intel_engines_count(pdevice->engine_info,
+                             INTEL_ENGINE_CLASS_VIDEO);
+
       int g_count = 0;
       int c_count = 0;
 
-      anv_override_engine_counts(&gc_count, &g_count, &c_count);
+      anv_override_engine_counts(&gc_count, &g_count, &c_count, &v_count);
 
       if (gc_count > 0) {
          pdevice->queue.families[family_count++] = (struct anv_queue_family) {
@@ -1553,6 +1589,13 @@ anv_physical_device_init_queue_families(struct anv_physical_device *pdevice)
                           VK_QUEUE_TRANSFER_BIT,
             .queueCount = c_count,
             .engine_class = INTEL_ENGINE_CLASS_RENDER,
+         };
+      }
+      if (v_count > 0 && VIDEO_CODEC_H264DEC && ANV_DEBUG(VIDEO_DECODE)) {
+         pdevice->queue.families[family_count++] = (struct anv_queue_family) {
+            .queueFlags = VK_QUEUE_VIDEO_DECODE_BIT_KHR,
+            .queueCount = v_count,
+            .engine_class = INTEL_ENGINE_CLASS_VIDEO,
          };
       }
       /* Increase count below when other families are added as a reminder to
@@ -1976,6 +2019,7 @@ VkResult anv_CreateInstance(
    anv_init_dri_options(instance);
 
    process_intel_debug_variable();
+   anv_debug = parse_debug_string(os_get_option("HASVK_DEBUG"), debug_control);
    instance->vk.enable_debug_logging = INTEL_DEBUG(DEBUG_PERF);
 
    intel_driver_ds_init();
@@ -2067,7 +2111,26 @@ void anv_GetPhysicalDeviceQueueFamilyProperties2(
                properties->priorityCount = count;
                break;
             }
-
+            case VK_STRUCTURE_TYPE_QUEUE_FAMILY_QUERY_RESULT_STATUS_PROPERTIES_KHR: {
+               VkQueueFamilyQueryResultStatusPropertiesKHR *prop =
+                  (VkQueueFamilyQueryResultStatusPropertiesKHR *)ext;
+               /* Result status queries require the queue's command streamer
+                * to write the query result to memory. The VCS seemingly
+                * cannot do a posted memory write. */
+               prop->queryResultStatusSupport =
+                  (queue_family->queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) ?
+                  VK_FALSE : VK_TRUE;
+               break;
+            }
+            case VK_STRUCTURE_TYPE_QUEUE_FAMILY_VIDEO_PROPERTIES_KHR: {
+               VkQueueFamilyVideoPropertiesKHR *prop =
+                  (VkQueueFamilyVideoPropertiesKHR *)ext;
+               if (queue_family->queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) {
+                  prop->videoCodecOperations =
+                     VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR;
+               }
+               break;
+            }
             default:
                vk_debug_ignored_stype(sType);
             }
@@ -2439,7 +2502,7 @@ VkResult anv_CreateDevice(
     */
    assert(pCreateInfo->queueCreateInfoCount > 0);
    for (uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; i++) {
-      if (pCreateInfo->pQueueCreateInfos[i].flags != 0)
+      if (pCreateInfo->pQueueCreateInfos[i].flags & ~VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR)
          return vk_error(physical_device, VK_ERROR_INITIALIZATION_FAILED);
    }
 
@@ -2470,19 +2533,27 @@ VkResult anv_CreateDevice(
    if (result != VK_SUCCESS)
       goto fail_alloc;
 
-   if (INTEL_DEBUG(DEBUG_BATCH)) {
-      const unsigned decode_flags = INTEL_BATCH_DECODE_DEFAULT_FLAGS;
+   if (INTEL_DEBUG(DEBUG_BATCH) || INTEL_DEBUG(DEBUG_BATCH_STATS)) {
+      for (unsigned i = 0; i < physical_device->queue.family_count; i++) {
+         struct intel_batch_decode_ctx *decoder = &device->decoder[i];
 
-      intel_batch_decode_ctx_init_elk(&device->decoder_ctx,
-                                      &physical_device->compiler->isa,
-                                      &physical_device->info,
-                                      stderr, decode_flags, NULL,
-                                      decode_get_bo, NULL, device);
+         const unsigned decode_flags =
+            INTEL_BATCH_DECODE_FULL |
+            (INTEL_DEBUG(DEBUG_COLOR) ? INTEL_BATCH_DECODE_IN_COLOR : 0) |
+            INTEL_BATCH_DECODE_OFFSETS | INTEL_BATCH_DECODE_FLOATS;
 
-      device->decoder_ctx.dynamic_base = DYNAMIC_STATE_POOL_MIN_ADDRESS;
-      device->decoder_ctx.surface_base = SURFACE_STATE_POOL_MIN_ADDRESS;
-      device->decoder_ctx.instruction_base =
-         INSTRUCTION_STATE_POOL_MIN_ADDRESS;
+         intel_batch_decode_ctx_init_elk(decoder,
+                                         &physical_device->compiler->isa,
+                                         &physical_device->info,
+                                         stderr, decode_flags, NULL,
+                                         decode_get_bo, NULL, device);
+         intel_batch_stats_reset(decoder);
+
+         decoder->engine = physical_device->queue.families[i].engine_class;
+         decoder->dynamic_base = DYNAMIC_STATE_POOL_MIN_ADDRESS;
+         decoder->surface_base = SURFACE_STATE_POOL_MIN_ADDRESS;
+         decoder->instruction_base = INSTRUCTION_STATE_POOL_MIN_ADDRESS;
+      }
    }
 
    anv_device_set_physical(device, physical_device);
@@ -2810,16 +2881,13 @@ void anv_DestroyDevice(
       util_vma_heap_finish(&device->vma_lo);
    }
 
-   pthread_mutex_destroy(&device->mutex);
-
    for (uint32_t i = 0; i < device->queue_count; i++)
       anv_queue_finish(&device->queues[i]);
    vk_free(&device->vk.alloc, device->queues);
 
    intel_gem_destroy_context(device->fd, device->context_id);
 
-   if (INTEL_DEBUG(DEBUG_BATCH))
-      intel_batch_decode_ctx_finish(&device->decoder_ctx);
+   pthread_mutex_destroy(&device->mutex);
 
    close(device->fd);
 
@@ -3150,10 +3218,9 @@ VkResult anv_AllocateMemory(
 
       mem->dedicated_image = image;
 
-      /* Some legacy (non-modifiers) consumers need the tiling to be set on
-       * the BO.  In this case, we have a dedicated allocation.
-       */
-      if (image->vk.wsi_legacy_scanout) {
+      if (image->vk.wsi_legacy_scanout ||
+          (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+                              VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR))) {
          const struct isl_surf *surf = &image->planes[0].primary_surface.isl;
          result = anv_device_set_bo_tiling(device, mem->bo,
                                            surf->row_pitch_B,

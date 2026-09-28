@@ -2170,7 +2170,7 @@
     <field name="MI Command Opcode" dword="0" bits="28:23" type="uint" default="4" />
     <field name="Command Type" dword="0" bits="31:29" type="uint" default="0" />
   </instruction>
-  <instruction name="MI_FLUSH_DW" bias="2" length="4" engine="video">
+  <instruction name="MI_FLUSH_DW" bias="2" length="4">
     <field name="DWord Length" dword="0" bits="5:0" type="uint" default="2" />
     <field name="Video Pipeline Cache Invalidate" dword="0" bits="7:7" type="bool" />
     <field name="Notify Enable" dword="0" bits="8:8" type="bool" />
@@ -2185,9 +2185,7 @@
       <value name="GGTT" value="1" />
     </field>
     <field name="Address" dword="1" bits="31:3" type="address" />
-    <group count="2" dword="2" size="32">
-      <field name="Immediate Data" dword="0" bits="31:0" type="uint" />
-    </group>
+    <field name="Immediate Data" dword="2" bits="63:0" type="uint" />
   </instruction>
   <instruction name="MI_LOAD_REGISTER_IMM" bias="2" length="3">
     <field name="DWord Length" dword="0" bits="7:0" type="uint" default="1" />

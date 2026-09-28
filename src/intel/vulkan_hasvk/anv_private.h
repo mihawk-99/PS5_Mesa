@@ -87,6 +87,7 @@
 #include "vk_util.h"
 #include "vk_queue.h"
 #include "vk_log.h"
+#include "vk_video.h"
 #include "vk_ycbcr_conversion.h"
 
 /* Pre-declarations needed for WSI entrypoints */
@@ -926,6 +927,16 @@ struct anv_instance {
     struct hasvk_drirc                          drirc;
 };
 
+/* Parsed from the HASVK_DEBUG environment variable. */
+enum anv_debug {
+   ANV_DEBUG_VIDEO_DECODE               = BITFIELD_BIT(0),
+   ANV_DEBUG_VIDEO_DEBUG                = BITFIELD_BIT(1),
+};
+
+extern enum anv_debug anv_debug;
+
+#define ANV_DEBUG(name) unlikely(anv_debug & ANV_DEBUG_##name)
+
 VkResult anv_init_wsi(struct anv_physical_device *physical_device);
 void anv_finish_wsi(struct anv_physical_device *physical_device);
 
@@ -935,6 +946,8 @@ struct anv_queue {
    struct anv_device *                       device;
 
    const struct anv_queue_family *           family;
+
+   struct intel_batch_decode_ctx *           decoder;
 
    uint32_t                                  exec_flags;
 
@@ -1054,7 +1067,8 @@ struct anv_device {
 
     pthread_mutex_t                             mutex;
 
-    struct intel_batch_decode_ctx               decoder_ctx;
+    struct intel_batch_decode_ctx               decoder[ANV_MAX_QUEUE_FAMILIES];
+
     /*
      * When decoding a anv_cmd_buffer, we might need to search for BOs through
      * the cmd_buffer's list.
@@ -2585,6 +2599,11 @@ struct anv_cmd_buffer {
     *
     */
    struct u_trace                               trace;
+
+   struct {
+      struct anv_video_session                  *vid;
+      struct anv_video_session_params           *params;
+   } video;
 };
 
 extern const struct vk_command_buffer_ops anv_cmd_buffer_ops;
@@ -2943,12 +2962,16 @@ struct anv_format_plane {
    VkImageAspectFlags aspect;
 };
 
+enum anv_format_flag {
+   ANV_FORMAT_FLAG_CAN_YCBCR = BITFIELD_BIT(0),
+   ANV_FORMAT_FLAG_CAN_VIDEO = BITFIELD_BIT(1),
+};
 
 struct anv_format {
    struct anv_format_plane planes[3];
    VkFormat vk_format;
    uint8_t n_planes;
-   bool can_ycbcr;
+   enum anv_format_flag flags:8;
 };
 
 static inline void
@@ -3138,6 +3161,8 @@ struct anv_image {
     */
    bool from_gralloc;
 
+   bool vid_neutral_chroma_init;
+
    /**
     * The memory bindings created by vkCreateImage and vkBindImageMemory.
     *
@@ -3208,6 +3233,13 @@ struct anv_image {
        */
       bool can_non_zero_fast_clear;
    } planes[3];
+
+   struct anv_image_memory_range vid_dmv_top_surface;
+   struct anv_image_memory_range vid_dmv_bottom_surface;
+
+   /* array_layers > 1 */
+   uint32_t vid_dmv_top_surface_pitch_B;
+   uint32_t vid_dmv_bottom_surface_pitch_B;
 };
 
 static inline bool
@@ -3499,6 +3531,62 @@ enum anv_image_view_state_flags {
    ANV_IMAGE_VIEW_STATE_TEXTURE_OPTIMAL      = (1 << 1),
 };
 
+/* Address of the luma plane for a given DPB array layer. */
+static inline struct anv_address MUST_CHECK
+anv_image_dpb_address(const struct anv_image_view *iv,
+                      uint32_t arrayLayer)
+{
+   assert(iv->vk.base_mip_level == 0);
+   assert(iv->vk.layer_count > arrayLayer);
+
+   struct anv_address addr =
+      anv_image_address(iv->image,
+                        &iv->image->planes[0].primary_surface.memory_range);
+
+   if (anv_address_is_null(addr))
+      return addr;
+
+   uint64_t offset_B;
+   uint32_t x_offset_sa = 0, y_offset_sa = 0;
+   isl_surf_get_image_offset_B_tile_sa(&iv->image->planes[0].primary_surface.isl,
+                                       0,
+                                       iv->vk.base_array_layer + arrayLayer,
+                                       0,
+                                       &offset_B,
+                                       &x_offset_sa,
+                                       &y_offset_sa);
+
+   return anv_address_add(addr, offset_B);
+}
+
+static inline struct anv_address MUST_CHECK
+anv_image_dmv_top_address(const struct anv_image_view *iv,
+                          uint32_t arrayLayer)
+{
+   struct anv_address addr =
+      anv_image_address(iv->image, &iv->image->vid_dmv_top_surface);
+
+   if (anv_address_is_null(addr))
+      return addr;
+
+   return anv_address_add(addr, iv->image->vid_dmv_top_surface_pitch_B *
+                                ((uint64_t)iv->vk.base_array_layer + arrayLayer));
+}
+
+static inline struct anv_address MUST_CHECK
+anv_image_dmv_bottom_address(const struct anv_image_view *iv,
+                             uint32_t arrayLayer)
+{
+   struct anv_address addr =
+      anv_image_address(iv->image, &iv->image->vid_dmv_bottom_surface);
+
+   if (anv_address_is_null(addr))
+      return addr;
+
+   return anv_address_add(addr, iv->image->vid_dmv_bottom_surface_pitch_B *
+                                ((uint64_t)iv->vk.base_array_layer + arrayLayer));
+}
+
 void anv_image_fill_surface_state(struct anv_device *device,
                                   const struct anv_image *image,
                                   VkImageAspectFlagBits aspect,
@@ -3624,6 +3712,37 @@ struct anv_query_pool {
    struct intel_perf_counter_pass                *counter_pass;
    uint32_t                                     n_passes;
    struct intel_perf_query_info                 **pass_query;
+
+   /* Video encoding queries */
+   VkVideoCodecOperationFlagsKHR                codec;
+};
+
+#define ANV_MB_WIDTH 16
+#define ANV_MB_HEIGHT 16
+
+struct anv_vid_mem {
+   struct anv_device_memory                     *mem;
+   VkDeviceSize                                 offset;
+   VkDeviceSize                                 size;
+};
+
+enum {
+   ANV_VID_MEM_H264_INTRA_ROW_STORE,
+   ANV_VID_MEM_H264_DEBLOCK_FILTER_ROW_STORE,
+   ANV_VID_MEM_H264_BSD_MPC_ROW_SCRATCH,
+   ANV_VID_MEM_H264_MPR_ROW_SCRATCH,
+   ANV_VID_MEM_H264_MAX,
+};
+
+struct anv_video_session {
+   struct vk_video_session                      vk;
+
+   /* the decoder needs some private memory allocations */
+   struct anv_vid_mem                           vid_mem[ANV_VID_MEM_H264_MAX];
+};
+
+struct anv_video_session_params {
+   struct vk_video_session_parameters           vk;
 };
 
 static inline uint32_t khr_perf_query_preamble_offset(const struct anv_query_pool *pool,
@@ -3761,6 +3880,11 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(anv_sampler, base, VkSampler,
 VK_DEFINE_NONDISP_HANDLE_CASTS(anv_performance_configuration_intel, base,
                                VkPerformanceConfigurationINTEL,
                                VK_OBJECT_TYPE_PERFORMANCE_CONFIGURATION_INTEL)
+VK_DEFINE_NONDISP_HANDLE_CASTS(anv_video_session, vk.base, VkVideoSessionKHR,
+                               VK_OBJECT_TYPE_VIDEO_SESSION_KHR)
+VK_DEFINE_NONDISP_HANDLE_CASTS(anv_video_session_params, vk.base,
+                               VkVideoSessionParametersKHR,
+                               VK_OBJECT_TYPE_VIDEO_SESSION_PARAMETERS_KHR)
 
 #define anv_genX(devinfo, thing) ({             \
    __typeof(&gfx7_##thing) genX_thing;          \

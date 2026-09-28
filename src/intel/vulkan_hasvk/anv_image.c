@@ -137,20 +137,11 @@ image_binding_grow(const struct anv_device *device,
                           "VkImageDrmFormatModifierExplicitCreateInfoEXT::"
                           "pPlaneLayouts[]::offset is misaligned");
       }
-
-      /* We require that surfaces be added in memory-order. This simplifies the
-       * layout validation required by
-       * VkImageDrmFormatModifierExplicitCreateInfoEXT,
-       */
-      if (unlikely(offset < container->size)) {
-         return vk_errorf(device,
-                          VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT,
-                          "VkImageDrmFormatModifierExplicitCreateInfoEXT::"
-                          "pPlaneLayouts[]::offset is too small");
-      }
    }
 
-   if (__builtin_add_overflow(offset, size, &container->size)) {
+   /* Track the end of each memory plane instead of assuming an append order. */
+   uint64_t memory_range_end;
+   if (__builtin_add_overflow(offset, size, &memory_range_end)) {
       if (has_implicit_offset) {
          assert(!"overflow");
          return vk_errorf(device, VK_ERROR_UNKNOWN,
@@ -163,6 +154,7 @@ image_binding_grow(const struct anv_device *device,
       }
    }
 
+   container->size = MAX2(container->size, memory_range_end);
    container->alignment = MAX2(container->alignment, alignment);
 
    *out_range = (struct anv_image_memory_range) {
@@ -220,6 +212,9 @@ choose_isl_surf_usage(VkImageCreateFlags vk_create_flags,
 
    if (vk_create_flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
       isl_usage |= ISL_SURF_USAGE_CUBE_BIT;
+
+   if (vk_usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR || vk_usage & VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+      isl_usage |= ISL_SURF_USAGE_VIDEO_DECODE_BIT;
 
    /* Even if we're only using it for transfer operations, clears to depth and
     * stencil images happen as depth and stencil so they need the right ISL
@@ -690,6 +685,75 @@ add_shadow_surface(struct anv_device *device,
                       ANV_OFFSET_IMPLICIT);
 }
 
+static VkResult
+add_video_buffers(struct anv_device *device,
+                  struct anv_image *image,
+                  const struct VkVideoProfileListInfoKHR *profile_list)
+{
+   VkResult result;
+   unsigned size = 0;
+
+   for (unsigned i = 0; i < profile_list->profileCount; i++) {
+      if (profile_list->pProfiles[i].videoCodecOperation ==
+          VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR) {
+         unsigned w_mb = DIV_ROUND_UP(image->vk.extent.width, ANV_MB_WIDTH);
+         unsigned h_mb = DIV_ROUND_UP(image->vk.extent.height, ANV_MB_HEIGHT);
+
+         /* On Ivy Bridge, the PRM specifies that the DMV buffer size is
+          * 557,056 bytes for a 1920x1088 frame (128x68 MBs). The hardware
+          * assumes a fixed frame width of 128 MBs regardless of actual frame
+          * width, but scales with height. This works out to 64 bytes per MB,
+          * or 8192 bytes per MB row (128 MBs * 64 bytes).
+          */
+         if (device->info->verx10 == 70) {
+            /* However for frames wider than 128 MBs we need to make sure we
+             * don't overrun and silently corrupt the buffer.
+             *
+             * Also a guard row that mirrors the VA-API driver.
+             */
+            size = (h_mb + 1) * MAX2(w_mb, 128u) * 64;
+         } else {
+            /* XXX: This needs more testing. */
+            size = w_mb * h_mb * 128;
+         }
+      }
+   }
+
+   if (size == 0)
+      return VK_SUCCESS;
+
+   unsigned top_size = size;
+   if (image->vk.array_layers > 1) {
+      image->vid_dmv_top_surface_pitch_B = align(size, 64);
+      top_size = image->vid_dmv_top_surface_pitch_B *
+                 (image->vk.array_layers - 1) + size;
+   } else {
+      image->vid_dmv_top_surface_pitch_B = size;
+   }
+
+   result =
+      image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
+                         ANV_OFFSET_IMPLICIT, top_size, 65536,
+                         &image->vid_dmv_top_surface);
+   if (result != VK_SUCCESS)
+      return result;
+
+   unsigned bottom_size = size;
+   if (image->vk.array_layers > 1) {
+      image->vid_dmv_bottom_surface_pitch_B = align(size, 64);
+      bottom_size = image->vid_dmv_bottom_surface_pitch_B *
+                    (image->vk.array_layers - 1) + size;
+   } else {
+      image->vid_dmv_bottom_surface_pitch_B = size;
+   }
+
+   result =
+      image_binding_grow(device, image, ANV_IMAGE_MEMORY_BINDING_PRIVATE,
+                         ANV_OFFSET_IMPLICIT, bottom_size, 65536,
+                         &image->vid_dmv_bottom_surface);
+   return result;
+}
+
 /**
  * Initialize the anv_image::*_surface selected by \a aspect. Then update the
  * image's memory requirements (that is, the image's size and alignment).
@@ -819,11 +883,12 @@ check_memory_bindings(const struct anv_device *device,
          ? ANV_IMAGE_MEMORY_BINDING_PLANE_0 + p
          : ANV_IMAGE_MEMORY_BINDING_MAIN;
 
-      /* Aliasing is incompatible with the private binding because it does not
-       * live in a VkDeviceMemory.  The one exception is swapchain images.
+      /* Aliasing is generally incompatible with the private binding because
+       * it does not live in a VkDeviceMemory.
        */
       assert(!(image->vk.create_flags & VK_IMAGE_CREATE_ALIAS_BIT) ||
              image->from_wsi ||
+             (plane->primary_surface.isl.usage & ISL_SURF_USAGE_VIDEO_DECODE_BIT) ||
              image->bindings[ANV_IMAGE_MEMORY_BINDING_PRIVATE].memory_range.size == 0);
 
       /* Check primary surface */
@@ -949,6 +1014,93 @@ check_drm_format_mod(const struct anv_device *device,
    return VK_SUCCESS;
 }
 
+/* Layered DPB needs every array slice to be a self-contained frame addressable
+ * with a single chroma offset. The default layout puts all luma slices first
+ * and all chroma slices after, so we can't use a fixed YOffsetforUCb.
+ * Like ANV, we ask ISL to interleave the plane slices instead.
+ */
+static VkResult
+add_all_surfaces_implicit_interleaved_arrays_layout(
+   struct anv_device *device,
+   struct anv_image *image,
+   isl_tiling_flags_t isl_tiling_flags,
+   isl_surf_usage_flags_t isl_extra_usage_flags)
+{
+   const struct intel_device_info *devinfo = device->info;
+   const struct vk_format_ycbcr_info *ycbcr_info =
+      vk_format_get_ycbcr_info(image->vk.format);
+   VkResult result;
+
+   VkImageAspectFlagBits aspects[3];
+   unsigned num_aspects = 0;
+   u_foreach_bit(b, image->vk.aspects) {
+      assert(num_aspects < 3);
+      aspects[num_aspects++] = 1 << b;
+   }
+
+   uint32_t surfs_offsets[3];
+   struct isl_surf *surfs[3];
+   struct isl_surf_init_info infos[3];
+   struct anv_format_plane plane_format[3];
+
+   for (unsigned i = 0; i < num_aspects; i++) {
+      VkImageAspectFlagBits aspect = aspects[i];
+      const uint32_t plane = anv_image_aspect_to_plane(image, aspect);
+      plane_format[i] =
+         anv_get_format_plane(devinfo, image->vk.format, plane,
+                              image->vk.tiling);
+      assert(plane_format[i].isl_format != ISL_FORMAT_UNSUPPORTED);
+
+      VkImageUsageFlags vk_usage = vk_image_usage(&image->vk, aspect);
+      isl_surf_usage_flags_t isl_usage =
+         choose_isl_surf_usage(image->vk.create_flags, vk_usage,
+                               isl_extra_usage_flags, aspect);
+
+      uint32_t width = image->vk.extent.width;
+      uint32_t height = image->vk.extent.height;
+      if (ycbcr_info) {
+         assert(plane < ycbcr_info->n_planes);
+         width /= ycbcr_info->planes[plane].denominator_scales[0];
+         height /= ycbcr_info->planes[plane].denominator_scales[1];
+      }
+
+      surfs[i] = &image->planes[plane].primary_surface.isl;
+
+      infos[i] = (struct isl_surf_init_info) {
+         .dim = vk_to_isl_surf_dim[image->vk.image_type],
+         .format = plane_format[i].isl_format,
+         .width = width,
+         .height = height,
+         .depth = image->vk.extent.depth,
+         .levels = image->vk.mip_levels,
+         .array_len = image->vk.array_layers,
+         .samples = image->vk.samples,
+         .min_alignment_B = 0,
+         .row_pitch_B = 0,
+         .usage = isl_usage,
+         .tiling_flags = isl_tiling_flags,
+      };
+   }
+
+   if (!isl_surf_init_interleaved_arrays(&device->isl_dev, num_aspects, surfs,
+                                         surfs_offsets, infos))
+      return vk_errorf(device, VK_ERROR_UNKNOWN,
+                       "Unable to create interleaved arrayed image");
+
+   for (unsigned i = 0; i < num_aspects; i++) {
+      const uint32_t plane = anv_image_aspect_to_plane(image, aspects[i]);
+      image->planes[plane].aux_usage = ISL_AUX_USAGE_NONE;
+      result = add_surface(device, image,
+                           &image->planes[plane].primary_surface,
+                           ANV_IMAGE_MEMORY_BINDING_PLANE_0 + plane,
+                           surfs_offsets[i]);
+      if (result != VK_SUCCESS)
+         return result;
+   }
+
+   return VK_SUCCESS;
+}
+
 /**
  * Use when the app does not provide
  * VkImageDrmFormatModifierExplicitCreateInfoEXT.
@@ -964,6 +1116,16 @@ add_all_surfaces_implicit_layout(
 {
    const struct intel_device_info *devinfo = device->info;
    VkResult result;
+
+   if (devinfo->ver >= 7 && image->n_planes > 1 && !image->disjoint &&
+       image->vk.array_layers > 1 &&
+       (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+                           VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR))) {
+      assert(stride == 0);
+      return add_all_surfaces_implicit_interleaved_arrays_layout(
+                device, image, isl_tiling_flags,
+                isl_extra_usage_flags);
+   }
 
    u_foreach_bit(b, image->vk.aspects) {
       VkImageAspectFlagBits aspect = 1 << b;
@@ -1256,6 +1418,16 @@ anv_image_init(struct anv_device *device, struct anv_image *image,
    if (r != VK_SUCCESS)
       goto fail;
 
+   const VkVideoProfileListInfoKHR *video_profile =
+      vk_find_struct_const(pCreateInfo->pNext,
+                           VIDEO_PROFILE_LIST_INFO_KHR);
+
+   if (video_profile) {
+      r = add_video_buffers(device, image, video_profile);
+      if (r != VK_SUCCESS)
+         goto fail;
+   }
+
    r = alloc_private_binding(device, image, pCreateInfo);
    if (r != VK_SUCCESS)
       goto fail;
@@ -1314,6 +1486,21 @@ anv_image_init_from_create_info(struct anv_device *device,
       return anv_image_init_from_gralloc(device, image, pCreateInfo,
                                          gralloc_info);
 
+   const VkVideoProfileListInfoKHR *video_profile =
+      vk_find_struct_const(pCreateInfo->pNext, VIDEO_PROFILE_LIST_INFO_KHR);
+
+   /* For video surfaces, we need to strip VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT
+    * as it may cause unwanted linear tiling fallback for some video operations.
+    */
+   VkImageCreateInfo modified_create_info;
+   if (video_profile) {
+      modified_create_info = *pCreateInfo;
+      modified_create_info.flags &=
+         ~VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
+
+      pCreateInfo = &modified_create_info;
+   }
+
    struct anv_image_create_info create_info = {
       .vk_info = pCreateInfo,
    };
@@ -1329,6 +1516,10 @@ anv_image_init_from_create_info(struct anv_device *device,
    if (mod_explicit_info &&
        !isl_drm_modifier_has_aux(mod_explicit_info->drmFormatModifier))
       create_info.isl_extra_usage_flags |= ISL_SURF_USAGE_DISABLE_AUX_BIT;
+
+   if (video_profile && pCreateInfo->tiling == VK_IMAGE_TILING_OPTIMAL) {
+      create_info.isl_tiling_flags = ISL_TILING_Y0_BIT;
+   }
 
    return anv_image_init(device, image, &create_info);
 }
@@ -1700,6 +1891,20 @@ anv_bind_image_memory(struct anv_device *device,
       };
 
       did_bind = true;
+   }
+
+   if (image->vk.usage & (VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+                          VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)) {
+      const struct isl_surf *surf = &image->planes[0].primary_surface.isl;
+      struct anv_bo *bo = image->bindings[ANV_IMAGE_MEMORY_BINDING_MAIN].address.bo;
+
+      if (bo && surf->tiling != ISL_TILING_LINEAR) {
+         VkResult result = anv_device_set_bo_tiling(device, bo,
+                                                    surf->row_pitch_B, surf->tiling);
+         if (result != VK_SUCCESS) {
+            return result;
+         }
+      }
    }
 
    if (bind_status)
@@ -2398,6 +2603,16 @@ anv_CreateImageView(VkDevice _device,
                                 pAllocator, sizeof(*iview));
    if (iview == NULL)
       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
+
+   /* Workaround for FFmpeg commit 24db09a881c9e0eb5b36dcf693c6ac17e9d56be8. */
+   const VkImageUsageFlags video_coincide_usage =
+      VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR |
+      VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR;
+   if ((image->vk.usage & video_coincide_usage) == video_coincide_usage &&
+       (iview->vk.usage & VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR) &&
+       !(iview->vk.usage & VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)) {
+      iview->vk.usage |= VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR;
+   }
 
    iview->image = image;
    iview->n_planes = anv_image_aspect_get_planes(iview->vk.aspects);

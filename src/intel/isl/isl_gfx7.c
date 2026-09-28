@@ -311,12 +311,16 @@ isl_gfx6_filter_tiling(const struct isl_device *dev,
    if (ISL_GFX_VER(dev) == 7 &&
        gfx7_format_needs_valign2(dev, info->format) &&
        (info->usage & ISL_SURF_USAGE_RENDER_TARGET_BIT) &&
+       !(info->usage & ISL_SURF_USAGE_VIDEO_DECODE_BIT) &&
        info->samples == 1) {
       /* Y tiling is illegal. From the Ivybridge PRM, Vol4 Part1 2.12.2.1,
        * SURFACE_STATE Surface Vertical Alignment:
        *
        *     This field must be set to VALIGN_4 for all tiled Y Render Target
        *     surfaces.
+       *
+       * However, video decode surfaces require Y tiling regardless of format,
+       * so we exclude them from this workaround.
        */
       *flags &= ~ISL_TILING_Y0_BIT;
    }
