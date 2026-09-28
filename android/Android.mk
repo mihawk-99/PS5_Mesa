@@ -70,6 +70,15 @@ MESON_GEN_LLVM_STUB := true
 endif
 endif
 
+ifneq ($(filter true, $(BOARD_MESA3D_GALLIUM_VA)),)
+    MESA3D_GALLIUM_VA := true
+    LOCAL_SHARED_LIBRARIES += libva
+    LIBVA_DIR := external/libva
+    LIBVA_VERSION_MAJOR := $(shell sed -n -e 's/va_api_major_version *= *//p' $(LIBVA_DIR)/meson.build)
+    LIBVA_VERSION_MINOR := $(shell sed -n -e 's/va_api_minor_version *= *//p' $(LIBVA_DIR)/meson.build)
+    MESON_GEN_PKGCONFIGS += libva:$(LIBVA_VERSION_MAJOR).$(LIBVA_VERSION_MINOR)
+endif
+
 ifneq ($(filter zink,$(BOARD_MESA3D_GALLIUM_DRIVERS)),)
 LOCAL_SHARED_LIBRARIES += libvulkan
 MESON_GEN_PKGCONFIGS += vulkan
@@ -190,6 +199,11 @@ ifneq ($(strip $(BOARD_MESA3D_GALLIUM_DRIVERS)),)
 # Module 'libgallium_dri', produces '/vendor/lib{64}/libgallium_dri.so'
 # This module also trigger DRI symlinks creation process
 $(eval $(call mesa3d-lib,libgallium_dri,,MESA3D_GALLIUM_BIN))
+
+ifeq ($(MESA3D_GALLIUM_VA),true)
+# Module 'libgallium_drv_video', produces '/vendor/lib{64}/libgallium_drv_video.so'
+$(eval $(call mesa3d-lib,libgallium_drv_video,,MESA3D_GALLIUM_BIN))
+endif
 
 # Module 'libEGL_mesa', produces '/vendor/lib{64}/egl/libEGL_mesa.so'
 $(eval $(call mesa3d-lib,libEGL_mesa,egl,MESA3D_LIBEGL_BIN))
