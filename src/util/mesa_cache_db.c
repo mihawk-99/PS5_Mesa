@@ -25,6 +25,7 @@
 #include "mesa_cache_db.h"
 #include "os_time.h"
 #include "ralloc.h"
+#include "rand_xor.h"
 #include "u_debug.h"
 #include "u_qsort.h"
 
@@ -165,7 +166,9 @@ mesa_db_generate_uuid(void)
     * because UUID is updated rarely. It's nice to make UUID meaningful
     * and incremental by adding the timestamp to it, which also prevents
     * the potential collisions. */
-   return ((os_time_get() / 1000000) << 32) | rand();
+   uint64_t seed[2];
+   s_rand_xorshift128plus(seed, true);
+   return ((os_time_get() / 1000000) << 32) | (uint32_t)rand_xorshift128plus(seed);
 }
 
 static bool

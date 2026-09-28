@@ -675,39 +675,6 @@ _mesa_hash_table_next_entry(struct hash_table *ht,
    return NULL;
 }
 
-/**
- * Returns a random entry from the hash table.
- *
- * This may be useful in implementing random replacement (as opposed
- * to just removing everything) in caches based on this hash table
- * implementation.  @predicate may be used to filter entries, or may
- * be set to NULL for no filtering.
- */
-struct hash_entry *
-_mesa_hash_table_random_entry(struct hash_table *ht,
-                              bool (*predicate)(struct hash_entry *entry))
-{
-   struct hash_entry *entry;
-   uint32_t i = rand() % ht->size;
-
-   if (ht->entries == 0)
-      return NULL;
-
-   for (entry = ht->table + i; entry != ht->table + ht->size; entry++) {
-      if (entry->present && (!predicate || predicate(entry))) {
-         return entry;
-      }
-   }
-
-   for (entry = ht->table; entry != ht->table + i; entry++) {
-      if (entry->present && (!predicate || predicate(entry))) {
-         return entry;
-      }
-   }
-
-   return NULL;
-}
-
 
 uint32_t
 _mesa_hash_data(const void *data, size_t size)

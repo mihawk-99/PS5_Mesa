@@ -4,7 +4,7 @@
 foreach t : ['clear', 'clone_into', 'collision', 'delete_and_lookup',
              'delete_management',
              'destroy_callback', 'insert_and_lookup', 'insert_many',
-             'null_destroy', 'random_entry', 'remove_key', 'remove_null',
+             'null_destroy', 'remove_key', 'remove_null',
              'replacement']
   test(
     t,

@@ -130,9 +130,6 @@ struct hash_entry *_mesa_hash_table_next_entry(struct hash_table *ht,
                                                struct hash_entry *entry);
 struct hash_entry *_mesa_hash_table_next_entry_unsafe(const struct hash_table *ht,
                                                struct hash_entry *entry);
-struct hash_entry *
-_mesa_hash_table_random_entry(struct hash_table *ht,
-                              bool (*predicate)(struct hash_entry *entry));
 
 uint32_t _mesa_hash_data(const void *data, size_t size);
 uint32_t _mesa_hash_data_with_seed(const void *data, size_t size, uint32_t seed);
