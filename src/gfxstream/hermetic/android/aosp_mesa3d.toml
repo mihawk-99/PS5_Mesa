@@ -15,6 +15,7 @@ license_texts = ["LICENSE"]
 vulkan_lvp = "vulkan.lvp"
 vulkan_gfxstream = "vulkan.ranchu"
 vulkan_freedreno = "vulkan.freedreno"
+vulkan_virtio = "vulkan.virtio"
 
 [custom_target]
 [custom_target.workarounds]
@@ -45,7 +46,7 @@ glx = "disabled"
 zlib = "disabled"
 platforms = "android"
 android-strict = false
-vulkan-drivers = "gfxstream,swrast"
+vulkan-drivers = "gfxstream,swrast,virtio"
 gallium-drivers = ""
 virtgpu_kumquat = true
 opengl = false
