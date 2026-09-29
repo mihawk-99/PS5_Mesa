@@ -31,7 +31,12 @@ v0.5.0-alpha.5, with its PSP, GameCube/Wii and PS2 cores rendering through it.
 The swapchain is `src/vulkan/wsi/wsi_common_videoout.c`: `VK_KHR_display` on
 the console's VideoOut. It opens the output once per process, flips at vblank,
 and switches to 119.88 Hz where the title declares it and the display really
-refreshes at it (it measures, and goes back to 59.94 Hz otherwise).
+refreshes at it (it measures, and goes back to 59.94 Hz otherwise). A
+swapchain may be smaller than the 3840x2160 mode: each size gets its own set
+of VideoOut framebuffers, which VideoOut scales to the whole output. A
+1920x1080 swapchain was measured filling the screen (DXVK D3D11 and D3D9
+through Wine, and a 1080p to 4K resize in one process); other sizes are
+accepted but not measured yet.
 
 ## Where RADV changes
 
