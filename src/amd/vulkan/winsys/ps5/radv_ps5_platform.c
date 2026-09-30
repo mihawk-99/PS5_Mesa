@@ -594,14 +594,35 @@ radv_ps5_vrange_reserve(uint64_t bytes, bool window32, bool replayable, uint64_t
       if (granule == UINT32_MAX)
          return false;
    }
-   uint8_t *const va = (uint8_t *)(uintptr_t)(RADV_PS5_REGION_BASE + (uint64_t)granule * RADV_PS5_LARGE_BYTES);
+   /* The granules record only what the driver placed at its own address: the
+    * kernel may have given part of the range to the application, or to a
+    * buffer it put elsewhere than its hint (radv_ps5_memory_alloc). So the
+    * range is reserved through the kernel first, and the fixed mappings of
+    * the zero block and of bound memory replace nothing but that reservation.
+    * As for buffers, the kernel has the last word, except for capture and
+    * replay, which need the address asked for. */
+   void *const hint = (void *)(uintptr_t)(RADV_PS5_REGION_BASE + (uint64_t)granule * RADV_PS5_LARGE_BYTES);
    const uint64_t span = (uint64_t)granules * RADV_PS5_LARGE_BYTES;
-   if (!radv_ps5_vrange_unbind(va, span)) {
-      sceKernelMunmap(va, span);
+   void *at = hint;
+   int32_t result = sceKernelReserveVirtualRange(&at, span, 0, RADV_PS5_LARGE_BYTES);
+   if (result != 0 && !replayable) {
+      at = NULL;
+      result = sceKernelReserveVirtualRange(&at, span, 0, RADV_PS5_LARGE_BYTES);
+   }
+   const uint64_t va = (uint64_t)(uintptr_t)at;
+   const bool placed = result == 0 && at != NULL && (at == hint || !replayable) && va < RADV_PS5_GPU_ADDRESS_LIMIT &&
+                       span <= RADV_PS5_GPU_ADDRESS_LIMIT - va;
+   /* Anywhere but the hint, the range holds none of the granules it took. */
+   const uint32_t kept = placed && at == hint ? granules : 0;
+   if (!kept)
       radv_ps5_granules_give(&radv_ps5_region, granule, granules);
+   if (!placed || !radv_ps5_vrange_unbind(at, span)) {
+      if (result == 0 && at != NULL)
+         sceKernelMunmap(at, span);
+      radv_ps5_granules_give(&radv_ps5_region, granule, kept);
       return false;
    }
-   *out = (struct radv_ps5_memory){.cpu = va, .bytes = span, .physical = -1, .granule = granule, .granules = granules};
+   *out = (struct radv_ps5_memory){.cpu = at, .bytes = span, .physical = -1, .granule = granule, .granules = kept};
    return true;
 }
 
