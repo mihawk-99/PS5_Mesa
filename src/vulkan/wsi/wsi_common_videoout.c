@@ -375,25 +375,37 @@ videoout_open_locked(void)
       return false;
    }
    if (videoout_title_declares_high_frame_rate()) {
+      /* Positive: the output takes the mode. 0: it does not at the
+       * console's present output, which is no error. A 1440p display answered
+       * 0 while the console sent it 1080p (the console logged no 120 Hz format
+       * for it) and 1 once it sent 1440p (PS5_FrameGen, 2026-10-10). So only
+       * a configure that was asked for and returned 0 counts. */
       const int supported =
          sceVideoOutIsOutputSupported(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL);
       const int configured =
          supported > 0
             ? sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL)
-            : supported;
-      out->high_frame_rate = configured == 0;
+            : -1;
+      out->high_frame_rate = supported > 0 && configured == 0;
       if (out->high_frame_rate) {
+         /* A period of 0 is a failed wait: never taken for 119.88 Hz */
          const uint64_t period = videoout_vblank_period_ns(out->handle);
-         if (period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
+         if (period == 0 || period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
             sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
             out->high_frame_rate = false;
-            fprintf(stderr,
-                    "wsi/videoout: 119.88 Hz accepted, but a vblank comes every %.3f ms; 59.94 Hz restored\n",
-                    (double)period / 1e6);
+            if (period == 0)
+               fprintf(stderr, "wsi/videoout: 119.88 Hz accepted, but a vblank wait failed; 59.94 Hz restored\n");
+            else
+               fprintf(stderr,
+                       "wsi/videoout: 119.88 Hz accepted, but a vblank comes every %.3f ms; 59.94 Hz restored\n",
+                       (double)period / 1e6);
          }
+      } else if (supported > 0) {
+         fprintf(stderr, "wsi/videoout: 119.88 Hz refused (%d); presenting at 59.94 Hz\n", configured);
       } else {
-         fprintf(stderr, "wsi/videoout: 119.88 Hz %s (%d); presenting at 59.94 Hz\n",
-                 supported > 0 ? "refused" : "not supported", configured);
+         fprintf(stderr,
+                 "wsi/videoout: 119.88 Hz not offered on the console's present output (%d); presenting at 59.94 Hz\n",
+                 supported);
       }
    }
    return true;
