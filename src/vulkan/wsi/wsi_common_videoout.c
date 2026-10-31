@@ -56,11 +56,14 @@
 #include "vk_util.h"
 #include "wsi_common_entrypoints.h"
 #include "wsi_common_private.h"
+#include "wsi_videoout_hdr.h"
 
 #if defined(__PROSPERO__)
 #include <immintrin.h>
 #include <ps5platform/kernel.h>
 #include <ps5platform/videoout.h>
+extern int sceVideoOutSubmitChangeBufferAttribute2(int32_t handle, int32_t set,
+                                                   const void *attribute, const void *option);
 #else
 #include <sys/mman.h>
 #endif
@@ -180,6 +183,7 @@ static const struct wsi_videoout_size videoout_sizes[] = {
    VIDEOOUT_SIZE(1920, 1080),
 };
 #define VIDEOOUT_SIZES ARRAY_SIZE(videoout_sizes)
+#define VIDEOOUT_SETS VIDEOOUT_SIZES
 
 /* The display and its modes: one each per process, as VideoOut is. */
 struct wsi_videoout_mode {
@@ -255,12 +259,12 @@ struct wsi_videoout_output {
    bool high_frame_rate;
    bool modes_settled;
    bool high_mode_offered;
-   /* A set of buffers for each size a swapchain has used, in the order they
-    * were registered; set i's buffers are indices i * VIDEOOUT_BUFFERS on. */
+   /* A set for each size and pixel format used, in registration order. */
    struct wsi_videoout_set {
       const struct wsi_videoout_size *size;
+      uint64_t pixel_format;
       uint8_t *buffers;
-   } sets[VIDEOOUT_SIZES];
+   } sets[VIDEOOUT_SETS];
    uint32_t set_count;
    /* The argument of the latest flip submitted; each flip's is one more. */
    int64_t flip_argument;
@@ -271,7 +275,7 @@ struct wsi_videoout_output {
       bool held;
       /* Presented, its flip waiting for the frame. */
       bool pending;
-   } buffer[VIDEOOUT_BUFFERS * VIDEOOUT_SIZES];
+   } buffer[VIDEOOUT_BUFFERS * VIDEOOUT_SETS];
    /* The swapchain presenting now; older ones are retired. */
    struct wsi_videoout_swapchain *current;
 
@@ -316,8 +320,8 @@ struct wsi_videoout {
 
 /* The title's param.json: /app0's, or the one PS5_VIDEOOUT_PARAM_JSON names, for a title
  * without /app0 (an elevated process does not see it). */
-static bool
-videoout_title_declares_high_frame_rate(void)
+static uint32_t
+videoout_title_attribute(const char *key)
 {
    const char *const path = getenv("PS5_VIDEOOUT_PARAM_JSON");
    FILE *const file = fopen(path != NULL && path[0] != '\0' ? path : "/app0/sce_sys/param.json", "rb");
@@ -327,11 +331,23 @@ videoout_title_declares_high_frame_rate(void)
    const size_t length = fread(text, 1, sizeof(text) - 1, file);
    fclose(file);
    text[length] = '\0';
-   const char *at = strstr(text, "\"attribute3\"");
+   const char *at = strstr(text, key);
    if (at == NULL || (at = strchr(at, ':')) == NULL)
       return false;
    const unsigned long value = strtoul(at + 1, NULL, 0);
-   return (value & VIDEOOUT_ATTRIBUTE3_HIGH_FRAME_RATE) == VIDEOOUT_ATTRIBUTE3_HIGH_FRAME_RATE;
+   return (uint32_t)value;
+}
+
+static bool
+videoout_title_declares_high_frame_rate(void)
+{
+   return (videoout_title_attribute("\"attribute3\"") & VIDEOOUT_ATTRIBUTE3_HIGH_FRAME_RATE) != 0;
+}
+
+static bool
+videoout_title_declares_hdr(void)
+{
+   return videoout_hdr_declared(videoout_title_attribute("\"attribute\""));
 }
 
 /* The refresh period: the median of a few intervals between vblank waits,
@@ -444,18 +460,43 @@ videoout_settle_modes(void)
    mtx_unlock(&videoout_output.lock);
 }
 
-/* The set of buffers of a size, cleared and registered the first time a
- * swapchain of that size is made, and kept. Under lock. */
+/* The set of buffers of a size and format, cleared and registered the first
+ * time a matching swapchain is made, and kept. Under lock. */
 static VkResult
-videoout_register_locked(const struct wsi_videoout_size *size, const struct wsi_videoout_set **set_out)
+videoout_register_locked(const struct wsi_videoout_size *size, uint64_t pixel_format,
+                         const struct wsi_videoout_set **set_out)
 {
    struct wsi_videoout_output *out = &videoout_output;
    for (uint32_t i = 0; i < out->set_count; i++) {
-      if (out->sets[i].size == size) {
+      if (out->sets[i].size == size && out->sets[i].pixel_format == pixel_format) {
          *set_out = &out->sets[i];
          return VK_SUCCESS;
       }
    }
+   /* Like forever's fixed-size path, retype a compatible set only after the
+    * current swapchain is gone and queued flips have been submitted. */
+   if (out->current == NULL) {
+      for (uint32_t i = 0; i < out->set_count; i++) {
+         if (out->sets[i].size != size)
+            continue;
+         while (out->queue_count)
+            cnd_wait(&out->changed, &out->lock);
+         uint8_t attribute[PS5_VIDEO_OUT_ATTRIBUTE_BYTES] = {0};
+         sceVideoOutSetBufferAttribute2(attribute, pixel_format, PS5_VIDEO_OUT_TILING_64KB_R_X,
+                                        size->extent.width, size->extent.height, 0, 0, 0);
+         int result = 0;
+#if defined(__PROSPERO__)
+         result = sceVideoOutSubmitChangeBufferAttribute2(out->handle, (int32_t)i, attribute, NULL);
+#endif
+         if (result == 0) {
+            out->sets[i].pixel_format = pixel_format;
+            *set_out = &out->sets[i];
+            return VK_SUCCESS;
+         }
+      }
+   }
+   if (out->set_count == VIDEOOUT_SETS)
+      return VK_ERROR_INITIALIZATION_FAILED;
    if (!videoout_open_locked())
       return VK_ERROR_INITIALIZATION_FAILED;
 
@@ -492,7 +533,7 @@ videoout_register_locked(const struct wsi_videoout_size *size, const struct wsi_
    for (uint32_t i = 0; i < VIDEOOUT_BUFFERS; i++)
       registered[i] = (struct ps5_video_out_buffer){.data = buffers + i * size->buffer_bytes};
    uint8_t attribute[PS5_VIDEO_OUT_ATTRIBUTE_BYTES] = {0};
-   sceVideoOutSetBufferAttribute2(attribute, PS5_VIDEO_OUT_PIXEL_FORMAT_B8G8R8A8_SDR,
+   sceVideoOutSetBufferAttribute2(attribute, pixel_format,
                                   PS5_VIDEO_OUT_TILING_64KB_R_X, size->extent.width, size->extent.height, 0, 0, 0);
    if (result == 0)
       result = sceVideoOutRegisterBuffers2(out->handle, (int32_t)index, (int32_t)(index * VIDEOOUT_BUFFERS),
@@ -500,12 +541,18 @@ videoout_register_locked(const struct wsi_videoout_size *size, const struct wsi_
    if (result != 0) {
       fprintf(stderr, "wsi/videoout: the %ux%u framebuffers were not registered as set %u: 0x%08x\n",
               size->extent.width, size->extent.height, index, (unsigned)result);
-      /* The memory stays: VideoOut may hold a buffer it was given. */
+      /* A failed registration did not transfer the allocation to VideoOut. */
+#if defined(__PROSPERO__)
+      sceKernelMunmap(buffers, bytes);
+      sceKernelReleaseDirectMemory(physical, bytes);
+#else
+      munmap(buffers, bytes);
+#endif
       return VK_ERROR_INITIALIZATION_FAILED;
    }
    fprintf(stderr, "wsi/videoout: %ux%u framebuffers registered as set %u, buffers %u-%u\n", size->extent.width,
            size->extent.height, index, index * VIDEOOUT_BUFFERS, index * VIDEOOUT_BUFFERS + VIDEOOUT_BUFFERS - 1);
-   out->sets[index] = (struct wsi_videoout_set){.size = size, .buffers = buffers};
+   out->sets[index] = (struct wsi_videoout_set){.size = size, .pixel_format = pixel_format, .buffers = buffers};
    out->set_count = index + 1;
    *set_out = &out->sets[index];
    return VK_SUCCESS;
@@ -840,6 +887,11 @@ static const VkFormat videoout_formats[] = {
    VK_FORMAT_B8G8R8A8_SRGB,
 };
 
+static const VkFormat videoout_hdr_formats[] = {
+   VK_FORMAT_A2B10G10R10_UNORM_PACK32,
+   VK_FORMAT_A2R10G10B10_UNORM_PACK32,
+};
+
 static VkResult
 videoout_surface_get_formats(VkIcdSurfaceBase *surface, struct wsi_device *wsi_device, uint32_t *pSurfaceFormatCount,
                              VkSurfaceFormatKHR *pSurfaceFormats)
@@ -850,6 +902,14 @@ videoout_surface_get_formats(VkIcdSurfaceBase *surface, struct wsi_device *wsi_d
       {
          f->format = videoout_formats[i];
          f->colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+      }
+   }
+   if (videoout_title_declares_hdr()) {
+      for (unsigned i = 0; i < ARRAY_SIZE(videoout_hdr_formats); i++) {
+         vk_outarray_append_typed(VkSurfaceFormatKHR, &out, f) {
+            f->format = videoout_hdr_formats[i];
+            f->colorSpace = VK_COLOR_SPACE_HDR10_ST2084_EXT;
+         }
       }
    }
    return vk_outarray_status(&out);
@@ -866,6 +926,14 @@ videoout_surface_get_formats2(VkIcdSurfaceBase *surface, struct wsi_device *wsi_
          assert(f->sType == VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR);
          f->surfaceFormat.format = videoout_formats[i];
          f->surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+      }
+   }
+   if (videoout_title_declares_hdr()) {
+      for (unsigned i = 0; i < ARRAY_SIZE(videoout_hdr_formats); i++) {
+         vk_outarray_append_typed(VkSurfaceFormat2KHR, &out, f) {
+            assert(f->sType == VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR);
+            f->surfaceFormat = (VkSurfaceFormatKHR){videoout_hdr_formats[i], VK_COLOR_SPACE_HDR10_ST2084_EXT};
+         }
       }
    }
    return vk_outarray_status(&out);
@@ -1135,6 +1203,18 @@ videoout_surface_create_swapchain(VkIcdSurfaceBase *icd_surface, VkDevice device
    struct wsi_videoout_output *out = &videoout_output;
 
    assert(pCreateInfo->sType == VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR);
+   uint64_t pixel_format = PS5_VIDEO_OUT_PIXEL_FORMAT_B8G8R8A8_SDR;
+   const bool hdr = pCreateInfo->imageColorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT;
+   if (hdr) {
+      if (!videoout_title_declares_hdr())
+         return VK_ERROR_INITIALIZATION_FAILED;
+      if (!videoout_hdr_pixel_format(true, pCreateInfo->imageFormat, pCreateInfo->imageColorSpace, &pixel_format))
+         return VK_ERROR_FORMAT_NOT_SUPPORTED;
+   } else if (pCreateInfo->imageColorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR ||
+              (pCreateInfo->imageFormat != VK_FORMAT_B8G8R8A8_UNORM &&
+               pCreateInfo->imageFormat != VK_FORMAT_B8G8R8A8_SRGB)) {
+      return VK_ERROR_FORMAT_NOT_SUPPORTED;
+   }
    const struct wsi_videoout_mode *mode = videoout_mode_from_handle(surface->displayMode);
    if (pCreateInfo->imageExtent.width != mode->size->extent.width ||
        pCreateInfo->imageExtent.height != mode->size->extent.height || pCreateInfo->minImageCount > VIDEOOUT_BUFFERS ||
@@ -1149,13 +1229,17 @@ videoout_surface_create_swapchain(VkIcdSurfaceBase *icd_surface, VkDevice device
 
    const struct wsi_videoout_set *set = NULL;
    mtx_lock(&out->lock);
-   VkResult result = videoout_register_locked(mode->size, &set);
+   VkResult result = videoout_register_locked(mode->size, pixel_format, &set);
    if (result == VK_SUCCESS && out->current && out->current != (struct wsi_videoout_swapchain *)
                                                  wsi_swapchain_from_handle(pCreateInfo->oldSwapchain))
       result = VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
    mtx_unlock(&out->lock);
    if (result != VK_SUCCESS)
       return result;
+   if (hdr)
+      fprintf(stderr, "wsi/videoout: HDR10 PQ swapchain %s\n",
+              pCreateInfo->imageFormat == VK_FORMAT_A2B10G10R10_UNORM_PACK32
+                 ? "A2B10G10R10_UNORM_PACK32" : "A2R10G10B10_UNORM_PACK32");
 
    const uint32_t num_images = MAX2(pCreateInfo->minImageCount, 3);
    const size_t size = sizeof(struct wsi_videoout_swapchain) + num_images * sizeof(struct wsi_image);
