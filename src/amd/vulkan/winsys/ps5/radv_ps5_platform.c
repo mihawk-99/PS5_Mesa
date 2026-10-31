@@ -286,6 +286,8 @@ radv_ps5_memory_available_bytes(void)
    return available;
 }
 
+static bool radv_ps5_memory_alloc_chunked(uint64_t bytes, uint64_t alignment, struct radv_ps5_memory *out);
+
 bool
 radv_ps5_memory_alloc(uint64_t bytes, uint64_t alignment, bool window32, struct radv_ps5_memory *out)
 {
@@ -299,7 +301,7 @@ radv_ps5_memory_alloc(uint64_t bytes, uint64_t alignment, bool window32, struct 
    int64_t physical = -1;
    if (sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), bytes, alignment,
                                      RADV_PS5_DIRECT_TYPE, &physical) != 0)
-      return false;
+      return !window32 && bytes > RADV_PS5_LARGE_BYTES && radv_ps5_memory_alloc_chunked(bytes, alignment, out);
 
    /* A window buffer goes where the kernel puts a mapping it is given no
     * address for, which is the window (PS5_Vulkan R86); anything else goes in
@@ -526,6 +528,87 @@ radv_ps5_map_fixed(uint8_t *at, uint64_t bytes, int64_t physical)
           address == at;
 }
 
+/* A device-memory buffer the pool has no single free range for is backed by
+ * several, each 2 MiB aligned and mapped at its place in the buffer's
+ * granules: the CPU and the GPU see one range, as they do one allocation, and
+ * pay the same page tables (one per 2 MiB either way). The pool the CPU and
+ * the GPU share ends up in many free ranges when a title gives memory back as
+ * it goes, and an image of 341 MiB found none large enough while 1.4 GiB of
+ * the pool was free. */
+#define RADV_PS5_MAX_CHUNKS 256u
+
+static void
+radv_ps5_chunks_release(uint8_t *base, struct radv_ps5_chunk *chunks, uint32_t count)
+{
+   for (uint32_t i = 0; i < count; i++) {
+      sceKernelMunmap(base + chunks[i].offset, chunks[i].bytes);
+      sceKernelReleaseDirectMemory(chunks[i].physical, chunks[i].bytes);
+   }
+   free(chunks);
+}
+
+static bool
+radv_ps5_memory_alloc_chunked(uint64_t bytes, uint64_t alignment, struct radv_ps5_memory *out)
+{
+   bytes = align64(bytes, RADV_PS5_LARGE_BYTES);
+   const uint32_t granules = (uint32_t)(bytes / RADV_PS5_LARGE_BYTES);
+   const uint32_t granule =
+      radv_ps5_granules_take(&radv_ps5_region, granules, (uint32_t)MAX2(alignment / RADV_PS5_LARGE_BYTES, 1));
+   if (granule == UINT32_MAX)
+      return false;
+   uint8_t *const base = (uint8_t *)(uintptr_t)(RADV_PS5_REGION_BASE + (uint64_t)granule * RADV_PS5_LARGE_BYTES);
+   struct radv_ps5_chunk *chunks = calloc(RADV_PS5_MAX_CHUNKS, sizeof(*chunks));
+   if ((uint64_t)(uintptr_t)base + bytes > RADV_PS5_GPU_ADDRESS_LIMIT || !chunks) {
+      free(chunks);
+      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
+      return false;
+   }
+
+   const int64_t pool = sceKernelGetDirectMemorySize();
+   uint32_t count = 0, misses = 0;
+   uint64_t offset = 0;
+   while (offset < bytes && count < RADV_PS5_MAX_CHUNKS && misses < 4) {
+      /* The largest free range now; another thread may take it first. */
+      int64_t start = -1;
+      size_t largest = 0;
+      if (sceKernelAvailableDirectMemorySize(0, pool, RADV_PS5_LARGE_BYTES, &start, &largest) != 0)
+         break;
+      const uint64_t take = MIN2(bytes - offset, (uint64_t)largest & ~(RADV_PS5_LARGE_BYTES - 1));
+      if (take == 0)
+         break;
+      int64_t physical = -1;
+      if (sceKernelAllocateDirectMemory(0, pool, take, RADV_PS5_LARGE_BYTES, RADV_PS5_DIRECT_TYPE, &physical) != 0) {
+         misses++;
+         continue;
+      }
+      if (!radv_ps5_map_fixed(base + offset, take, physical)) {
+         sceKernelReleaseDirectMemory(physical, take);
+         break;
+      }
+      chunks[count++] = (struct radv_ps5_chunk){.physical = physical, .offset = offset, .bytes = take};
+      offset += take;
+   }
+   if (offset < bytes) {
+      radv_ps5_chunks_release(base, chunks, count);
+      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
+      return false;
+   }
+
+   static uint32_t reported;
+   if (p_atomic_inc_return(&reported) <= 16)
+      fprintf(stderr, "radv/ps5: %" PRIu64 " MiB in %u pieces (no single free range)\n", bytes >> 20, count);
+   *out = (struct radv_ps5_memory){
+      .cpu = base,
+      .bytes = bytes,
+      .physical = -1,
+      .chunks = chunks,
+      .chunk_count = count,
+      .granule = granule,
+      .granules = granules,
+   };
+   return true;
+}
+
 bool
 radv_ps5_vrange_unbind(void *at, uint64_t bytes)
 {
@@ -544,6 +627,24 @@ radv_ps5_vrange_unbind(void *at, uint64_t bytes)
 bool
 radv_ps5_vrange_bind(void *at, uint64_t bytes, const struct radv_ps5_memory *memory, uint64_t offset)
 {
+   if (memory->chunks) {
+      /* Each chunk the range covers, in its own piece. */
+      if (offset > memory->bytes || bytes > memory->bytes - offset || (uintptr_t)at % RADV_PS5_PAGE_BYTES ||
+          offset % RADV_PS5_PAGE_BYTES || bytes % RADV_PS5_PAGE_BYTES)
+         return false;
+      uint64_t done = 0;
+      for (uint32_t i = 0; i < memory->chunk_count && done < bytes; i++) {
+         const struct radv_ps5_chunk *chunk = &memory->chunks[i];
+         const uint64_t from = offset + done;
+         if (from < chunk->offset || from >= chunk->offset + chunk->bytes)
+            continue;
+         const uint64_t piece = MIN2(bytes - done, chunk->offset + chunk->bytes - from);
+         if (!radv_ps5_map_fixed((uint8_t *)at + done, piece, chunk->physical + (int64_t)(from - chunk->offset)))
+            return false;
+         done += piece;
+      }
+      return done == bytes;
+   }
    if (memory->physical < 0 || offset > memory->bytes || bytes > memory->bytes - offset ||
        (uintptr_t)at % RADV_PS5_PAGE_BYTES || offset % RADV_PS5_PAGE_BYTES || bytes % RADV_PS5_PAGE_BYTES)
       return false;
@@ -635,6 +736,12 @@ radv_ps5_memory_free(struct radv_ps5_memory *memory)
                  (void *)memory->cpu);
       radv_ps5_granules_give(&radv_ps5_window_replay, memory->granule, memory->granules);
       sceKernelReleaseDirectMemory(memory->physical, memory->bytes);
+      *memory = (struct radv_ps5_memory){.physical = -1};
+      return;
+   }
+   if (memory->chunks) {
+      radv_ps5_chunks_release(memory->cpu, memory->chunks, memory->chunk_count);
+      radv_ps5_granules_give(&radv_ps5_region, memory->granule, memory->granules);
       *memory = (struct radv_ps5_memory){.physical = -1};
       return;
    }
@@ -740,6 +847,23 @@ radv_ps5_set_hs_offchip_param(uint32_t granularity, uint32_t buffering)
 bool
 radv_ps5_memory_map_at(const struct radv_ps5_memory *memory, void *address)
 {
+   if (memory->chunks) {
+      for (uint32_t i = 0; i < memory->chunk_count; i++) {
+         void *want = (uint8_t *)address + memory->chunks[i].offset;
+         void *at = want;
+         const int32_t result =
+            sceKernelMapDirectMemory(&at, memory->chunks[i].bytes, PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE,
+                                     PS5_KERNEL_MAP_FIXED, memory->chunks[i].physical, PS5_KERNEL_PAGE_SIZE);
+         if (result != 0 || at != want) {
+            if (result == 0)
+               sceKernelMunmap(at, memory->chunks[i].bytes);
+            if (i)
+               sceKernelMunmap(address, memory->chunks[i].offset);
+            return false;
+         }
+      }
+      return true;
+   }
    if (memory->physical < 0)
       return false;
    void *at = address;

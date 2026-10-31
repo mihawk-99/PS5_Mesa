@@ -37,12 +37,24 @@
 #define RADV_PS5_PAGE_BYTES UINT64_C(0x4000)
 #define RADV_PS5_LARGE_BYTES UINT64_C(0x200000)
 
+/* One of the direct-memory allocations behind a buffer the pool had no single
+ * free range for (radv_ps5_memory_alloc). */
+struct radv_ps5_chunk {
+   int64_t physical;
+   uint64_t offset;
+   uint64_t bytes;
+};
+
 struct radv_ps5_memory {
    /* The CPU mapping, which is also the GPU address. */
    uint8_t *cpu;
    uint64_t bytes;
-   /* The direct-memory allocation behind it; -1 on the host. */
+   /* The direct-memory allocation behind it; -1 on the host, and when chunks
+    * back it instead. */
    int64_t physical;
+   /* Several allocations, each mapped at its offset, when one would not fit. */
+   struct radv_ps5_chunk *chunks;
+   uint32_t chunk_count;
    /* The device-memory region granules the mapping took, if any, or the
     * window's replay range's (window_replay). */
    uint32_t granule;
