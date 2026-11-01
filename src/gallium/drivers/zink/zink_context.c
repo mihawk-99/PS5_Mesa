@@ -133,6 +133,11 @@ zink_context_destroy(struct pipe_context *pctx)
       }
    }
 
+   /* A flush_resource with no end-of-frame flush after it leaves this set.
+    * The reference would keep the swapchain alive after its window is gone.
+    */
+   zink_resource_reference(&ctx->needs_present, NULL);
+
    for (unsigned i = 0; i < ARRAY_SIZE(ctx->program_cache); i++) {
       simple_mtx_lock((&ctx->program_lock[i]));
       hash_table_foreach(&ctx->program_cache[i], entry) {
