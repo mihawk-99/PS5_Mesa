@@ -1,0 +1,28 @@
+--- a/src/amd/vulkan/winsys/ps5/radv_ps5_winsys.c
++++ b/src/amd/vulkan/winsys/ps5/radv_ps5_winsys.c
+@@ -406,8 +406,11 @@
+    info->has_replayable_va_32bit = radv_ps5_window_replayable();
+    info->has_vm_always_valid = true;
+    /* buffer_from_ptr gives the application's host memory GPU access, which the
+-    * GPU reaches at the CPU's address (HARDWARE_FINDINGS.md, 2026-09-27). */
+-   info->has_userptr = false;
++    * GPU reaches at the CPU's address (HARDWARE_FINDINGS.md, 2026-09-27). The
++    * GPU runs in the owner's address space, so only a client in the owner's own
++    * process has host memory the GPU can reach (VK_EXT_external_memory_host,
++    * Direct3D 12's OpenExistingHeapFromAddress); a client of its own does not. */
++   info->has_userptr = ps5_gpu_client_host_memory();
+    info->max_submitted_ibs[AMD_IP_GFX] = 1;
+ 
+    /* ac_query_gpu_info's own derivations, which have no kernel input. */
+--- a/src/amd/vulkan/winsys/ps5/radv_ps5_winsys.h
++++ b/src/amd/vulkan/winsys/ps5/radv_ps5_winsys.h
+@@ -189,6 +189,9 @@
+ uint64_t ps5_gpu_client_local_limit(void);
+ /* The console's model the owner said at INIT (PS5_Proton patch 0045, its src/pw_gpu_identity.h): 0 none. */
+ unsigned ps5_gpu_client_console_model(void);
++/* Whether the application's host memory can be given GPU access (radv_ps5_memory_grant_gpu): a client in the owner's own
++ * process only (ps5_gpu_client_in_owner). */
++bool ps5_gpu_client_host_memory(void);
+ uint64_t ps5_gpu_client_local_allocated(void);
+ /* The device-local budget left: the heap less what is held, at most the owner's room (PS5_Proton patch 0042). */
+ uint64_t ps5_gpu_client_local_available(void);

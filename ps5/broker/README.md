@@ -13,6 +13,12 @@ linear images through the owning title. Runtime transport and display code
 belong to PS5_Vulkan, with no Wine dependency. Function names prefixed
 `ps5_gpu_client_` are that foundation's client ABI.
 
+`client-host-memory-winsys.patch`, applied after `client-identity-winsys.patch`,
+gives user pointers back to a client in the owner's own process: the GPU runs in
+the owner's address space, so only that client's host memory is reachable
+(`ps5_gpu_client_host_memory`; VK_EXT_external_memory_host, which Direct3D 12's
+existing heaps need). A client in a process of its own still offers none.
+
 The source of these patches is PS5_Proton commit `878c1e9` (LGPL-2.1-or-later
 project changes to MIT Mesa sources). They preserve that attribution and
 license. No console address, binary or game data is included.
