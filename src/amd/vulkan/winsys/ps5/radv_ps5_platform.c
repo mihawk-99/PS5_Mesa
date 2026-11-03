@@ -537,6 +537,26 @@ radv_ps5_map_fixed(uint8_t *at, uint64_t bytes, int64_t physical)
  * the pool was free. */
 #define RADV_PS5_MAX_CHUNKS 256u
 
+/* A chunk goes at its place only if nothing is mapped there: a fixed mapping
+ * replaces whatever another allocation left in the range, whose own range
+ * then reaches this buffer's memory and, once this one is freed, nothing (the
+ * GPU faults on it). As radv_ps5_memory_alloc places a whole buffer. */
+static bool
+radv_ps5_map_free_at(uint8_t *at, uint64_t bytes, int64_t physical)
+{
+   void *address = at;
+   if (sceKernelMapDirectMemory(&address, bytes, RADV_PS5_PROTECTION, 0, physical, RADV_PS5_LARGE_BYTES) != 0)
+      return false;
+   if (address == at)
+      return true;
+   static uint32_t reported;
+   if (p_atomic_inc_return(&reported) <= 16)
+      fprintf(stderr, "radv/ps5: a buffer piece's range at %p is in use (placed at %p): not taken\n", (void *)at,
+              address);
+   sceKernelMunmap(address, bytes);
+   return false;
+}
+
 static void
 radv_ps5_chunks_release(uint8_t *base, struct radv_ps5_chunk *chunks, uint32_t count)
 {
@@ -581,7 +601,7 @@ radv_ps5_memory_alloc_chunked(uint64_t bytes, uint64_t alignment, struct radv_ps
          misses++;
          continue;
       }
-      if (!radv_ps5_map_fixed(base + offset, take, physical)) {
+      if (!radv_ps5_map_free_at(base + offset, take, physical)) {
          sceKernelReleaseDirectMemory(physical, take);
          break;
       }
