@@ -22,6 +22,77 @@
 
 uint64_t radv_ps5_allocated_bytes;
 
+/* A buffer freed while the GPU may still run submissions made before the free
+ * keeps its memory and its range until they have run, as the amdgpu kernel
+ * keeps a freed buffer's pages until its fences signal. Unmapped at once, a
+ * read the GPU had still to make faults it (the title is ended), and the range
+ * may meanwhile go to another buffer. */
+struct radv_ps5_retired {
+   struct radv_ps5_memory memory;
+   uint64_t seq;
+   bool sparse;
+};
+static simple_mtx_t radv_ps5_retired_lock = SIMPLE_MTX_INITIALIZER;
+static struct util_dynarray radv_ps5_retired;
+
+static void
+radv_ps5_memory_release(struct radv_ps5_memory *memory, bool sparse)
+{
+   if (sparse)
+      radv_ps5_vrange_release(memory);
+   else
+      radv_ps5_memory_free(memory);
+}
+
+/* Gives back what the GPU has finished with; the newest submission the rest
+ * waits for, or 0 if nothing is held. */
+static uint64_t
+radv_ps5_retired_free(struct radv_ps5_queue *queue)
+{
+   simple_mtx_lock(&radv_ps5_retired_lock);
+   const uint64_t completed = radv_ps5_queue_poll(queue);
+   uint64_t newest = 0;
+   unsigned kept = 0;
+   util_dynarray_foreach (&radv_ps5_retired, struct radv_ps5_retired, entry) {
+      if (entry->seq <= completed) {
+         radv_ps5_memory_release(&entry->memory, entry->sparse);
+      } else {
+         newest = MAX2(newest, entry->seq);
+         *util_dynarray_element(&radv_ps5_retired, struct radv_ps5_retired, kept++) = *entry;
+      }
+   }
+   radv_ps5_retired.size = kept * sizeof(struct radv_ps5_retired);
+   simple_mtx_unlock(&radv_ps5_retired_lock);
+   return newest;
+}
+
+static void
+radv_ps5_memory_retire(struct radv_ps5_queue *queue, struct radv_ps5_memory *memory, bool sparse)
+{
+   const uint64_t seq = p_atomic_read(&queue->submitted_seq);
+   if (seq <= radv_ps5_queue_poll(queue)) {
+      radv_ps5_memory_release(memory, sparse);
+   } else {
+      simple_mtx_lock(&radv_ps5_retired_lock);
+      const struct radv_ps5_retired entry = {.memory = *memory, .seq = seq, .sparse = sparse};
+      util_dynarray_append(&radv_ps5_retired, entry);
+      simple_mtx_unlock(&radv_ps5_retired_lock);
+   }
+   radv_ps5_retired_free(queue);
+}
+
+/* After an allocation failed: waits for the GPU to finish with the memory held
+ * for it and gives it back; false if nothing was held. */
+static bool
+radv_ps5_retired_wait(struct radv_ps5_queue *queue)
+{
+   const uint64_t newest = radv_ps5_retired_free(queue);
+   if (!newest || !radv_ps5_queue_wait_seq(queue, newest, OS_TIMEOUT_INFINITE))
+      return false;
+   radv_ps5_retired_free(queue);
+   return true;
+}
+
 /* Memory reports (VK_EXT_device_memory_report) name a buffer by an id that is
  * never 0 and never reused. */
 static uint64_t radv_ps5_next_obj_id;
@@ -41,9 +112,13 @@ radv_ps5_buffer_create(struct radeon_winsys *rws, uint64_t size, unsigned alignm
       struct radv_ps5_bo *const bo = calloc(1, sizeof(*bo));
       if (!bo)
          return VK_ERROR_OUT_OF_HOST_MEMORY;
-      if (!radv_ps5_vrange_reserve(size, flags & RADEON_FLAG_32BIT,
-                                   (flags & RADEON_FLAG_REPLAYABLE) || replay_address, replay_address,
-                                   &bo->memory)) {
+      bool reserved;
+      do {
+         reserved = radv_ps5_vrange_reserve(size, flags & RADEON_FLAG_32BIT,
+                                            (flags & RADEON_FLAG_REPLAYABLE) || replay_address, replay_address,
+                                            &bo->memory);
+      } while (!reserved && radv_ps5_retired_wait(ws->queue));
+      if (!reserved) {
          free(bo);
          return replay_address ? VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS : VK_ERROR_OUT_OF_DEVICE_MEMORY;
       }
@@ -68,8 +143,12 @@ radv_ps5_buffer_create(struct radeon_winsys *rws, uint64_t size, unsigned alignm
    struct radv_ps5_bo *const bo = calloc(1, sizeof(*bo));
    if (!bo)
       return VK_ERROR_OUT_OF_HOST_MEMORY;
-   if (replayable ? !radv_ps5_memory_alloc_replayable(size, alignment, window32, replay_address, &bo->memory)
-                  : !radv_ps5_memory_alloc(size, alignment, window32, &bo->memory)) {
+   bool allocated;
+   do {
+      allocated = replayable ? radv_ps5_memory_alloc_replayable(size, alignment, window32, replay_address, &bo->memory)
+                             : radv_ps5_memory_alloc(size, alignment, window32, &bo->memory);
+   } while (!allocated && radv_ps5_retired_wait(ws->queue));
+   if (!allocated) {
       free(bo);
       return replay_address ? VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS : VK_ERROR_OUT_OF_DEVICE_MEMORY;
    }
@@ -110,7 +189,7 @@ radv_ps5_buffer_destroy(struct radeon_winsys *rws, struct radeon_winsys_bo *base
    if (!bo)
       return;
    if (bo->sparse) {
-      radv_ps5_vrange_release(&bo->memory);
+      radv_ps5_memory_retire(ws->queue, &bo->memory, true);
       free(bo);
       return;
    }
@@ -126,7 +205,7 @@ radv_ps5_buffer_destroy(struct radeon_winsys *rws, struct radeon_winsys_bo *base
       p_atomic_add(&ws->allocated_gtt, -(int64_t)bo->memory.bytes);
    if (bo->placed)
       radv_ps5_memory_unmap_at(bo->placed, bo->memory.bytes, false);
-   radv_ps5_memory_free(&bo->memory);
+   radv_ps5_memory_retire(ws->queue, &bo->memory, false);
    free(bo);
 }
 
