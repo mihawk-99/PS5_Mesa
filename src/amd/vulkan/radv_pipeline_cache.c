@@ -424,6 +424,28 @@ radv_graphics_pipeline_cache_search(struct radv_device *device, struct vk_pipeli
       }
    }
 
+   /* PS5: an object whose shaders don't fit the stages asked for is a miss (a cached task+mesh
+    * pipeline came back without its mesh shader, and creating it then read input-assembly state
+    * it does not have): the pipeline is compiled again. */
+   const bool lost_mesh = (pipeline->active_stages & VK_SHADER_STAGE_MESH_BIT_EXT) &&
+                          !pipeline->base.shaders[MESA_SHADER_MESH];
+   const bool stray_copy = pipeline->base.gs_copy_shader && !pipeline->base.shaders[MESA_SHADER_GEOMETRY];
+   if (lost_mesh || stray_copy) {
+      for (unsigned s = 0; s < MESA_VULKAN_SHADER_STAGES; s++) {
+         if (pipeline->base.shaders[s]) {
+            radv_shader_unref(device, pipeline->base.shaders[s]);
+            pipeline->base.shaders[s] = NULL;
+         }
+      }
+      if (pipeline->base.gs_copy_shader) {
+         radv_shader_unref(device, pipeline->base.gs_copy_shader);
+         pipeline->base.gs_copy_shader = NULL;
+      }
+      vk_pipeline_cache_object_unref(&device->vk, &pipeline_obj->base);
+      *found_in_application_cache = false;
+      return false;
+   }
+
    pipeline->base.cache_object = &pipeline_obj->base;
    return true;
 }

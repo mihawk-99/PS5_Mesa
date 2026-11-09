@@ -384,6 +384,11 @@ radv_pipeline_needed_dynamic_state(const struct radv_device *device, const struc
                   RADV_DYNAMIC_PRIMITIVE_RESTART_ENABLE | RADV_DYNAMIC_PRIMITIVE_TOPOLOGY);
    }
 
+   /* PS5: no input-assembly state, no topology to read (a mesh pipeline whose mesh shader went
+    * missing from a cached object). */
+   if (!state->ia)
+      states &= ~(RADV_DYNAMIC_PRIMITIVE_TOPOLOGY | RADV_DYNAMIC_PRIMITIVE_RESTART_ENABLE);
+
    /* Disable dynamic states that are useless when rasterization is disabled. */
    if (!raster_enabled) {
       states = RADV_DYNAMIC_RASTERIZER_DISCARD_ENABLE;
