@@ -1793,6 +1793,13 @@ ac_nir_lower_ngg_mesh(nir_shader *shader, const ac_nir_lower_ngg_options *option
 
    shader->info.shared_size = layout.lds.total_size;
    *out_needs_scratch_ring = !publish && (layout.scratch_ring.vtx_attr.mask || layout.scratch_ring.prm_attr.mask);
+   if (*out_needs_scratch_ring) {
+      const unsigned bytes = layout.scratch_ring.prm_attr.addr +
+                             util_bitcount64(layout.scratch_ring.prm_attr.mask) * max_primitives * 16;
+      if (bytes > AC_MESH_SCRATCH_ENTRY_BYTES)
+         fprintf(stderr, "ac: a mesh shader keeps %u bytes a wave in the scratch ring, whose entries are %u: its outputs "
+                 "will be wrong (AC_MESH_SCRATCH_ENTRY_BYTES)\n", bytes, AC_MESH_SCRATCH_ENTRY_BYTES);
+   }
 
    /* The workgroup size that is specified by the API shader may be different
     * from the size of the workgroup that actually runs on the HW, due to the

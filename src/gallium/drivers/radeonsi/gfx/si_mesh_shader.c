@@ -61,7 +61,7 @@ static bool si_init_mesh_scratch_ring(struct si_context *sctx)
    if (!sctx->mesh_scratch_ring) {
       sctx->mesh_scratch_ring = si_aligned_buffer_create(
          &sctx->screen->b, SI_RESOURCE_FLAG_DRIVER_INTERNAL | SI_RESOURCE_FLAG_32BIT,
-         PIPE_USAGE_DEFAULT, AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES,
+         PIPE_USAGE_DEFAULT, AC_MESH_SCRATCH_RING_BYTES,
          256);
 
       if (!sctx->mesh_scratch_ring) {

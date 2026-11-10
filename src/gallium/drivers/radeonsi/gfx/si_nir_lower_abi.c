@@ -227,7 +227,7 @@ static nir_def *build_mesh_scratch_ring_desc(nir_builder *b, struct lower_abi_st
 
    const struct ac_buffer_state ac_state = {
       .va = (uint64_t)screen->info.address32_hi << 32,
-      .size = AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES,
+      .size = AC_MESH_SCRATCH_RING_BYTES,
       .format = PIPE_FORMAT_R32_FLOAT,
       .swizzle = { PIPE_SWIZZLE_X, PIPE_SWIZZLE_Y, PIPE_SWIZZLE_Z, PIPE_SWIZZLE_W },
       .gfx10_oob_select = V_008F0C_OOB_SELECT_DISABLED,

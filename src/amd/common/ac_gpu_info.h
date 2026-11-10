@@ -619,8 +619,7 @@ uint32_t ac_gfx103_get_cu_mask_ps(const struct radeon_info *info);
  */
 #define AC_MESH_SCRATCH_NUM_ENTRIES 2048
 
-/* Size of each entry in the mesh shader scratch ring.
- * We must ensure that the absolute maximum mesh shader output fits here.
+/* The most a mesh shader can keep in the scratch ring for one wave.
  *
  * Mesh shaders can create up to 256 vertices/primitives per workgroup,
  * and up to the following amount of outputs:
@@ -630,7 +629,26 @@ uint32_t ac_gfx103_get_cu_mask_ps(const struct radeon_info *info);
  * - primitive indices which are always kept in LDS
  * That is a total of 32+4+4=40 output slots x 16 bytes per slot x 256 = 160K bytes.
  */
-#define AC_MESH_SCRATCH_ENTRY_BYTES (160 * 1024)
+#define AC_MESH_SCRATCH_MAX_ENTRY_BYTES (160 * 1024)
+
+/* Size of each entry in the mesh shader scratch ring: 64K, not the 160K a
+ * shader could ask for at most. Only the outputs that do not fit in 30K of
+ * LDS go to the ring, and at the maximum the ring is 320 MiB of the console's
+ * one memory pool for every title that draws with a mesh shader. Of 2,446
+ * pipelines of a title that draws its scenery with mesh shaders the most a
+ * wave kept was 20,160 bytes (10 slots of 126 vertices); 64K holds 25 slots
+ * of 160 vertices.
+ *
+ * shortcut: a shader that keeps more than this writes into the next wave's
+ * entry (its outputs wrong, said once on stderr by ac_nir_lower_ngg_mesh); the
+ * ring ends with room for a whole maximal entry, so nothing is written past
+ * it. Raise this when a title needs it.
+ */
+#define AC_MESH_SCRATCH_ENTRY_BYTES (64 * 1024)
+
+/* The ring: an entry for each wave ID, the last one of the maximal size. */
+#define AC_MESH_SCRATCH_RING_BYTES \
+   ((AC_MESH_SCRATCH_NUM_ENTRIES - 1) * AC_MESH_SCRATCH_ENTRY_BYTES + AC_MESH_SCRATCH_MAX_ENTRY_BYTES)
 
 /* The ring a mesh shader exporting its primitives in parts publishes its
  * outputs in (ac_nir_lower_ngg_options.ms_publish): a header dword per slot,
