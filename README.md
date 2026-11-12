@@ -33,6 +33,15 @@ the console's VideoOut. It opens the output once per process, flips at vblank,
 and switches to 119.88 Hz where the title declares it and the display really
 refreshes at it (it measures, and goes back to 59.94 Hz otherwise).
 
+Titles declaring `0x20000000` in `sce_sys/param.json`'s `attribute` also
+offer HDR10 ST2084 surfaces in the two packed 10-bit RGB channel orders.
+Their swapchains register PQ VideoOut buffer tokens; SDR formats remain first
+and use the SDR token. The application supplies PQ-encoded pixels; the WSI
+does not convert SDR content to HDR.
+
+The host-only HDR attribute and token mapping test can be run from the root:
+`cc -std=c11 -Iinclude src/vulkan/wsi/wsi_videoout_hdr_test.c -o /tmp/wsi_videoout_hdr_test && /tmp/wsi_videoout_hdr_test`.
+
 ## Where RADV changes
 
 Each change is general Vulkan behaviour for any application, not a case for one
