@@ -44,6 +44,12 @@ elif system_has_kms_drm and not with_platform_android
   files_vulkan_wsi += files('wsi_common_display.c')
 endif
 
+if with_wsi_videoout and with_tests
+  test('wsi_videoout_period',
+       executable('wsi_videoout_period_test', 'wsi_videoout_period_test.c'),
+       suite : ['vulkan'])
+endif
+
 wsi_entrypoints = custom_target(
   'wsi_entrypoints',
   input : [vk_entrypoints_gen, vk_api_xml],
