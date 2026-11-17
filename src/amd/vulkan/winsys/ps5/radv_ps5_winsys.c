@@ -437,9 +437,22 @@ radv_ps5_winsys_query_value(struct radeon_winsys *rws, enum radeon_value_id valu
    switch (value) {
    case RADEON_ALLOCATED_VRAM:
    case RADEON_ALLOCATED_VRAM_VIS:
-   case RADEON_VRAM_USAGE:
-   case RADEON_VRAM_VIS_USAGE:
       return p_atomic_read(&ws->allocated_vram);
+   case RADEON_VRAM_USAGE:
+   case RADEON_VRAM_VIS_USAGE: {
+      /* What the whole process holds of the pool, as the kernel's usage
+       * counters report what every process holds of VRAM: the title's own
+       * memory (an emulator's guest RAM, its heap, its JIT code) shares the
+       * pool with the GPU. The memory budget is then what the driver holds
+       * plus what is free, and an application that plans from it (texture
+       * caches) evicts before the pool runs out, not after. */
+      const uint64_t allocated = p_atomic_read(&ws->allocated_vram);
+      const uint64_t gtt = p_atomic_read(&ws->allocated_gtt);
+      const uint64_t pool = radv_ps5_memory_pool_bytes();
+      const uint64_t available = radv_ps5_memory_available_bytes();
+      const uint64_t used = pool > available ? pool - available : 0;
+      return MAX2(allocated, used > gtt ? used - gtt : 0);
+   }
    case RADEON_ALLOCATED_GTT:
    case RADEON_GTT_USAGE:
       return p_atomic_read(&ws->allocated_gtt);
