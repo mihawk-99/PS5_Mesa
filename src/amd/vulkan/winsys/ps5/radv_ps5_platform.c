@@ -275,14 +275,61 @@ radv_ps5_memory_pool_bytes(void)
    return bytes > 0 ? (uint64_t)bytes : 0;
 }
 
+struct radv_ps5_direct_query {
+   int64_t start;
+   int64_t end;
+   int32_t memory_type;
+};
+int32_t sceKernelDirectMemoryQuery(int64_t offset, int32_t flags, void *info, size_t info_size);
+
+/* What the driver can still take: one block, or 2 MiB pieces at 2 MiB
+ * boundaries (radv_ps5_memory_alloc_chunked). So the whole 2 MiB pieces of
+ * every free range, not the largest free range alone: a title whose guest
+ * memory comes and goes 64 KiB at a time (an emulator packing cold memory) had
+ * 2.8 GiB in such pieces while its largest free range was 442 MiB, and a
+ * texture cache sized from that evicted what it had room for. The walk is a
+ * system call per allocation of the pool (thousands): its answer is kept for
+ * 100 ms. */
 uint64_t
 radv_ps5_memory_available_bytes(void)
 {
+   static simple_mtx_t lock = SIMPLE_MTX_INITIALIZER;
+   static uint64_t kept, kept_at;
    const int64_t pool = sceKernelGetDirectMemorySize();
-   int64_t start = -1;
-   size_t available = 0;
-   if (pool <= 0 || sceKernelAvailableDirectMemorySize(0, pool, RADV_PS5_PAGE_BYTES, &start, &available) != 0)
+   if (pool <= 0)
       return 0;
+   const uint64_t now = os_time_get_nano();
+   simple_mtx_lock(&lock);
+   if (kept_at == 0 || now - kept_at >= UINT64_C(100000000)) {
+      uint64_t pieces = 0;
+      int64_t at = 0;
+      bool walked = false;
+      for (unsigned allocations = 0; at < pool && allocations < 4000000; allocations++) {
+         struct radv_ps5_direct_query info = {0};
+         if (sceKernelDirectMemoryQuery(at, 1 /* the next allocation */, &info, sizeof(info)) != 0 || info.end <= at)
+            break;
+         walked = true;
+         const int64_t low = align64(at, RADV_PS5_LARGE_BYTES), high = info.start & ~(int64_t)(RADV_PS5_LARGE_BYTES - 1);
+         if (high > low)
+            pieces += (uint64_t)(high - low);
+         at = info.end;
+      }
+      if (walked) {
+         const int64_t low = align64(at, RADV_PS5_LARGE_BYTES), high = pool & ~(int64_t)(RADV_PS5_LARGE_BYTES - 1);
+         if (high > low)
+            pieces += (uint64_t)(high - low);
+      }
+      /* The largest free range as well: it is what a pool with nothing
+       * allocated, or no walk, has. */
+      int64_t start = -1;
+      size_t largest = 0;
+      if (sceKernelAvailableDirectMemorySize(0, pool, RADV_PS5_PAGE_BYTES, &start, &largest) != 0)
+         largest = 0;
+      kept = MAX2(pieces, (uint64_t)largest);
+      kept_at = now;
+   }
+   const uint64_t available = kept;
+   simple_mtx_unlock(&lock);
    return available;
 }
 
