@@ -289,7 +289,7 @@ int32_t sceKernelDirectMemoryQuery(int64_t offset, int32_t flags, void *info, si
  * 2.8 GiB in such pieces while its largest free range was 442 MiB, and a
  * texture cache sized from that evicted what it had room for. The walk is a
  * system call per allocation of the pool (thousands): its answer is kept for
- * 100 ms. */
+ * a second (at 100 ms it was 2.6% of a title's GPU thread). */
 uint64_t
 radv_ps5_memory_available_bytes(void)
 {
@@ -300,7 +300,7 @@ radv_ps5_memory_available_bytes(void)
       return 0;
    const uint64_t now = os_time_get_nano();
    simple_mtx_lock(&lock);
-   if (kept_at == 0 || now - kept_at >= UINT64_C(100000000)) {
+   if (kept_at == 0 || now - kept_at >= UINT64_C(1000000000)) {
       uint64_t pieces = 0;
       int64_t at = 0;
       bool walked = false;
