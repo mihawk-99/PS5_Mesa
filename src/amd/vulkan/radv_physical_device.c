@@ -3271,7 +3271,8 @@ radv_query_heap_info(struct radv_physical_device *pdev, struct radeon_winsys_hea
     * what the pool has handed out to anyone. */
    uint64_t pool = 0, available = 0, driver = 0;
    radv_ps5_winsys_heap_usage(&pool, &available, &driver);
-   heap_info->allocated_vram = driver;
+   /* Once: the budget of a device without dedicated VRAM adds the two up, and
+    * reported twice what the driver holds as the heap's usage. */
    heap_info->allocated_vram_vis = driver;
    heap_info->vram_usage = pool - MIN2(available, pool);
    heap_info->vram_vis_usage = heap_info->vram_usage;
