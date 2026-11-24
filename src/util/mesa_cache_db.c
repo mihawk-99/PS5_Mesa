@@ -441,40 +441,81 @@ static bool
 mesa_db_write_times(struct mesa_cache_db *db)
 {
    struct mesa_index_db_file_entry index_entry;
+   uint64_t first = UINT64_MAX, last = 0;
+   uint8_t *span = NULL;
+   size_t size;
    bool success = true;
 
    if (!db->dirty_times)
       return true;
 
+   /* One read and one write of the stretch of the index the dirty entries lie
+    * in. An entry at a time (a seek, a read, a seek and a write each) took
+    * about 50 ms an entry on the PS5: 13 s for the 256 of a batch, under the
+    * lock every pipeline lookup of the process takes, so a game stopped
+    * drawing for 13 s at the 256th cache hit of a load. */
    hash_table_foreach(&db->index_db->table, entry) {
       struct mesa_index_db_hash_entry *hash_entry = entry->data;
 
       if (!hash_entry->time_dirty)
          continue;
 
-      if (!mesa_db_seek(db->index.file, hash_entry->index_db_file_offset) ||
-          !mesa_db_read(db->index.file, &index_entry) ||
-          index_entry.cache_db_file_offset != hash_entry->cache_db_file_offset) {
+      first = MIN2(first, hash_entry->index_db_file_offset);
+      last = MAX2(last, hash_entry->index_db_file_offset);
+   }
+
+   if (first > last)
+      goto done;
+
+   size = last - first + sizeof(index_entry);
+   span = malloc(size);
+   if (!span)
+      return false;
+
+   fflush(db->index.file);
+   if (!mesa_db_seek(db->index.file, first) ||
+       fread(span, 1, size, db->index.file) != size) {
+      free(span);
+      return false;
+   }
+
+   hash_table_foreach(&db->index_db->table, entry) {
+      struct mesa_index_db_hash_entry *hash_entry = entry->data;
+      uint8_t *at;
+
+      if (!hash_entry->time_dirty)
+         continue;
+
+      at = span + (hash_entry->index_db_file_offset - first);
+      memcpy(&index_entry, at, sizeof(index_entry));
+      if (index_entry.cache_db_file_offset != hash_entry->cache_db_file_offset) {
          success = false;
          break;
       }
 
       index_entry.last_access_time = hash_entry->last_access_time;
+      memcpy(at, &index_entry, sizeof(index_entry));
+   }
 
-      if (!mesa_db_seek(db->index.file, hash_entry->index_db_file_offset) ||
-          !mesa_db_write(db->index.file, &index_entry)) {
-         success = false;
-         break;
-      }
+   if (success)
+      success = mesa_db_seek(db->index.file, first) &&
+                fwrite(span, 1, size, db->index.file) == size;
+   free(span);
+   fflush(db->index.file);
+
+   if (!success)
+      return false;
+
+   hash_table_foreach(&db->index_db->table, entry) {
+      struct mesa_index_db_hash_entry *hash_entry = entry->data;
 
       hash_entry->time_dirty = false;
    }
 
-   fflush(db->index.file);
-   if (success)
-      db->dirty_times = 0;
+done:
+   db->dirty_times = 0;
 
-   return success;
+   return true;
 }
 
 static FILE *
