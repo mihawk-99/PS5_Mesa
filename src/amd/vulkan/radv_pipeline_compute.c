@@ -212,12 +212,18 @@ radv_compute_pipeline_compile(const VkComputePipelineCreateInfo *pCreateInfo, st
 
    cs_stage.feedback.duration += os_time_get_nano() - stage_start;
 
-   if (!skip_shaders_cache) {
+   if (!pipeline->base.shaders[MESA_SHADER_COMPUTE]) {
+      fprintf(stderr, "radv/ps5: compute pipeline %016llx not built: %s; refused, not cached\n",
+              (unsigned long long)pipeline->base.pipeline_hash,
+              cs_binary ? "the shader's upload failed (shader memory)" : "the compiler gave no binary");
+      result = vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
+   } else if (!skip_shaders_cache) {
       radv_pipeline_cache_insert(device, cache, &pipeline->base);
    }
 
    free(cs_binary);
-   if (radv_can_dump_shader_stats(&device->compiler_info, cs_stage.nir)) {
+   if (pipeline->base.shaders[MESA_SHADER_COMPUTE] &&
+       radv_can_dump_shader_stats(&device->compiler_info, cs_stage.nir)) {
       radv_dump_shader_stats(device, &pipeline->base, pipeline->base.shaders[MESA_SHADER_COMPUTE], stderr);
    }
    radv_pipeline_stage_finish(&cs_stage);

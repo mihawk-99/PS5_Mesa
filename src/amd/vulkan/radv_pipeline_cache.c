@@ -5,6 +5,7 @@
  */
 
 #include "radv_pipeline_cache.h"
+#include <stdio.h>
 #include "util/macros.h"
 #include "util/mesa-blake3.h"
 #include "util/u_atomic.h"
@@ -289,6 +290,11 @@ radv_pipeline_cache_object_deserialize(struct vk_pipeline_cache *cache, const vo
    assert(key_size == BLAKE3_KEY_LEN);
    unsigned total_size = blob->end - blob->current;
    unsigned num_shaders = blob_read_uint32(blob);
+   if (num_shaders == 0) {
+      fprintf(stderr, "radv/ps5: a cached pipeline object has no shader (written by an earlier run); "
+                      "dropped, the pipeline is compiled again\n");
+      return NULL;
+   }
    unsigned data_size = blob_read_uint32(blob);
 
    struct radv_pipeline_cache_object *object;
@@ -460,7 +466,12 @@ radv_compute_pipeline_cache_search(struct radv_device *device, struct vk_pipelin
    if (!pipeline_obj)
       return false;
 
-   assert(pipeline_obj->num_shaders == 1);
+   if (pipeline_obj->num_shaders != 1 || !pipeline_obj->shaders[0]) {
+      fprintf(stderr, "radv/ps5: cached compute pipeline %016llx has no shader; compiled again\n",
+              (unsigned long long)pipeline->base.pipeline_hash);
+      vk_pipeline_cache_object_unref(&device->vk, &pipeline_obj->base);
+      return false;
+   }
    pipeline->base.shaders[MESA_SHADER_COMPUTE] = radv_shader_ref(pipeline_obj->shaders[0]);
 
    pipeline->base.cache_object = &pipeline_obj->base;
@@ -481,6 +492,11 @@ radv_pipeline_cache_insert(struct radv_device *device, struct vk_pipeline_cache 
    for (unsigned i = 0; i < MESA_VULKAN_SHADER_STAGES; ++i)
       num_shaders += pipeline->shaders[i] ? 1 : 0;
    num_shaders += pipeline->gs_copy_shader ? 1 : 0;
+   if (num_shaders == 0) {
+      fprintf(stderr, "radv/ps5: pipeline %016llx has no shader, not cached\n",
+              (unsigned long long)pipeline->pipeline_hash);
+      return;
+   }
 
    struct radv_pipeline_cache_object *pipeline_obj;
    pipeline_obj = radv_pipeline_cache_object_create(&device->vk, num_shaders, pipeline->blake3, 0);
